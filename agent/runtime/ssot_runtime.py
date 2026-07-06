@@ -421,7 +421,14 @@ def _make_tool_handler(
             requested_by=requested_by,
             module="ssot_runtime",
         )
-        result = await asyncio.to_thread(client.invoke, tool_id, args or {}, context=ctx)
+        args = dict(args or {})
+        # Inject runtime context into args so tool handlers can access
+        # session_id / run_id without relying on ToolInvocation fields
+        if tool_id.startswith("inspection."):
+            args.setdefault("session_id", session_id)
+            args.setdefault("run_id", run_id)
+            args.setdefault("workspace_id", workspace_id)
+        result = await asyncio.to_thread(client.invoke, tool_id, args, context=ctx)
         return {
             "status": result.status,
             "ok": result.status in ("succeeded", "dry_run"),

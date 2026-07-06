@@ -226,14 +226,35 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
     action = str((inv.arguments or {}).get("action", "") or "").lower()
     args = dict(inv.arguments or {})
 
-    # session_id: try inv.session_id first; fallback to run record
+    # session_id: try inv.session_id, then inv.context, then args
     session_id = str(inv.session_id or "")
+    if not session_id:
+        session_id = str(inv.arguments.get("session_id", "") or "") if isinstance(inv.arguments, dict) else ""
+    # Log what we have for debugging
+    if not session_id:
+        import logging as _di
+        _di.getLogger(__name__).warning(
+            "inspection.manage: session_id is empty. inv.session_id=%r inv.run_id=%r args_keys=%s",
+            inv.session_id, inv.run_id, sorted((inv.arguments or {}).keys()) if isinstance(inv.arguments, dict) else "N/A",
+        )
     if not session_id and inv.run_id:
         try:
-            from workspace.run_store import get_run
-            run_rec = get_run(str(inv.run_id), ws)
-            if run_rec:
-                session_id = run_rec.get("session_id", "") or ""
+            # Check run record (.json, written after turn) and trace (.trace.json, written at turn start)
+            from pathlib import Path as _P
+            import json as _json
+            ws_root = _P(__file__).resolve().parent.parent.parent / "workspaces"
+            rid = str(inv.run_id)
+            for suffix in (".json", ".trace.json"):
+                p = ws_root / ws / "runs" / f"{rid}{suffix}"
+                if p.is_file():
+                    try:
+                        data = _json.loads(p.read_text())
+                        sid = data.get("session_id", "") if isinstance(data, dict) else ""
+                        if sid:
+                            session_id = sid
+                            break
+                    except Exception:
+                        pass
         except Exception:
             import logging as _sil
             _sil.getLogger(__name__).warning(
@@ -252,7 +273,7 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
                 profile_id=str(args.get("profile_id", "") or ""),
                 scope=scope if isinstance(scope, dict) else {},
                 created_by=str(args.get("created_by", "user") or "user"),
-                session_id=str(inv.session_id or ""),
+                session_id=session_id,
                 max_concurrency=_mc,
             )
         except Exception as exc:
@@ -320,7 +341,7 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
                 profile_id=str(args.get("profile_id", "") or ""),
                 scope=scope if isinstance(scope, dict) else {},
                 created_by=caller,
-                session_id=str(inv.session_id or ""),
+                session_id=session_id,
                 max_concurrency=_mc,
             )
         except Exception as exc:
