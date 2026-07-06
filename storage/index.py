@@ -13,13 +13,20 @@ Replaces direct open()/write_text() in storage/file_store.py.
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import time
 import uuid
+import threading
 from pathlib import Path
 from typing import Any, Optional
+
+# Cross-platform file lock: fcntl (Unix) or threading (Windows fallback)
+try:
+    import fcntl
+    _HAS_FCNTL = True
+except ImportError:
+    _HAS_FCNTL = False
 
 from storage.paths import workspace_root
 
@@ -48,9 +55,16 @@ def _unique_tmp_path(base: Path) -> Path:
 # Locking
 # ═══════════════════════════════════════════════════════════════════════
 
+# Per-workspace thread locks (fallback when fcntl unavailable, e.g. Windows)
+_FALLBACK_LOCKS: dict[str, threading.Lock] = {}
+_FALLBACK_LOCKS_LOCK = threading.Lock()
+
 
 class IndexLock:
     """Advisory lock per workspace index.
+
+    Unix: fcntl.flock (inter-process safe).
+    Windows: threading.Lock (intra-process only).
 
     Usage:
         with IndexLock(workspace_id) as lock:
@@ -61,8 +75,14 @@ class IndexLock:
         self._ws = workspace_id
         self._timeout = timeout
         self._fd = None
+        self._fallback_lock = None
 
     def __enter__(self):
+        if _HAS_FCNTL:
+            return self._acquire_fcntl()
+        return self._acquire_threading()
+
+    def _acquire_fcntl(self):
         lp = _lock_path(self._ws)
         lp.parent.mkdir(parents=True, exist_ok=True)
         self._fd = open(str(lp), "w")
@@ -79,17 +99,34 @@ class IndexLock:
                     )
                 time.sleep(_LOCK_RETRY_INTERVAL_S)
 
+    def _acquire_threading(self):
+        with _FALLBACK_LOCKS_LOCK:
+            if self._ws not in _FALLBACK_LOCKS:
+                _FALLBACK_LOCKS[self._ws] = threading.Lock()
+            self._fallback_lock = _FALLBACK_LOCKS[self._ws]
+        if not self._fallback_lock.acquire(timeout=self._timeout):
+            raise TimeoutError(
+                f"IndexLock timeout for workspace {self._ws} "
+                f"after {self._timeout}s"
+            )
+        return self
+
     def __exit__(self, exc_type, exc_val, exc_tb):
-        if self._fd is not None:
-            try:
-                fcntl.flock(self._fd.fileno(), fcntl.LOCK_UN)
-            except Exception:
-                pass
-            try:
-                self._fd.close()
-            except Exception:
-                pass
-            self._fd = None
+        if _HAS_FCNTL:
+            if self._fd is not None:
+                try:
+                    fcntl.flock(self._fd.fileno(), fcntl.LOCK_UN)
+                except Exception:
+                    pass
+                try:
+                    self._fd.close()
+                except Exception:
+                    pass
+                self._fd = None
+        else:
+            if self._fallback_lock is not None:
+                self._fallback_lock.release()
+                self._fallback_lock = None
         return False
 
 
