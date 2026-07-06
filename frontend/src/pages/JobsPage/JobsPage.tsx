@@ -8,12 +8,12 @@
  * 与 RunsPage 的区分：RunsPage 聚焦单次执行的 trace/decision 调试
  */
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { jobsApi, workspacesApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
 import { Badge, StatusDot, EmptyState, LoadingState } from "../../components/common";
-import { IconRefresh, IconDocument, IconHistory, IconBolt, IconLayers } from "../../components/Icon";
+import { IconRefresh, IconDocument, IconHistory, IconBolt } from "../../components/Icon";
 import { isApiError } from "../../types";
 import { formatCompactDate } from "../../utils/displayText";
 

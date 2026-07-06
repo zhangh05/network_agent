@@ -584,23 +584,6 @@ export const artifactsApi = {
       signal,
     ),
   /**
-   * Export — content + sensitivity flags. The backend may also provide
-   * a /promote endpoint for deployable promotion; we don't expose that
-   * from the frontend (config.push is forbidden per the platform rules).
-   */
-  export: (
-    workspace_id: string,
-    artifact_id: string,
-    signal?: AbortSignal,
-  ): Promise<{ content: string; metadata?: Record<string, unknown> }> =>
-    apiRequest<{ content: string; metadata?: Record<string, unknown> }>(
-      {
-        method: "GET",
-        url: `/workspaces/${workspace_id}/artifacts/${artifact_id}/content`,
-      },
-      signal,
-    ),
-  /**
    * GET /api/workspaces/<ws>/artifacts/<art>/summarize — backend summary.
    * Returns the artifact metadata plus a `summary` field if the
    * backend has computed one. Surface this in the "摘要" tab.
