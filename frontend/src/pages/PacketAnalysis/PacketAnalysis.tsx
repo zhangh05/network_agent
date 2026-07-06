@@ -109,7 +109,7 @@ export function PacketAnalysis() {
       setFilename(res.filename || file.name);
       setTotalPackets(res.total_packets || 0);
       setProtocolCounts(res.protocol_counts || {});
-      connections: {
+      {
         const conns = res.connections || [];
         setConnections(conns);
         // Don't show recent sessions — session already loaded
