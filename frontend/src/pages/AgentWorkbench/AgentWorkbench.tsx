@@ -222,20 +222,15 @@ export function TaskWorkbench() {
   // Clean up abort controller on unmount
   useEffect(() => () => { abortRef.current?.abort(); }, []);
 
-  // LLM health poll
+  // LLM health — load once on mount
   useEffect(() => {
-    const poll = () => {
-      settingsApi.llmStatus().then((s) => {
-        if (!s) return;
-        setLlmHealth({
-          connected: s.connected, provider: s.provider || s.provider_type || "",
-          model: s.model || "", recentFailure: s.recent_failure?.error_type ? s.recent_failure.error_summary : undefined,
-        });
-      }).catch(() => {});
-    };
-    poll();
-    const id = window.setInterval(poll, 30_000);
-    return () => window.clearInterval(id);
+    settingsApi.llmStatus().then((s) => {
+      if (!s) return;
+      setLlmHealth({
+        connected: s.connected, provider: s.provider || s.provider_type || "",
+        model: s.model || "", recentFailure: s.recent_failure?.error_type ? s.recent_failure.error_summary : undefined,
+      });
+    }).catch(() => {});
   }, []);
 
   // ── Persistent system WebSocket — replaces all polling ──
@@ -334,7 +329,7 @@ export function TaskWorkbench() {
     }
   }, [currentWorkspaceId]); // do NOT include onSend — use ref to avoid re-render killing timeout
 
-  // ── Inspection polling: frontend tracks task, LLM only analyses ──
+  // ── Inspection: WS-driven instead of polling ──
   useEffect(() => {
     const raw = safeGetLocal("workbench_inspection");
     if (!raw || !currentWorkspaceId || !currentSessionId) {
@@ -351,97 +346,30 @@ export function TaskWorkbench() {
     const analysisHints = String(metadata.analysisHints || "");
 
     let done = false;
-    const ac = new AbortController();
-
-    // First poll: if task already terminal, clean up silently without
-    // ever showing the "in progress" bubble (prevents refresh-stuck-loop).
-    let firstPoll = true;
-
-    const poll = async () => {
+    const handleEvent = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.name !== "inspection_progress" || detail?.data?.task_id !== task_id) return;
       if (done) return;
-      try {
-        const { inspectionApi } = await import("../../api/index");
-        const resp = await inspectionApi.getTask(currentWorkspaceId, task_id, ac.signal) as { ok: boolean; task?: import("../../api/index").InspectionTaskRecord; error?: string };
-        if (!resp.ok || !resp.task) { setTimeout(poll, 3000); return; }
-        const t = resp.task;
-        // If first poll and task is already terminal, silently clean up
-        if (firstPoll && (t.status === "succeeded" || t.status === "failed" || t.status === "cancelled" || t.status === "partial")) {
-          safeRemoveLocal("workbench_inspection");
-          return;
-        }
-        firstPoll = false;
-        setInspectionTaskId(task_id); // show bubble now — task is genuinely in progress
-        if (t.status === "succeeded" || t.status === "partial") {
-          done = true;
-          setInspectionTaskId(null);
-          safeRemoveLocal("workbench_inspection"); // clear on success
-
-          // v4.4: reference artifact by path instead of injecting content
-          // so the LLM reads the artifact itself (like pcap analysis).
-          const { artifactsApi } = await import("../../api/index");
-          const devices = Object.values((t as any).devices || {} as Record<string, any>)
-            .filter((d: any) => d.status === "succeeded");
-          const deviceList = devices.map((d: any) => `- ${d.asset_name || d.asset_id} (${d.host})`).join("\n");
-
-          const artifactRefs: string[] = [];
-          for (const d of devices) {
-            const results: any[] = d.command_results || [];
-            for (const cr of results) {
-              const artId = cr?.artifact_id;
-              if (!artId) continue;
-              try {
-                const artResp = await artifactsApi.get(currentWorkspaceId, artId, ac.signal) as { artifact?: any };
-                if (artResp?.artifact) {
-                  const art = artResp.artifact;
-                  const title = art.title || art.artifact_id || artId;
-                  const path = art.relative_path || art.file_id || "";
-                  if (path) {
-                    artifactRefs.push(`制品 "${title}"，文件路径 "${path}"`);
-                  }
-                }
-              } catch (e) {
-                // silently skip artifacts that can't be read
-              }
-            }
-          }
-
-          const rawOutputBlock = artifactRefs.length
-            ? `\n巡检原始数据已保存为以下制品：\n${artifactRefs.map(s => `- ${s}`).join("\n")}\n\n请先读取各制品内容，然后逐设备分析。`
-            : "\n暂无制品。";
-
-          const finalPrompt = [
-            `对 ${target}${vendor} ${typeLabel}已完成。`,
-            ``,
-            `设备清单：`,
-            deviceList,
-            rawOutputBlock,
-            ``,
-            `分析维度：${analysisHints}。`,
-            `输出结构化${typeLabel}报告（概览表 + 逐设备要点）。`,
-            `不要输出任何中间确认或思考过程。直接开始分析。`,
-          ].join("\n");
-          setInput(finalPrompt);
-          pendingAutoMetadataRef.current = metadata;
-          onSendRef.current(finalPrompt, metadata);
-        } else if (t.status === "failed" || t.status === "cancelled") {
-          done = true;
-          setInspectionTaskId(null);
-          safeRemoveLocal("workbench_inspection"); // clear on failure
-        } else {
-          setTimeout(poll, 3000);
-        }
-      } catch (e: unknown) {
-        if (!(e instanceof DOMException && e.name === "AbortError")) {
-          done = true;
-          setInspectionTaskId(null);
-          safeRemoveLocal("workbench_inspection"); // clear on error too
-        }
+      const t = detail.data;
+      setInspectionTaskId(task_id);
+      if (t.status === "succeeded" || t.status === "partial") {
+        done = true;
+        setInspectionTaskId(null);
+        safeRemoveLocal("workbench_inspection");
+        const deviceList = `CMDB 资产「${target}」${vendor} ${typeLabel}已完成。\n分析要点：${analysisHints}`;
+        const prompt = `${deviceList}\n\n请引用制品的文件路径进行分析。`;
+        setInput(prompt);
+        pendingAutoMetadataRef.current = metadata;
+        onSendRef.current(prompt, metadata);
+      } else if (t.status === "failed" || t.status === "cancelled") {
+        done = true;
+        setInspectionTaskId(null);
+        safeRemoveLocal("workbench_inspection");
       }
     };
-    setTimeout(poll, 2000);
-
-    return () => { done = true; ac.abort(); };
-  }, [currentWorkspaceId]); // only re-run on workspace change
+    window.addEventListener("ws-event", handleEvent);
+    return () => { done = true; window.removeEventListener("ws-event", handleEvent); };
+  }, [currentWorkspaceId, currentSessionId]);
 
   // Session switch + sync
   useEffect(() => {

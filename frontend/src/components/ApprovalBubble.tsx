@@ -70,8 +70,7 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
     };
 
     const startPoll = () => {
-      stopPoll();
-      pollTimer = setInterval(poll, 5000);
+      // No-op: replaced by SSE-driven refresh
     };
 
     const poll = async () => {
