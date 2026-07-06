@@ -32,6 +32,26 @@ _log = logging.getLogger("ws.agent")
 _MAX_WS_INPUT_LENGTH = 65536
 _MAX_WS_METADATA_JSON = 16384
 
+# v3.16: Global connection registry for broadcasting system events
+# (job_updated, inspection_progress, run_status) to all active clients.
+_active_ws_connections: dict[str, object] = {}  # ws_key → ws connection
+_active_ws_lock = threading.Lock()
+
+
+def broadcast_ws_event(event: dict) -> None:
+    """Push a system event to all connected WebSocket clients."""
+    payload = json.dumps({"type": "event", "name": event["name"], "data": event.get("data", {})}, ensure_ascii=True, default=str)
+    dead: list[str] = []
+    with _active_ws_lock:
+        for key, ws in list(_active_ws_connections.items()):
+            try:
+                ws.send(payload)
+            except Exception:
+                dead.append(key)
+    for key in dead:
+        with _active_ws_lock:
+            _active_ws_connections.pop(key, None)
+
 
 def register_ws_routes(app):
     """Register WebSocket routes on the Flask app."""
