@@ -291,7 +291,8 @@ def reject_memory(ws_id: str, memory_id: str) -> dict:
     store = MemoryStore()
     rec = store.get(ws_id, memory_id)
     if not rec: return {"ok": False, "error": "not found"}
-    store.delete_file(ws_id, memory_id)
+    rec.status = "rejected"; rec.updated_at = _now()
+    store._save(rec)
     _emit_event(ws_id, rec, "memory_rejected")
     return {"ok": True, "status": "rejected"}
 

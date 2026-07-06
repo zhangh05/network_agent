@@ -235,7 +235,11 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
             if run_rec:
                 session_id = run_rec.get("session_id", "") or ""
         except Exception:
-            pass
+            import logging as _sil
+            _sil.getLogger(__name__).warning(
+                "inspection session_id fallback failed run_id=%s ws=%s",
+                inv.run_id, ws, exc_info=True,
+            )
 
     if action == "run_and_wait":
         # Sync: block until task completes, return devices + report
