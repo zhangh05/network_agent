@@ -315,28 +315,36 @@ def run_ssot_turn(
 
     persist_run_record(session, turn, result, context)
 
-    # ── v3.15.4: LLM-driven memory writing ───────────────────────────
-    # After each turn, ask the LLM to summarise what it learned and write
-    # structured memories through MemoryWriteGate (which handles dedup &
-    # conflict detection).
+    # ── v3.15.4: Memory writing ──────────────────────────────────────
+    # rule_only: 纯规则，直接从 tool_calls/events 结构化提取，不调 LLM
+    # llm_first: 调 LLM 总结对话生成记忆（质量更高，额外延迟 0.3-0.5s）
     try:
-        from agent.runtime.memory_write.llm_memory import generate_memories
-        from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+        from workspace.memory_governance import MemoryRecord, MemoryWriteGate, get_memory_gate_mode
 
-        tool_summaries = [
-            f"{tc.get('tool_id', 'unknown')}: {tc.get('summary', '')[:200]}"
-            for tc in (result.tool_calls or [])
-        ]
-        items = generate_memories(
-            user_input=user_input,
-            assistant_response=result.final_response or "",
-            tool_summaries=tool_summaries,
-        )
+        gate_mode = get_memory_gate_mode(workspace_id)
+
+        if gate_mode == "llm_first":
+            from agent.runtime.memory_write.llm_memory import generate_memories
+
+            tool_summaries = [
+                f"{tc.get('tool_id', 'unknown')}: {tc.get('summary', '')[:200]}"
+                for tc in (result.tool_calls or [])
+            ]
+            items = generate_memories(
+                user_input=user_input,
+                assistant_response=result.final_response or "",
+                tool_summaries=tool_summaries,
+            )
+        else:
+            from agent.runtime.memory_write.rule_extract import extract_memories_rule_only
+            items = extract_memories_rule_only(
+                user_input=user_input,
+                assistant_response=result.final_response or "",
+                tool_calls=result.tool_calls or [],
+            )
 
         if items:
-            from workspace.memory_governance import get_memory_gate_mode
             gate = MemoryWriteGate()
-            gate_mode = get_memory_gate_mode(workspace_id)
             for item in items:
                 rec = MemoryRecord(
                     workspace_id=workspace_id,
@@ -351,7 +359,7 @@ def run_ssot_turn(
                     created_by="llm",
                     redacted=True,
                 )
-                gate.write(rec, gate_mode=get_memory_gate_mode(workspace_id))
+                gate.write(rec, gate_mode=gate_mode)
     except Exception:
         pass  # best-effort, never break the main turn
 

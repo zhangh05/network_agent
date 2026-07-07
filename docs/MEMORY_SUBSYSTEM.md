@@ -31,9 +31,27 @@ Network Agent memory: per-turn LLM-driven generation → BM25 retrieval.
 
 ### Entry: `agent/runtime/ssot_runtime.py:run_ssot_turn()`
 
-Runs **after** the turn result is computed but before return. Triggered as the final step of the SSOT runtime path.
+Runs **after** the turn result is computed but before return.
 
-### Module: `agent/runtime/memory_write/llm_memory.py`
+Two generation paths, selected by `gate_mode` (`rule_only` / `llm_first`):
+
+### Path A — `rule_only` (default, zero cost)
+
+Module: `agent/runtime/memory_write/rule_extract.py`
+
+`extract_memories_rule_only(user_input, assistant_response, tool_calls)`:
+
+- **从不调 LLM** — 纯从 tool_calls 结构化提取
+- 仅匹配 `_extract_summary()` 拉取 result 中的关键字段（summary/message/output/stdout）
+- 垃圾通用文本自动过滤（"ok", "success", "started"）
+- 正则检测用户偏好（"用X格式"，"以后X"，"always use X"）
+- Merging user_input 启发的简明键去重（prefix-80）
+- 回归失败→ error_lesson
+- 单 turn 硬上限 3 items（与 llm_memory 一致）
+
+### Path B — `llm_first` (extra 0.3–0.5s)
+
+Module: `agent/runtime/memory_write/llm_memory.py`
 
 Single function `generate_memories(user_input, assistant_response, tool_summaries)`:
 
@@ -53,7 +71,7 @@ Valid values in the `type` field:
 - `user_preference` — report format, output style, language preferences
 - `task_pattern` — recurring task templates
 
-### Entry: `agent/runtime/memory_write/llm_gate.py`
+### `MemoryLLMGate` (agent/runtime/memory_write/llm_gate.py)
 
 `MemoryLLMGate.gate(candidates)`:
 
@@ -62,7 +80,11 @@ Valid values in the `type` field:
 - Candidates with score < 2 are rejected (skipped with reason)
 - On LLM failure: all candidates accepted with `llm_gate_unavailable_fallback` warning
 
-Used by `MemoryWriteGate._llm_gate_record()` in `memory_governance.py` when `gate_mode == "llm_first"`.
+Used by `MemoryWriteGate._llm_gate_record()` in `memory_governance.py` as soft gate
+after write acceptance (still runs in `llm_first` mode for extra quality check).
+**Note:** `generate_memories()` (llm_memory.py) already filters trivial content, so
+the LLM gate in the write path is redundant. It is kept for backward compatibility
+but has marginal value when `llm_memory.py` drives generation.
 
 ## Stage 2: Write
 
