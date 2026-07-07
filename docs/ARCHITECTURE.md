@@ -6,15 +6,15 @@ This document describes the current Network Agent architecture only.
 
 ```text
 HTTP / WebSocket / SSE / Job entry
-  -> AgentApp.submit_user_message
-  -> SessionManager + AgentThread
-  -> SSOT Runtime adapter
-  -> SSOTRuntimeEngine
-  -> QueryLoop
-  -> ToolRuntimeClient.invoke / ToolRuntime.invoke_raw
+  -> AgentApp.submit_user_message (agent/app/facade.py)
+  -> AgentThread + SessionManager (agent/core/thread.py)
+  -> run_ssot_turn (agent/runtime/ssot_runtime.py)
+  -> ToolRuntimeClient.invoke / ToolRuntime.invoke_raw (core/runtime_engine/)
   -> registered canonical handlers
   -> AgentResult + RuntimeEvent timeline
 ```
+
+After each turn, `run_ssot_turn` triggers LLM-driven memory writing (`agent/runtime/memory_write/llm_memory.py`), persists through `MemoryWriteGate`, and indexes into ContextStore for retrieval.
 
 There is no public direct handler dispatch path. Any new entrypoint must converge at the SSOT runtime boundary before tool invocation.
 
@@ -54,3 +54,35 @@ No backend route should silently create or infer a workspace. Missing or invalid
 ## Memory Boundary
 
 Memory is governed by `MemoryWriteGate`. Raw writers are not active paths. Retrieval returns only active, non-expired records in the same workspace and relevant scope.
+
+### Memory Pipeline
+
+```text
+1. Generation  (per turn end)
+     run_ssot_turn → generate_memories() → LLM produces JSON memory items
+
+2. Write
+     MemoryRecord → MemoryWriteGate.write(status/confidence gating)
+     MemoryStore._save() → disk JSON file
+                      → ContextStore.put(item_type="memory_hit") [BM25 index]
+
+3. Retrieval (per turn start, auto-injection)
+     MemoryHitsFragment → UnifiedRetriever.search_memory(BM25)
+                        → state.context["memory_hits"]
+                        → safe_context_renderer → prompt text
+
+4. Retrieval (evidence pipeline, explicit)
+     MemoryQueryPlanner → MemoryRetriever → UnifiedRetriever.search_memory()
+                        → MemoryItem list for response composition
+
+5. Lifecycle
+     confirm / reject / expire via MemoryStore API
+     TTL auto-cleanup via cleanup_expired()
+```
+
+Key modules:
+- `agent/runtime/memory_write/llm_memory.py` — LLM generation after each turn
+- `agent/runtime/memory_write/llm_gate.py` — LLM quality scoring (1-5)
+- `workspace/memory_governance.py` — MemoryRecord, MemoryStore, MemoryWriteGate
+- `core/context/context_store.py` — BM25 index for retrieval
+- `core/context/fragments/memory.py` — auto-injection into prompt

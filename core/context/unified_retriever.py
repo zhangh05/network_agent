@@ -1,13 +1,12 @@
 # context/unified_retriever.py
 """UnifiedRetriever — single BM25 engine for memory + knowledge retrieval.
 
-Replaces:
-  - memory/retriever.py  (BM25 on JSONL + backfill hack)
-  - agent/modules/knowledge/index.py search_chunks()
+Provides a shared BM25 scoring layer over ContextStore items. Callers
+filter by ``item_type`` (``memory_hit``, ``knowledge_chunk``, …) to
+scope results. Higher-level retrievers wrap this:
 
-All retrievable items live in ContextStore and share the same BM25
-scoring pipeline.  Callers filter by ``item_type`` to get memory-only
-or knowledge-only results.
+  - ``agent/runtime/memory/retriever.py``  → memory_hit only
+  - ``agent/modules/knowledge/index.py``  → knowledge_chunk only
 
 Features:
   - Field-weighted BM25 (title > section/chapter > content)

@@ -187,6 +187,14 @@ export function IconSun(props: IconProps) {
   );
 }
 
+export function IconMenu(props: IconProps) {
+  return (
+    <svg {...base(props.size, props)}>
+      <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" />
+    </svg>
+  );
+}
+
 export function IconMoon(props: IconProps) {
   return (
     <svg {...base(props.size, props)}>

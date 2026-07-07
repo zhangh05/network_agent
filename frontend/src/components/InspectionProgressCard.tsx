@@ -14,6 +14,7 @@ import { useSessionStore } from "../stores/session";
 import { inspectionApi } from "../api";
 
 const FADE_AFTER_MS = 8000;
+const DEFAULT_POLL_MS = 5000;
 
 interface Props {
   taskId: string;
@@ -115,12 +116,16 @@ export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props
       }
     };
     window.addEventListener("ws-event", handler);
+    // Background polling while a task is live (see file header: the card
+    // polls /api/inspection/tasks because there is no dedicated SSE channel yet).
+    pollRef.current = window.setInterval(refresh, pollMs);
     return () => {
       window.removeEventListener("ws-event", handler);
+      if (pollRef.current) window.clearInterval(pollRef.current);
       if (settleRef.current) window.clearTimeout(settleRef.current);
       if (fadeRef.current) window.clearTimeout(fadeRef.current);
     };
-  }, [refresh, taskId]);
+  }, [refresh, taskId, pollMs]);
 
   const onCancel = useCallback(async () => {
     if (!currentWorkspaceId) return;

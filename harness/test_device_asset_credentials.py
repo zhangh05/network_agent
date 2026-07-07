@@ -589,18 +589,3 @@ def test_memory_gate_rejects_generic_task_completion_noise():
     if root.exists():
         shutil.rmtree(root)
 
-
-def test_memory_planner_does_not_write_generic_task_completion():
-    from agent.runtime.memory_write.planner import MemoryWritePlanner
-
-    ctx = type("Ctx", (), {
-        "metadata": {
-            "runtime_state_snapshot": {
-                "task_status": "completed",
-                "active_task_title": "t1",
-                "active_task_id": "t1",
-            }
-        }
-    })()
-
-    assert MemoryWritePlanner()._from_task_completion(ctx) == []

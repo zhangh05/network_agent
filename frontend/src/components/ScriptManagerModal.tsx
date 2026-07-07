@@ -15,11 +15,6 @@ const TYPE_LABELS: Record<string, string> = {
   general: "通用", log: "日志",
 };
 
-/** 将空字符串显示为 "(回车)" */
-function displayCmd(cmd: string): string {
-  return cmd === "" ? "(回车)" : cmd;
-}
-
 export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) {
   const [vendors, setVendors] = useState<string[]>([]);
   const [activeVendor, setActiveVendor] = useState("");

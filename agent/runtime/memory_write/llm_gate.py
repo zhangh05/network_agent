@@ -21,8 +21,8 @@ if TYPE_CHECKING:
 
 _log = logging.getLogger("memory_write.llm_gate")
 
-# Minimum score to keep a candidate
-MIN_KEEP_SCORE = 3
+# Minimum score to keep a candidate (operational facts are factual, not opinion)
+MIN_KEEP_SCORE = 2
 
 # Quick-gate: skip LLM when total candidates ≤ this and all low-confidence
 QUICK_SKIP_MAX = 2

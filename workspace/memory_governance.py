@@ -108,6 +108,32 @@ class MemoryStore:
         record.metadata["projection_of"] = "GraphStore"
         atomic_write_json(self._path(record.workspace_id, record.memory_id), record.to_dict())
 
+        # ── Index into ContextStore for BM25 retrieval ──
+        # Without this, MemoryHitsFragment / UnifiedRetriever cannot find
+        # memories via search_memory() and auto-injection silently fails.
+        try:
+            from core.context.context_store import get_context_store
+            store = get_context_store(record.workspace_id)
+            store.put({
+                "item_type": "memory_hit",
+                "item_id": f"mh_{record.memory_id}",
+                "workspace_id": record.workspace_id,
+                "source": "memory_governance",
+                "title": record.summary[:200] if record.summary else record.content[:200],
+                "summary": record.summary[:500] if record.summary else record.content[:500],
+                "content": record.content[:2000],
+                "memory_id": record.memory_id,
+                "memory_type": record.memory_type,
+                "confidence": record.confidence,
+                "scope": record.scope,
+                "tags": [],
+                "status": record.status,
+                "memory_status": record.status,
+                "created_at": record.created_at,
+            })
+        except Exception:
+            pass  # best-effort indexing — never block the write path
+
     def delete_file(self, ws_id: str, memory_id: str) -> bool:
         """Physically delete a memory record file."""
         p = self._path(ws_id, memory_id)
@@ -217,11 +243,11 @@ class MemoryWriteGate:
             candidate.status = "pending"
 
         # 5. Agent suggestion default pending unless high confidence
-        if candidate.source == "agent_suggestion" and candidate.confidence < 0.8:
+        if candidate.source == "agent_suggestion" and candidate.confidence < 0.5:
             candidate.status = "pending"
 
         # 6. Low confidence default pending
-        if candidate.confidence < 0.3:
+        if candidate.confidence < 0.2:
             candidate.status = "pending"
 
         # 6b. Auto-confirm only explicit user/manual confirmations.
@@ -232,7 +258,7 @@ class MemoryWriteGate:
         if (
             candidate.status == "pending"
             and candidate.memory_type in _auto_confirm_types
-            and candidate.confidence >= 0.7
+            and candidate.confidence >= 0.5
             and candidate.source in _auto_sources
         ):
             candidate.status = "active"

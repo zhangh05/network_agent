@@ -314,6 +314,47 @@ def run_ssot_turn(
     _sync_session_history(session, user_input, result.final_response)
 
     persist_run_record(session, turn, result, context)
+
+    # ── v3.15.4: LLM-driven memory writing ───────────────────────────
+    # After each turn, ask the LLM to summarise what it learned and write
+    # structured memories through MemoryWriteGate (which handles dedup &
+    # conflict detection).
+    try:
+        from agent.runtime.memory_write.llm_memory import generate_memories
+        from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+
+        tool_summaries = [
+            f"{tc.get('tool_id', 'unknown')}: {tc.get('summary', '')[:200]}"
+            for tc in (result.tool_calls or [])
+        ]
+        items = generate_memories(
+            user_input=user_input,
+            assistant_response=result.final_response or "",
+            tool_summaries=tool_summaries,
+        )
+
+        if items:
+            from workspace.memory_governance import get_memory_gate_mode
+            gate = MemoryWriteGate()
+            gate_mode = get_memory_gate_mode(workspace_id)
+            for item in items:
+                rec = MemoryRecord(
+                    workspace_id=workspace_id,
+                    session_id=session_id,
+                    scope="workspace",
+                    memory_type=str(item.get("type", "operational_fact")),
+                    status="active",
+                    source="agent_suggestion",
+                    content=str(item.get("content", ""))[:2000],
+                    summary=str(item.get("content", ""))[:200],
+                    confidence=float(item.get("confidence", 0.7)),
+                    created_by="llm",
+                    redacted=True,
+                )
+                gate.write(rec, gate_mode=get_memory_gate_mode(workspace_id))
+    except Exception:
+        pass  # best-effort, never break the main turn
+
     return result
 
 

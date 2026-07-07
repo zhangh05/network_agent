@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAsync, AsyncView } from "../components/common";
 import { sessionsApi, workspacesApi, runtimeAuditApi } from "../api";
-import { isInternalSessionId, useSessionStore } from "../stores/session";
+import { isInternalSessionId, useSessionStore, useUIStore } from "../stores/session";
 import { useWorkbenchStore } from "../stores/workbench";
 import { useToastStore } from "../stores/toast";
 import { isApiError, AgentResult } from "../types";
@@ -33,11 +33,13 @@ export function Sidebar() {
   const setSessions = useSessionStore((s) => s.setSessions);
   const switchWbSession = useWorkbenchStore((s) => s.switchSession);
   const toast = useToastStore((s) => s.show);
+  const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
   const [editingSessId, setEditingSessId] = useState<string | null>(null);
   const [editingSessName, setEditingSessName] = useState("");
 
   // Click handler: switch to the run's session and load its data into Timeline.
   const inspectRun = async (r: RecentRunSummary) => {
+    setMobileNavOpen(false);
     const rid = r.run_id;
     if (!rid || !currentWorkspaceId) return;
     const targetSessionId = r.session_id;
@@ -166,7 +168,15 @@ export function Sidebar() {
     }
     // Optimistic: add placeholder session immediately
     const optimisticSid = `opt-${Date.now().toString(36)}`;
-    const optimistic: Session = { session_id: optimisticSid, workspace_id: currentWorkspaceId, title: "新会话", created_at: new Date().toISOString(), status: "active", run_ids: [], metadata: {} } as Session;
+    const optimistic: Session = {
+      session_id: optimisticSid,
+      workspace_id: currentWorkspaceId,
+      title: "新会话",
+      status: "active",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      message_count: 0,
+    };
     setCurrentSession(optimisticSid);
     // Prepend to local store state
     const prev = useSessionStore.getState().sessions;
@@ -313,7 +323,7 @@ export function Sidebar() {
                   data-testid={`sess-${sess.session_id}`}
                 >
                   <button
-                    onClick={() => { cancelEditSession(); setCurrentSession(sess.session_id); }}
+                    onClick={() => { cancelEditSession(); setCurrentSession(sess.session_id); setMobileNavOpen(false); }}
                     data-testid={`sess-btn-${sess.session_id}`}
                     aria-label={`会话：${sess.title || sess.session_id}`}
                     type="button"

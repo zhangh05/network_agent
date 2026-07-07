@@ -22,12 +22,12 @@ class TestNoDefaultFallbacks:
         assert "or 'default'" not in source and "'default'" not in source
 
     def test_memory_write_no_default(self):
-        import agent.runtime.memory_write.writer as w
-        import agent.runtime.memory_write.planner as p
-        w_src = open(w.__file__).read()
-        p_src = open(p.__file__).read()
-        assert '"default"' not in w_src
-        assert '"default"' not in p_src
+        import agent.runtime.memory_write.llm_memory as lm
+        import agent.runtime.memory_write.llm_gate as lg
+        lm_src = open(lm.__file__).read()
+        lg_src = open(lg.__file__).read()
+        assert '"default"' not in lm_src
+        assert '"default"' not in lg_src
 
     def test_default_hooks_no_default(self):
         import agent.runtime.default_hooks as dh

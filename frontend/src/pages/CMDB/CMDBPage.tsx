@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, type CSSProperties, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSessionStore } from "../../stores/session";
-import { useToastStore, type Toast } from "../../stores/toast";
+import { useToastStore } from "../../stores/toast";
 import { apiRequest } from "../../api/client";
 import { isApiError } from "../../types";
 import { RemoteTerminal } from "../../components/RemoteTerminal/RemoteTerminal";
@@ -77,7 +77,7 @@ export function CMDBPage() {
   // for a custom entry — no more "select + extra input field" ceremony.
   // We collect the union of preset + previously-typed values so the
   // combobox stays helpful as the CMDB grows.
-  const [savedVendors, setSavedVendors] = useState<string[]>([...VENDOR_PRESETS_LIST]);
+  const [savedVendors] = useState<string[]>([...VENDOR_PRESETS_LIST]);
   const [savedRegions, setSavedRegions] = useState<string[]>([...REGION_PRESETS]);
   // v3.9.13: protocol picker shows the two primary live-terminal
   // choices (SSH / Telnet) as chips; everything else is collapsed

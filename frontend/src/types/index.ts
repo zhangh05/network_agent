@@ -781,6 +781,7 @@ export interface JobEvent {
 export interface MemoryRecord {
   memory_id: string;
   title: string;
+  summary?: string;
   content: string;
   memory_type: string;
   scope: string;

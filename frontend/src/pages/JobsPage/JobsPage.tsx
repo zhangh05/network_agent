@@ -55,12 +55,6 @@ type RunSummary = {
   trace_id?: string;
 };
 
-type ArtifactGroup = {
-  input: string[];
-  output: string[];
-  report: string[];
-};
-
 /* ── Labels ── */
 
 const JOB_TYPE_LABELS: Record<string, string> = {

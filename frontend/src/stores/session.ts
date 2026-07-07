@@ -71,9 +71,13 @@ export const useSessionStore = create<SessionState>()(
 
 interface UIState {
   sidebarOpen: boolean;
+  /** Off-canvas navigation drawer state for tablet/mobile (≤900px). */
+  mobileNavOpen: boolean;
   theme: "light" | "dark";
 
   toggleSidebar: () => void;
+  setMobileNavOpen: (open: boolean) => void;
+  toggleMobileNav: () => void;
   setTheme: (t: "light" | "dark") => void;
 }
 
@@ -81,8 +85,11 @@ export const useUIStore = create<UIState>()(
   persist(
     (set, get) => ({
       sidebarOpen: true,
+      mobileNavOpen: false,
       theme: "light",
       toggleSidebar: () => set({ sidebarOpen: !get().sidebarOpen }),
+      setMobileNavOpen: (open) => set({ mobileNavOpen: open }),
+      toggleMobileNav: () => set({ mobileNavOpen: !get().mobileNavOpen }),
       setTheme: (theme) => set({ theme }),
     }),
     {

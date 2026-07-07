@@ -146,12 +146,7 @@ def _run_finalization_kernels(ctx) -> None:
     except Exception:
         ctx.metadata.setdefault("runtime_state_warnings", []).append("response_composer_failed")
 
-    # 3. Memory Write Planner (extract → dedupe → filter → persist)
-    try:
-        from agent.runtime.memory_write.planner import MemoryWritePlanner
-        MemoryWritePlanner().plan(ctx, workspace_id=getattr(ctx, "workspace_id", ""))
-    except Exception:
-        ctx.metadata.setdefault("runtime_state_warnings", []).append("memory_write_planner_failed")
+    # 3. Memory writing — handled in ssot_runtime.py (run_ssot_turn)
 
     # 4. Observability Collector
     try:

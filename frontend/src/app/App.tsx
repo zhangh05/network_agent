@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, NavLink, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { AppLayout } from "../layouts/AppLayout";
@@ -20,39 +20,29 @@ import { ToastHost } from "../components/ToastHost";
 import { useUIStore } from "../stores/session";
 import { systemApi } from "../api";
 import {
-  IconBox,
-  IconChat,
   IconChevronLeft,
   IconChevronRight,
-  IconHistory,
-  IconLayers,
   IconMoon,
-  IconSettings,
   IconSun,
-  IconBolt,
-  IconShield,
+  IconMenu,
 } from "../components/Icon";
+import { NAV_ITEMS } from "../config/nav";
 
-const NAV_ITEMS: Array<{ to: string; label: string; testid: string; Icon: typeof IconChat }> = [
-  { to: "/workbench", label: "工作台", testid: "nav-workbench", Icon: IconChat },
-  { to: "/runs", label: "运行", testid: "nav-runs", Icon: IconHistory },
-  { to: "/jobs", label: "作业", testid: "nav-jobs", Icon: IconBolt },
-  { to: "/capabilities", label: "能力矩阵", testid: "nav-capabilities", Icon: IconLayers },
-  { to: "/knowledge", label: "知识库", testid: "nav-knowledge", Icon: IconBox },
-  { to: "/artifacts", label: "制品", testid: "nav-artifacts", Icon: IconBox },
-  { to: "/memory", label: "记忆", testid: "nav-memory", Icon: IconBox },
-  { to: "/packet", label: "报文分析", testid: "nav-packet", Icon: IconBolt },
-  { to: "/cmdb", label: "设备资产", testid: "nav-cmdb", Icon: IconLayers },
-  { to: "/diagnostics", label: "系统诊断", testid: "nav-diagnostics", Icon: IconShield },
-  { to: "/settings", label: "系统设置", testid: "nav-settings", Icon: IconSettings },
-];
+function formatVersion(version: string): string {
+  return version.startsWith("v") ? version : `v${version}`;
+}
 
-export function App() {
+function AppShell() {
   const [version, setVersion] = useState<string | null>(null);
   const theme = useUIStore((s) => s.theme);
   const setTheme = useUIStore((s) => s.setTheme);
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+  const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
+  const toggleMobileNav = useUIStore((s) => s.toggleMobileNav);
+  const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
+
+  const location = useLocation();
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -67,180 +57,200 @@ export function App() {
     return () => ctrl.abort();
   }, []);
 
+  // Close the off-canvas drawer whenever the route changes.
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname, setMobileNavOpen]);
+
   return (
-    <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
-      <div className="app-shell">
-        <header className="app-header">
-          <a className="brand" href="/" aria-label="Network Agent · Operations Console">
-            <span className="brand-text">
-              <span>Network Agent</span>
-              <small>Operations Console{version ? ` · ${formatVersion(version)}` : ""}</small>
-            </span>
-          </a>
+    <div className="app-shell">
+      <header className="app-header">
+        <button
+          type="button"
+          className="nav-toggle"
+          data-testid="btn-mobile-nav"
+          aria-label={mobileNavOpen ? "关闭导航" : "打开导航"}
+          aria-expanded={mobileNavOpen}
+          aria-controls="layout-left"
+          onClick={toggleMobileNav}
+        >
+          {mobileNavOpen ? <IconChevronLeft size={16} /> : <IconMenu size={16} />}
+        </button>
 
-          <nav className="app-nav" aria-label="主导航">
-            {NAV_ITEMS.map(({ to, label, testid, Icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                data-testid={testid}
-                className={({ isActive }) =>
-                  "app-nav-item" + (isActive ? " active" : "")
-                }
-              >
-                <Icon size={14} />
-                <span>{label}</span>
-              </NavLink>
-            ))}
-          </nav>
+        <a className="brand" href="/" aria-label="Network Agent · Operations Console">
+          <span className="brand-text">
+            <span>Network Agent</span>
+            <small>Operations Console{version ? ` · ${formatVersion(version)}` : ""}</small>
+          </span>
+        </a>
 
-          <div className="app-spacer" />
+        <nav className="app-nav" aria-label="主导航">
+          {NAV_ITEMS.map(({ to, label, testid, Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              data-testid={testid}
+              className={({ isActive }) =>
+                "app-nav-item" + (isActive ? " active" : "")
+              }
+            >
+              <Icon size={14} />
+              <span>{label}</span>
+            </NavLink>
+          ))}
+        </nav>
 
-          <button
-            type="button"
-            className="collapse-btn"
-            data-tip="切换侧栏"
-            data-testid="btn-toggle-sidebar"
-            aria-label="切换侧栏"
-            onClick={toggleSidebar}
-          >
-            {sidebarOpen ? <IconChevronLeft size={14} /> : <IconChevronRight size={14} />}
-          </button>
+        <div className="app-spacer" />
 
-          <button
-            type="button"
-            className="theme-toggle"
-            data-tip={theme === "dark" ? "切换浅色" : "切换深色"}
-            aria-label="切换主题"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          >
-            {theme === "dark" ? <IconSun size={14} /> : <IconMoon size={14} />}
-          </button>
-        </header>
+        <button
+          type="button"
+          className="collapse-btn"
+          data-tip="切换侧栏"
+          data-testid="btn-toggle-sidebar"
+          aria-label="切换侧栏"
+          aria-expanded={sidebarOpen}
+          onClick={toggleSidebar}
+        >
+          {sidebarOpen ? <IconChevronLeft size={14} /> : <IconChevronRight size={14} />}
+        </button>
 
-        <div className="app-main">
-          <Routes>
-            <Route
-              path="/workbench"
-              element={
-                <ErrorBoundary>
-                  <AppLayout>
-                    <TaskWorkbench />
-                  </AppLayout>
-                </ErrorBoundary>
-              }
-            />
-            <Route
-              path="/packet"
-              element={
-                <ErrorBoundary>
-                  <AppLayout>
-                    <PacketAnalysis />
-                  </AppLayout>
-                </ErrorBoundary>
-              }
-            />
-            <Route path="/knowledge" element={
-                <ErrorBoundary><AppLayout><KnowledgeLibrary /></AppLayout></ErrorBoundary>
-              }
-            />
-            <Route path="/artifacts" element={
-                <ErrorBoundary><AppLayout><ArtifactCenter /></AppLayout></ErrorBoundary>
-              }
-            />
-            <Route path="/memory" element={
-                <ErrorBoundary><AppLayout><MemoryPage /></AppLayout></ErrorBoundary>
-              }
-            />
-            <Route path="/cmdb" element={
-              <ErrorBoundary><AppLayout><CMDBPage /></AppLayout></ErrorBoundary>
+        <button
+          type="button"
+          className="theme-toggle"
+          data-tip={theme === "dark" ? "切换浅色" : "切换深色"}
+          aria-label="切换主题"
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+        >
+          {theme === "dark" ? <IconSun size={14} /> : <IconMoon size={14} />}
+        </button>
+      </header>
+
+      <div className="app-main">
+        <Routes>
+          <Route
+            path="/workbench"
+            element={
+              <ErrorBoundary>
+                <AppLayout>
+                  <TaskWorkbench />
+                </AppLayout>
+              </ErrorBoundary>
             }
-            />
-            <Route
-              path="/capabilities"
-              element={
-                <ErrorBoundary>
-                  <AppLayout>
-                    <CapabilityCenter />
-                  </AppLayout>
-                </ErrorBoundary>
-              }
-            />
-            <Route
-              path="/jobs"
-              element={
-                <ErrorBoundary>
-                  <AppLayout>
-                    <JobsPage />
-                  </AppLayout>
-                </ErrorBoundary>
-              }
-            />
-            <Route
-              path="/diagnostics"
-              element={
-                <ErrorBoundary>
-                  <AppLayout>
-                    <Diagnostics />
-                  </AppLayout>
-                </ErrorBoundary>
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                <ErrorBoundary>
-                  <AppLayout>
-                    <Settings />
-                  </AppLayout>
-                </ErrorBoundary>
-              }
-            />
-            <Route
-              path="/runs"
-              element={
-                <ErrorBoundary>
-                  <AppLayout>
-                    <RunsPage />
-                  </AppLayout>
-                </ErrorBoundary>
-              }
-            />
-            <Route path="/audit" element={
-                <ErrorBoundary><AppLayout><RuntimeAudit /></AppLayout></ErrorBoundary>
-              }
-            />
-            <Route path="/reviews" element={
-                <ErrorBoundary><AppLayout><ReviewCenter /></AppLayout></ErrorBoundary>
-              }
-            />
-            <Route path="/files" element={
-                <ErrorBoundary><AppLayout><FileManager /></AppLayout></ErrorBoundary>
-              }
-            />
-            <Route path="/" element={<Navigate to="/workbench" replace />} />
-            <Route
-              path="*"
-              element={
-                <ErrorBoundary>
-                  <AppLayout>
-                    <div className="hero">
-                      <div className="hero-mark">404</div>
-                      <h1 className="hero-title">页面不存在</h1>
-                      <p className="hero-sub">请通过顶栏导航回到工作台</p>
-                    </div>
-                  </AppLayout>
-                </ErrorBoundary>
-              }
-            />
-          </Routes>
-        </div>
+          />
+          <Route
+            path="/packet"
+            element={
+              <ErrorBoundary>
+                <AppLayout>
+                  <PacketAnalysis />
+                </AppLayout>
+              </ErrorBoundary>
+            }
+          />
+          <Route path="/knowledge" element={
+              <ErrorBoundary><AppLayout><KnowledgeLibrary /></AppLayout></ErrorBoundary>
+            }
+          />
+          <Route path="/artifacts" element={
+              <ErrorBoundary><AppLayout><ArtifactCenter /></AppLayout></ErrorBoundary>
+            }
+          />
+          <Route path="/memory" element={
+              <ErrorBoundary><AppLayout><MemoryPage /></AppLayout></ErrorBoundary>
+            }
+          />
+          <Route path="/cmdb" element={
+            <ErrorBoundary><AppLayout><CMDBPage /></AppLayout></ErrorBoundary>
+          }
+          />
+          <Route
+            path="/capabilities"
+            element={
+              <ErrorBoundary>
+                <AppLayout>
+                  <CapabilityCenter />
+                </AppLayout>
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/jobs"
+            element={
+              <ErrorBoundary>
+                <AppLayout>
+                  <JobsPage />
+                </AppLayout>
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/diagnostics"
+            element={
+              <ErrorBoundary>
+                <AppLayout>
+                  <Diagnostics />
+                </AppLayout>
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ErrorBoundary>
+                <AppLayout>
+                  <Settings />
+                </AppLayout>
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/runs"
+            element={
+              <ErrorBoundary>
+                <AppLayout>
+                  <RunsPage />
+                </AppLayout>
+              </ErrorBoundary>
+            }
+          />
+          <Route path="/audit" element={
+              <ErrorBoundary><AppLayout><RuntimeAudit /></AppLayout></ErrorBoundary>
+            }
+          />
+          <Route path="/reviews" element={
+              <ErrorBoundary><AppLayout><ReviewCenter /></AppLayout></ErrorBoundary>
+            }
+          />
+          <Route path="/files" element={
+              <ErrorBoundary><AppLayout><FileManager /></AppLayout></ErrorBoundary>
+            }
+          />
+          <Route path="/" element={<Navigate to="/workbench" replace />} />
+          <Route
+            path="*"
+            element={
+              <ErrorBoundary>
+                <AppLayout>
+                  <div className="hero">
+                    <div className="hero-mark">404</div>
+                    <h1 className="hero-title">页面不存在</h1>
+                    <p className="hero-sub">请通过顶栏导航回到工作台</p>
+                  </div>
+                </AppLayout>
+              </ErrorBoundary>
+            }
+          />
+        </Routes>
       </div>
       <ToastHost />
-    </BrowserRouter>
+    </div>
   );
 }
 
-function formatVersion(version: string): string {
-  return version.startsWith("v") ? version : `v${version}`;
+export function App() {
+  return (
+    <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+      <AppShell />
+    </BrowserRouter>
+  );
 }

@@ -366,11 +366,11 @@ class TestImportability:
         from agent.runtime.memory.models import MemoryWritePlan
         from agent.runtime.memory.query_planner import MemoryQueryPlanner
         from agent.runtime.memory.retriever import MemoryRetriever
-        from agent.runtime.memory_write.writer import MemoryWriter
+        from agent.runtime.memory_write.llm_memory import generate_memories
         assert MemoryWritePlan is not None
         assert MemoryQueryPlanner is not None
         assert MemoryRetriever is not None
-        assert MemoryWriter is not None
+        assert generate_memories is not None
 
     def test_knowledge_modules(self):
         from agent.runtime.knowledge.models import KnowledgeHit, KnowledgeQueryPlan, Citation
