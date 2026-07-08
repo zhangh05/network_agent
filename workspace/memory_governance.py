@@ -131,8 +131,11 @@ class MemoryStore:
                 "memory_status": record.status,
                 "created_at": record.created_at,
             })
-        except Exception:
-            pass  # best-effort indexing — never block the write path
+        except Exception as e:
+            logging.getLogger("memory_governance._save").warning(
+                "ContextStore index failed for memory %s: %s",
+                record.memory_id, e,
+            )
 
     def delete_file(self, ws_id: str, memory_id: str) -> bool:
         """Physically delete a memory record file."""

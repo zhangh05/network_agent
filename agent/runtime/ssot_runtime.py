@@ -318,6 +318,7 @@ def run_ssot_turn(
     # ── Memory writing ───────────────────────────────────────────────
     # llm_first: LLM 总结对话生成记忆（质量更高，额外延迟 0.3-0.5s）
     # rule_only: 纯规则，直接从 tool_calls/events 结构化提取，不调 LLM
+    gate_mode = "rule_only"  # default in case get_memory_gate_mode fails
     try:
         from workspace.memory_governance import MemoryRecord, MemoryWriteGate, get_memory_gate_mode
 
