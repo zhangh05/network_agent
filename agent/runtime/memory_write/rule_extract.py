@@ -30,9 +30,10 @@ def _is_generic(text: str) -> bool:
         return True
     if normalized in _GENERIC:
         return True
-    # Check if the first word is a generic verb (e.g. "Completed successfully" → "completed")
+    # Check if the first word is a generic verb and the whole text is short
+    # (e.g. "Completed successfully" → "completed"; "ok yes" → "ok yes")
     first_word = normalized.split()[0] if normalized else ""
-    if first_word in _GENERIC_PREFIXES and len(normalized) <= len(first_word) + 3:
+    if first_word in _GENERIC_PREFIXES and len(normalized) <= len(first_word) + 8:
         return True
     return False
 
