@@ -78,7 +78,7 @@ export function CapabilityCenter() {
             ))}
           </div>
           <AsyncView state={catalog.state} onRetry={catalog.reload} emptyText="无工具目录" emptyHint="/api/tools/catalog 未返回数据">
-            {(d) => <ToolTree cats={d.categories ?? []} tools={d.tools ?? []} query={tq} filter={tf} />}
+            {(d) => <ToolTree cats={d.categories ?? []} query={tq} filter={tf} />}
           </AsyncView>
         </div>
 
@@ -97,7 +97,7 @@ export function CapabilityCenter() {
 
 /* ── Tool tree ── */
 
-function ToolTree({ cats, tools, query, filter }: { cats: ToolCatalogCategory[]; tools: ToolCatalogItem[]; query: string; filter: ToolFilter }) {
+function ToolTree({ cats, query, filter }: { cats: ToolCatalogCategory[]; query: string; filter: ToolFilter }) {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return cats.map((c) => ({
@@ -128,36 +128,100 @@ function ToolTree({ cats, tools, query, filter }: { cats: ToolCatalogCategory[];
           </div>
         </details>
       ))}
-      <details className="collapse">
-        <summary style={{ fontSize: "var(--fs-11)", color: "var(--text-4)" }}>Flat debug view</summary>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-          {tools.slice(0, 88).map((t) => <InlineCode key={t.canonical_tool_id}>{t.canonical_tool_id}</InlineCode>)}
-        </div>
-      </details>
     </div>
   );
 }
 
+/** 工具治理状态 → 中文标签 */
+const G_LABEL: Record<ToolGovernanceStatus, string> = { active: "活跃", disabled: "停用", internal: "内部", forbidden: "禁止" };
+
 function TRow({ tool }: { tool: ToolCatalogItem }) {
   const canonicalRefs = tool.capability_actions ?? [];
+  const needsApproval = tool.requires_approval;
+  const riskBadge = R_LABEL[tool.risk_level] ?? tool.risk_level;
+  const govLabel = G_LABEL[(tool.governance_status ?? "active")] ?? tool.governance_status ?? "未知";
+
+  // 用户可读的动作列表
+  const actionLabels: Record<string, string> = {
+    list: "查看列表", find: "查找", search: "搜索", get: "获取详情",
+    create: "创建", update: "更新", delete: "删除", load: "加载",
+    inspect: "检查", execute: "执行", send: "发送", upload: "上传",
+    download: "下载", approve: "审批", reject: "驳回",
+  };
+
   return (
     <details className="tool-row">
       <summary>
         <span style={{ fontWeight: 680, fontSize: "var(--fs-12)" }}>{tool.display_name}</span>
         <InlineCode>{tool.canonical_tool_id}</InlineCode>
-        {tool.governance_status && <Badge kind={G_KIND[tool.governance_status] ?? "muted"}>{tool.governance_status}</Badge>}
-        <Badge kind={R_KIND[tool.risk_level] ?? "muted"}>{R_LABEL[tool.risk_level] ?? tool.risk_level}</Badge>
+        <Badge kind={G_KIND[(tool.governance_status ?? "active")] ?? "muted"}>{govLabel}</Badge>
+        <Badge kind={R_KIND[tool.risk_level] ?? "muted"}>{riskBadge}</Badge>
       </summary>
-      <div className="tool-detail-grid">
-        <D label="namespace"><InlineCode>{tool.category}/{tool.group}/{tool.action}</InlineCode></D>
-        <D label="审批">{tool.requires_approval ? <Badge kind="warn">需要</Badge> : <Badge kind="ok">无需</Badge>}{tool.permission_action && <InlineCode>{tool.permission_action}</InlineCode>}</D>
-        <D label="Planner"><Badge kind={tool.planner_visible ? "ok" : "muted"}>{tool.planner_visible ? "visible" : "hidden"}</Badge></D>
-        {tool.actions?.length ? <D label="actions">{tool.actions.map((a) => <InlineCode key={a}>{a}</InlineCode>)}</D> : null}
-        {tool.allowed_callers?.length ? <D label="callers">{tool.allowed_callers.map((c) => <InlineCode key={c}>{c}</InlineCode>)}</D> : null}
-        {canonicalRefs.length > 0 && <D label="canonical refs">{canonicalRefs.map((a) => <InlineCode key={a}>{a}</InlineCode>)}</D>}
-        {tool.usage_hint && <D label="使用"><span>{tool.usage_hint}</span></D>}
-        {tool.not_for && <D label="禁用"><span>{tool.not_for}</span></D>}
-        {tool.description && <D label="描述"><span>{tool.description}</span></D>}
+
+      {/* ── 用户视角的详情卡片 ── */}
+      <div className="tool-detail-card">
+        {/* 第一行：描述 + 状态摘要 */}
+        {(tool.description || tool.usage_hint) && (
+          <div className="tool-desc-block">
+            {tool.description && (
+              <p className="tool-main-desc">{tool.description}</p>
+            )}
+            {tool.usage_hint && (
+              <p className="tool-usage-hint">{tool.usage_hint}</p>
+            )}
+          </div>
+        )}
+
+        {/* 安全与权限 */}
+        <div className="tool-info-grid">
+          <div className="tool-info-item">
+            <span className="tool-info-label">风险等级</span>
+            <Badge kind={R_KIND[tool.risk_level] ?? "muted"}>{riskBadge}</Badge>
+          </div>
+          <div className="tool-info-item">
+            <span className="tool-info-label">人工审批</span>
+            <Badge kind={needsApproval ? "warn" : "ok"}>{needsApproval ? "需要审批" : "无需审批"}</Badge>
+          </div>
+          <div className="tool-info-item">
+            <span className="tool-info-label">Planner 可见</span>
+            <Badge kind={tool.planner_visible ? "ok" : "muted"}>{tool.planner_visible ? "对 AI 可见" : "对 AI 隐藏"}</Badge>
+          </div>
+          <div className="tool-info-item">
+            <span className="tool-info-label">运行状态</span>
+            <Badge kind={G_KIND[(tool.governance_status ?? "active")] ?? "muted"}>{govLabel}</Badge>
+          </div>
+        </div>
+
+        {/* 支持的操作（翻译为中文） */}
+        {tool.actions?.length ? (
+          <div className="tool-actions-block">
+            <span className="tool-info-label">支持操作</span>
+            <div className="tool-action-chips">
+              {tool.actions.map((a) => (
+                <span key={a} className="tool-action-chip">{actionLabels[a] || a}</span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {/* 限制说明 */}
+        {tool.not_for && (
+          <div className="tool-restriction">
+            <span className="tool-info-label">⚠ 使用限制</span>
+            <span>{tool.not_for}</span>
+          </div>
+        )}
+
+        {/* 技术细节（折叠） */}
+        <details className="collapse tool-tech-details" style={{ marginTop: 8 }}>
+          <summary style={{ fontSize: "var(--fs-11)", color: "var(--text-4)", cursor: "pointer" }}>技术详情</summary>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 6 }}>
+            <D label="命名空间"><InlineCode>{tool.category}/{tool.group}/{tool.action}</InlineCode></D>
+            {canonicalRefs.length > 0 && <D label="关联能力">{canonicalRefs.map((a) => <InlineCode key={a}>{a}</InlineCode>)}</D>}
+            {tool.permission_action && <D label="权限动作"><InlineCode>{tool.permission_action}</InlineCode></D>}
+            {tool.allowed_callers?.length ? <D label="允许调用方">{tool.allowed_callers.map((c) => <InlineCode key={c}>{c}</InlineCode>)}</D> : null}
+          </div>
+        </details>
       </div>
     </details>
   );

@@ -5,7 +5,7 @@
  * 点击「开始检测」→ 调用全部 API → 缓存到 localStorage → 更新仪表盘。
  * 无缓存时显示空骨架 + 醒目的检测按钮。
  */
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { runtimeApi, agentUsageApi, retentionApi, archiveApi, contextApi, promptsApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { LoadingState } from "../../components/common";
@@ -30,6 +30,24 @@ type DiagnosticsCache = {
   prompts: any[] | null;
   retention: any;
   archive: any;
+};
+
+/* ── 内部组件名 → 用户友好名称 ── */
+const COMP_LABELS: Record<string, string> = {
+  workspace: "工作空间", registry: "能力注册", runs: "运行记录",
+  artifacts: "制品管理", jobs: "作业调度", agent: "智能体核心",
+  tool_runtime: "工具引擎", llm: "大模型服务", archive: "归档存储",
+  memory: "记忆系统", context: "上下文", knowledge: "知识库",
+  network: "网络探测", packet: "报文分析", cmdb: "配置台账",
+};
+
+const COMP_DESC: Record<string, string> = {
+  workspace: "当前工作区配置与状态", registry: "模块与技能注册表",
+  runs: "历史执行记录追踪", artifacts: "配置产物与输出文件",
+  jobs: "定时/触发作业管理", agent: "Agent 主进程状态",
+  tool_runtime: "外部工具调用引擎", llm: "LLM 连通性与配额",
+  archive: "历史数据归档策略", memory: "长期记忆存储状态",
+  context: "对话上下文窗口", knowledge: "知识检索服务",
 };
 
 /* ──────────────────────── Cache helpers ──────────────────────── */
@@ -133,6 +151,24 @@ export function Diagnostics() {
   const allOk = (hs.ok ?? 0) > 0 && (hs.warning ?? 0) === 0 && (hs.error ?? 0) === 0;
   const hasData = health !== null || selfcheck !== null || usage !== null;
 
+  /* ── 概览摘要数据 ── */
+  const summaryStats = useMemo(() => {
+    if (!health && !usage) return null;
+    const comps = health?.components ?? [];
+    const okCount = comps.filter((c: any) => c.status === "ok").length;
+    const warnCount = comps.filter((c: any) => c.status === "warning").length;
+    const errCount = comps.filter((c: any) => c.status === "error").length;
+    return {
+      totalComps: comps.length,
+      okCount, warnCount, errCount,
+      calls: usage?.call_count ?? 0,
+      cost: usage?.estimated_cost ?? 0,
+      tokens: usage?.total_tokens ?? 0,
+      selfOk: selfcheck?.status === "healthy",
+      issueCount: selfcheck?.issues?.length ?? 0,
+    };
+  }, [health, usage, selfcheck]);
+
   /* ══════════════════════════════════════════
      RENDER
      ══════════════════════════════════════════ */
@@ -152,100 +188,117 @@ export function Diagnostics() {
         <div className="page-body"><LoadingState text="检测中…" /></div>
       ) : (
         <div className="page-body" style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
+          {/* ═══ 概览摘要卡（用户3秒看懂系统状态） ═══ */}
+          {summaryStats && (
+            <div className="diag-summary">
+              <div className="diag-summary-icon" data-healthy={String(allOk)}>
+                {allOk ? "✓" : "!"}
+              </div>
+              <div className="diag-summary-text">
+                <h2>{allOk ? "系统运行正常" : "需要注意"}</h2>
+                <p>
+                  {summaryStats.okCount}/{summaryStats.totalComps} 项服务正常
+                  {summaryStats.warnCount > 0 && `，${summaryStats.warnCount} 项警告`}
+                  {summaryStats.errCount > 0 && `，${summaryStats.errCount} 项异常`}
+                  {summaryStats.calls > 0 && ` · 累计调用 ${summaryStats.calls.toLocaleString()} 次`}
+                  {summaryStats.cost > 0 && ` · 花费 ¥${summaryStats.cost.toFixed(4)}`}
+                </p>
+              </div>
+              {!summaryStats.selfOk && summaryStats.issueCount > 0 && (
+                <div className="diag-summary-alert">
+                  自检发现 {summaryStats.issueCount} 个问题
+                </div>
+              )}
+            </div>
+          )}
+
           {/* ═══ 行1: 运行时健康（全宽） ═══ */}
           <div>
             <Section title="运行时健康" badge={
               health ? (
                 <span style={{ fontSize: 12 }}>
-                  {allOk ? <span style={{ color: "#2e7d32" }}>● 全部正常</span> : `${hs.ok} ok` + (hs.warning ? ` / ${hs.warning} warn` : "") + (hs.error ? ` / ${hs.error} err` : "")}
+                  {allOk ? <span style={{ color: "var(--ok, #2e7d32)" }}>● 全部正常</span> : `${hs.ok} 正常` + (hs.warning ? ` / ${hs.warning} 警告` : "") + (hs.error ? ` / ${hs.error} 异常` : "")}
                 </span>
               ) : null
             }>
               {health ? (
-                <div style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))",
-                  gap: 10,
-                }}>
-                  {(health.components ?? []).map((c: any) => (
-                    <div key={c.name} style={{
-                      padding: "10px 12px",
-                      background: c.status === "ok" ? "var(--surface-2)" : c.status === "warning" ? "#fff3e0" : "#fce4ec",
-                      borderRadius: "var(--r-6)",
-                      border: `1px solid ${c.status === "ok" ? "var(--line-2)" : c.status === "warning" ? "#ffcc02" : "#ef5350"}40`,
-                    }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                        <span style={{
-                          width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
-                          background: c.status === "ok" ? "#2e7d32" : c.status === "warning" ? "#ed6c02" : "#d32f2f",
-                        }} />
-                        <span style={{ fontWeight: 680, fontSize: 12 }}>{c.name}</span>
-                        <span style={{
-                          marginLeft: "auto", fontSize: 10,
-                          padding: "1px 5px", borderRadius: 3,
-                          background: c.status === "ok" ? "#e8f5e9" : c.status === "warning" ? "#fff3e0" : "#fce4ec",
-                          color: c.status === "ok" ? "#2e7d32" : c.status === "warning" ? "#e65100" : "#c62828",
-                        }}>{c.status}</span>
+                <div className="diag-health-grid">
+                  {(health.components ?? []).map((c: any) => {
+                    const label = COMP_LABELS[c.name] || c.name;
+                    const desc = COMP_DESC[c.name] || "";
+                    return (
+                      <div key={c.name} className={`diag-health-card diag-health-${c.status}`}>
+                        <div className="diag-health-head">
+                          <span className={`diag-status-dot diag-status-${c.status}`} />
+                          <span className="diag-comp-name">{label}</span>
+                          <span className={`diag-status-tag diag-status-tag-${c.status}`}>{c.status === "ok" ? "正常" : c.status === "warning" ? "警告" : "异常"}</span>
+                        </div>
+                        {desc && <div className="diag-comp-desc">{desc}</div>}
+                        {c.message && <div className="diag-comp-msg">{c.message}</div>}
                       </div>
-                      {c.message && (
-                        <div style={{ fontSize: 11, color: "var(--text-3)" }}>{c.message}</div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : <Dim>点击上方「开始检测」获取运行时健康数据</Dim>}
             </Section>
           </div>
 
           {/* ═══ 行2: 用量 + 自检 + 提示词 ═══ */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
-            <Section title="用量">
+          <div className="diag-row-3col">
+            <Section title="用量统计">
               {usage ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <Row label="调用次数" value={usage.call_count.toLocaleString()} />
-                  <Row label="总 Token" value={usage.total_tokens.toLocaleString()} />
-                  <Row label="输入 / 输出" value={`${usage.input_tokens.toLocaleString()} / ${usage.output_tokens.toLocaleString()}`} dim />
-                  <div style={{ borderTop: "1px solid var(--line-2)", paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                    <span style={{ fontSize: 11, color: "var(--text-4)" }}>预估费用</span>
-                    <b style={{ fontSize: 18, color: "#b388ff", fontVariantNumeric: "tabular-nums" }}>¥{Number(usage.estimated_cost ?? 0).toFixed(4)}</b>
+                <div className="diag-usage-body">
+                  <div className="diag-usage-big">
+                    <span className="diag-usage-number">{usage.call_count.toLocaleString()}</span>
+                    <span className="diag-usage-unit">次调用</span>
+                  </div>
+                  <div className="diag-usage-rows">
+                    <Row label="Token 总量" value={usage.total_tokens.toLocaleString()} />
+                    <Row label="输入 / 输出" value={`${usage.input_tokens.toLocaleString()} / ${usage.output_tokens.toLocaleString()}`} dim />
+                    <div style={{ borderTop: "1px solid var(--line-2)", paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                      <span style={{ fontSize: 11, color: "var(--text-4)" }}>预估费用</span>
+                      <b className="diag-cost">¥{Number(usage.estimated_cost ?? 0).toFixed(4)}</b>
+                    </div>
                   </div>
                 </div>
               ) : <Dim>暂无数据</Dim>}
             </Section>
 
-            <Section title="自检" badge={selfcheck?.status === "healthy" ? <span style={{ color: "#2e7d32", fontSize: 12 }}>通过</span> : selfcheck?.issues?.length > 0 ? <span style={{ color: "#ed6c02", fontSize: 12 }}>{selfcheck.issues.length} 项</span> : null}>
+            <Section title="自检结果" badge={selfcheck?.status === "healthy" ? <span style={{ color: "var(--ok, #2e7d32)", fontSize: 12 }}>通过</span> : selfcheck?.issues?.length > 0 ? <span style={{ color: "var(--warn, #ed6c02)", fontSize: 12 }}>{selfcheck.issues.length} 项问题</span> : null}>
               {selfcheck ? (
                 selfcheck.issues?.length > 0 ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div className="diag-issues-list">
                     {selfcheck.issues.map((iss: any, i: number) => (
-                      <div key={i} style={{ fontSize: 12, padding: "4px 0", borderBottom: i < selfcheck.issues.length - 1 ? "1px solid var(--line-2)" : "none" }}>
-                        <code style={{ fontSize: 10, padding: "1px 5px", borderRadius: 3, background: iss.severity === "error" ? "#fce4ec" : "#fff3e0", color: iss.severity === "error" ? "#c62828" : "#e65100", marginRight: 6 }}>{iss.code}</code>
-                        {iss.message}
-                        {iss.suggested_action && <div style={{ color: "var(--text-4)", fontSize: 11, marginTop: 2 }}>→ {iss.suggested_action}</div>}
+                      <div key={i} className={`diag-issue-item diag-issue-${iss.severity}`}>
+                        <span className="diag-issue-sev">{iss.severity === "error" ? "错误" : "警告"}</span>
+                        <div className="diag-issue-body">
+                          <span className="diag-issue-msg">{iss.message}</span>
+                          {iss.suggested_action && <span className="diag-issue-action">建议：{iss.suggested_action}</span>}
+                        </div>
                       </div>
                     ))}
                   </div>
-                ) : <Dim>未发现问题</Dim>
+                ) : <Dim>✓ 未发现问题</Dim>
               ) : <Dim>无数据</Dim>}
             </Section>
 
-            <Section title="提示词库" badge={prompts?.length != null ? <span style={{ fontSize: 12, color: "var(--text-4)" }}>{prompts.length}</span> : null}>
+            <Section title="提示词库" badge={prompts?.length != null ? <span style={{ fontSize: 12, color: "var(--text-4)" }}>{prompts.length} 条</span> : null}>
               {prompts && prompts.length > 0 ? (
-                <div style={{ maxHeight: 240, overflow: "auto" }}>
-                  <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                <div style={{ maxHeight: 260, overflowY: "auto" }}>
+                  <table className="diag-prompts-table">
                     <thead>
-                      <tr style={{ position: "sticky", top: 0, background: "var(--surface)", color: "var(--text-4)", textTransform: "uppercase", fontSize: 10, letterSpacing: ".5px" }}>
-                        <th style={{ textAlign: "left", padding: "4px 8px", fontWeight: 600, borderBottom: "1px solid var(--line)" }}>ID</th>
-                        <th style={{ textAlign: "left", padding: "4px 8px", fontWeight: 600, borderBottom: "1px solid var(--line)" }}>Ver</th>
-                        <th style={{ textAlign: "left", padding: "4px 8px", fontWeight: 600, borderBottom: "1px solid var(--line)" }}>Description</th>
+                      <tr>
+                        <th>用途说明</th>
+                        <th>版本</th>
+                        <th>ID</th>
                       </tr>
                     </thead>
                     <tbody>
                       {prompts.map((p: any) => (
                         <tr key={p.prompt_id}>
-                          <td style={{ padding: "3px 8px", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--text-2)" }}>{p.prompt_id}</td>
-                          <td style={{ padding: "3px 8px", color: "var(--text-2)" }}><span style={{ padding: "1px 4px", borderRadius: 3, background: "var(--surface-2)", fontSize: 10 }}>{p.version}</span></td>
-                          <td style={{ padding: "3px 8px", fontSize: 11, color: "var(--text-2)" }}>{p.description || p.task}</td>
+                          <td className="diag-prompt-desc">{p.description || p.task || p.prompt_id}</td>
+                          <td><span className="diag-ver-badge">{p.version}</span></td>
+                          <td className="diag-prompt-id">{p.prompt_id}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -256,29 +309,36 @@ export function Diagnostics() {
           </div>
 
           {/* ═══ 行3: 上下文 + 数据策略 ═══ */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+          <div className="diag-row-2col">
             <Section title="上下文运行时">
               {contextOk !== null ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: contextOk ? "#2e7d32" : "#d32f2f" }} />
-                  {contextOk ? "已启用" : "未启用"}
+                <div className="diag-context-info">
+                  <div className={`diag-context-status ${contextOk ? "diag-context-on" : "diag-context-off"}`}>
+                    <span className={`diag-status-dot diag-status-${contextOk ? "ok" : "error"}`} />
+                    {contextOk ? "已启用" : "未启用"}
+                  </div>
+                  <p className="diag-context-desc">
+                    {contextOk
+                      ? "上下文运行时已开启，智能体可在多轮对话中维护完整的工作记忆与任务状态。"
+                      : "上下文运行时未启用，部分跨轮次的功能可能受限。如需完整体验，请在后端配置中启用。"}
+                  </p>
                 </div>
               ) : <Dim>无数据</Dim>}
             </Section>
 
             <Section title="数据策略">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                 {retention?.policy && (
-                  <div>
-                    <div style={{ fontSize: 10, color: "var(--text-4)", fontWeight: 600, letterSpacing: ".5px", marginBottom: 6 }}>保留</div>
+                  <div className="diag-policy-block">
+                    <div className="diag-policy-title">📥 数据保留</div>
                     {Object.entries(retention.policy).slice(0, 5).map(([k, v]) => (
                       <Row key={k} label={fmtKey(k)} value={fmtVal(k, v)} compact />
                     ))}
                   </div>
                 )}
                 {archive?.policy && (
-                  <div>
-                    <div style={{ fontSize: 10, color: "var(--text-4)", fontWeight: 600, letterSpacing: ".5px", marginBottom: 6 }}>归档</div>
+                  <div className="diag-policy-block">
+                    <div className="diag-policy-title">📤 数据归档</div>
                     {Object.entries(archive.policy).slice(0, 5).map(([k, v]) => (
                       <Row key={k} label={fmtKey(k)} value={fmtVal(k, v)} compact />
                     ))}
