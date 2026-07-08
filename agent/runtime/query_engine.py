@@ -203,6 +203,8 @@ def with_retry(
                 wait = _policy.backoff_base ** attempt
                 time.sleep(wait)
 
+        # Unreachable: the loop either returns or raises on the last iteration.
+        # Retained as a safety net in case the policy is modified externally.
         if last_error:
             raise last_error
 
@@ -312,7 +314,7 @@ class StreamEmitter:
             try:
                 cb(event)
             except Exception:
-                pass
+                logging.getLogger(__name__).warning("StreamEmitter callback failed", exc_info=True)
 
     def to_events(self) -> list[dict]:
         """Return all collected events as a list of dicts."""

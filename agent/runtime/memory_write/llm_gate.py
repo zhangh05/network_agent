@@ -31,9 +31,10 @@ QUICK_SKIP_CONFIDENCE = 0.55
 # Maximum candidates to send in one LLM batch
 MAX_BATCH_SIZE = 5
 
-# Types that LLM gate should never reject even with low score
-# (explicit user preferences, confirmed device facts)
-_ALWAYS_KEEP_TYPES = {"user_preference", "operational_fact", "device_state"}
+# Types that LLM gate should never reject even with low score.
+# ONLY user_preference (explicit user intent) and device_state (confirmed facts).
+# operational_fact is excluded — low-quality facts like "Completed." must be rejectable.
+_ALWAYS_KEEP_TYPES = {"user_preference", "device_state"}
 
 
 

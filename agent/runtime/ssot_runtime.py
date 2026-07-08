@@ -10,6 +10,7 @@ so manifest, policy, redaction and audit behavior are unchanged.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import logging
 import time
@@ -150,24 +151,27 @@ def run_ssot_turn(
                 )
                 approval_ids.append(req.approval_id)
 
-            # Wait for approvals (non-blocking poll, max 30s)
+            # Wait for approvals via thread-pool to avoid blocking the facade thread.
+            # Each approval harnesses blocking=True (internal threading.Event.wait)
+            # and we run them in parallel with a hard 30s cutoff.
             approved = True
-            for aid in approval_ids:
-                waited = 0.0
-                while waited < 30:
-                    result = store.wait(aid, blocking=False)
-                    if result is True:
-                        break  # approved
-                    if result is False:
-                        approved = False  # denied
-                        break
-                    # P2-1: synchronous poll blocks facade thread up to 30s.
-                    # Consider async approval with threading.Event or asyncio.
-                    time.sleep(0.5)
-                    waited += 0.5
-                else:
-                    # Timeout: fail closed — deny execution when approval does not arrive in time
-                    approved = False
+            if approval_ids:
+                def _await_aid(aid: str) -> bool:
+                    # blocking=True keeps CPU idle via Event.wait(); returns on
+                    # resolution or timeout (whichever first).
+                    return store.wait(aid, blocking=True, timeout=30)
+
+                with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=min(len(approval_ids), 8),
+                    thread_name_prefix="approval-waiter",
+                ) as pool:
+                    futures = {pool.submit(_await_aid, aid): aid for aid in approval_ids}
+                    for fut in concurrent.futures.as_completed(futures, timeout=35):
+                        try:
+                            if not fut.result():
+                                approved = False
+                        except Exception:  # noqa: BLE001 — any error counts as denial
+                            approved = False
 
             if approved:
                 # Re-run with approval bypass flag
@@ -1094,4 +1098,4 @@ def _sync_session_history(session, user_input: str, final_response: str) -> None
         history.append(UserMessage(content=user_input))
         history.append(AssistantMessage(content=final_response))
     except Exception:
-        pass
+        logging.getLogger(__name__).warning("Failed to sync session history", exc_info=True)

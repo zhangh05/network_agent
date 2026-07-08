@@ -479,7 +479,8 @@ def _workspace_secret_key(workspace_id: str) -> bytes:
         key_data = secrets.token_urlsafe(48)
         path.write_text(key_data, encoding="utf-8")
         try:
-            os.fsync(path.open("r+").fileno())  # P1-26: fsync before chmod to prevent corruption on crash
+            with path.open("r+") as _f:
+                os.fsync(_f.fileno())  # fsync with explicit handle to avoid GC race
             os.chmod(path, 0o600)
         except OSError:
             pass

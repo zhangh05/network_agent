@@ -2,6 +2,7 @@
 """EventRecorder — records lifecycle events during turn execution."""
 
 import uuid
+import threading
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
 
@@ -19,9 +20,11 @@ class AuditEvent:
 class EventRecorder:
     def __init__(self):
         self._events: list = []
+        self._lock = threading.Lock()
 
     def append(self, event: AuditEvent):
-        self._events.append(event)
+        with self._lock:
+            self._events.append(event)
         return event
 
     def emit(self, event_type: str, session_id: str = "", turn_id: str = "", payload: dict = None, **kw):
@@ -31,11 +34,13 @@ class EventRecorder:
             type=event_type,
             payload=payload or kw or {},
         )
-        self._events.append(evt)
+        with self._lock:
+            self._events.append(evt)
         return evt
 
     def list_events(self, turn_id: str = None, session_id: str = None) -> list:
-        result = self._events
+        with self._lock:
+            result = list(self._events)
         if turn_id:
             result = [e for e in result if e.turn_id == turn_id]
         if session_id:

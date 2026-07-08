@@ -58,7 +58,8 @@ def check_no_old_stage_chain(source_dir: str = "") -> CheckResult:
     if not os.path.exists(target):
         return CheckResult(name="no_old_stage_chain", passed=True, details="pipeline.py not found (ok)")
     try:
-        content = open(target, "r", encoding="utf-8").read()
+        with open(target, "r", encoding="utf-8") as _f:
+            content = _f.read()
     except Exception as exc:
         return CheckResult(name="no_old_stage_chain", passed=False, details=f"Read error: {exc}")
     for pat in _OLD_STAGE_PATTERNS:
@@ -97,7 +98,8 @@ def check_no_runtime_residue(source_dir: str = "", dirs: list[str] | None = None
                 continue  # skip self — pattern definitions live here
             fpath = os.path.join(full, fname)
             try:
-                content = open(fpath, "r", encoding="utf-8").read()
+                with open(fpath, "r", encoding="utf-8") as _f:
+                    content = _f.read()
             except Exception:
                 continue
             for pat in _RESIDUE_PATTERNS:

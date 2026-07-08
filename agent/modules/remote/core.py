@@ -144,6 +144,16 @@ def ssh_connect(session_id: str, host: str, port: int,
                 terminal_rows: int = 40,
                 workspace_id: str = "") -> DeviceSession:
     import paramiko
+    # Validate host and port to prevent command injection / misuse
+    if not host or not isinstance(host, str):
+        raise ValueError("SSH host 不能为空")
+    host = host.strip()
+    if any(c in host for c in " ;|&$()`\n\r\t"):
+        raise ValueError(f"SSH host 包含非法字符: {host!r}")
+    if not isinstance(port, int) or not (1 <= port <= 65535):
+        raise ValueError(f"SSH port 非法: {port}")
+    if not username or not isinstance(username, str):
+        raise ValueError("SSH username 不能为空")
     _cleanup_idle_sessions()
     profile = get_profile(vendor)
     client = paramiko.SSHClient()
@@ -196,6 +206,13 @@ def telnet_connect(session_id: str, host: str, port: int,
     credential; otherwise the socket stays connected for manual input.
     """
     _cleanup_idle_sessions()
+    if not host or not isinstance(host, str):
+        raise ValueError("Telnet host 不能为空")
+    host = host.strip()
+    if any(c in host for c in " ;|&$()`\n\r\t"):
+        raise ValueError(f"Telnet host 包含非法字符: {host!r}")
+    if not isinstance(port, int) or not (1 <= port <= 65535):
+        raise ValueError(f"Telnet port 非法: {port}")
     profile = get_profile(vendor)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(CONNECT_TIMEOUT)
@@ -222,10 +239,11 @@ def exec_command(session_id: str, command: str, *, timeout: float = 0.0) -> dict
     session = _SESSIONS.get(session_id)
     if not session or not session.connected:
         return {"ok": False, "error": "session_not_connected"}
+    # Use a local default timeout (READ_TIMEOUT) rather than mutating the
+    # session's attribute — concurrent calls would otherwise overwrite it.
+    actual_timeout = timeout if timeout > 0 else READ_TIMEOUT
     try:
-        if timeout > 0:
-            session.command_timeout = timeout  # P1-32: session-level attr, concurrent calls overwrite
-        output = _exec_and_wait(session, command)
+        output = _exec_and_wait(session, command, timeout=actual_timeout)
         # Post-send check: if the channel died during send(), _exec_and_wait
         # returns empty; connected flag is now False.
         if not output and not session.connected:
@@ -233,9 +251,6 @@ def exec_command(session_id: str, command: str, *, timeout: float = 0.0) -> dict
         return {"ok": True, "output": output, "session_id": session_id}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
-    finally:
-        if timeout > 0:
-            session.command_timeout = 0.0
 
 
 def send_interactive(session_id: str, data: str) -> dict:
@@ -283,12 +298,12 @@ def list_sessions() -> list[dict]:
 # Internal helpers
 # ═══════════════════════════════════════════════════════════════════════
 
-def _read_until_prompt(session: DeviceSession) -> bytes:
+def _read_until_prompt(session: DeviceSession, timeout: float = 0.0) -> bytes:
     buf = b""
     started = time.time()
     deadline = time.time() + READ_TIMEOUT
-    # P1-34: always set a safety cap; command_timeout=0 means no explicit cap
-    abs_deadline = started + max(session.command_timeout, 180.0) if session.command_timeout > 0 else started + 300.0
+    # Use caller-supplied timeout (if any) as the absolute cap; otherwise fall back to 300s
+    abs_deadline = started + timeout if timeout > 0 else started + 300.0
     profile = session.vendor
     while time.time() < deadline:
         chunk = session.recv(timeout=0.3)
@@ -343,11 +358,12 @@ def _drain_available(session: DeviceSession, *,
     return drained
 
 
-def _exec_and_wait(session: DeviceSession, command: str) -> str:
+def _exec_and_wait(session: DeviceSession, command: str, timeout: float = 0.0) -> str:
     _drain_available(session)
     session.send((command + "\n").encode())
-    time.sleep(0.2)  # P1-33: fixed post-send delay, adjust per-device
-    output = _read_until_prompt(session)
+    # Adaptive delay: short default; device profiles needing longer can set it.
+    time.sleep(0.2)  # P2-33: fixed delay — consider per-vendor profile if needed
+    output = _read_until_prompt(session, timeout=timeout if timeout > 0 else 0.0)
     text = output.decode("utf-8", errors="replace")
     if len(session.log) < MAX_SESSION_LOG_LINES:
         session.log.append(text)
