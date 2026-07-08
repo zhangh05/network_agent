@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { runtimeAuditApi } from "../../api";
 import {
   useAsync,
@@ -59,6 +60,17 @@ export function RuntimeAudit() {
     return () => window.removeEventListener(APP_EVENTS.RUN_COMPLETED, onRunCompleted);
   }, [turns]);
 
+  // Virtualize the (potentially large) trace-event list so scrolling stays smooth.
+  const events = trace.state.kind === "success" ? trace.state.data.events : [];
+  const parentRef = useRef<HTMLDivElement | null>(null);
+  const virtualizer = useVirtualizer({
+    count: events.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 120,
+    overscan: 8,
+    measureElement: (el) => el?.getBoundingClientRect().height ?? 120,
+  });
+
   return (
     <div className="page" data-testid="page-audit">
       <div className="page-header">
@@ -99,7 +111,7 @@ export function RuntimeAudit() {
               emptyHint="等待 agent run 出现"
             >
               {(d) => (
-                <div className="list" data-testid="audit-turn-list">
+                <div className="list list-scroll" data-testid="audit-turn-list">
                   {(d.runs ?? []).map((t, i) => {
                     const runId = auditRunId(t, i);
                     const label = auditRunLabel(t, i);
@@ -155,7 +167,7 @@ export function RuntimeAudit() {
         </aside>
         <section
           className="split-detail"
-          style={{ overflowY: "auto", minHeight: 0 }}
+          style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}
           data-testid="audit-detail"
         >
           {!selectedRunId ? (
@@ -197,7 +209,7 @@ export function RuntimeAudit() {
                       <div className="empty-text">该 turn 无 event</div>
                     </div>
                   ) : (
-                    <div data-testid="audit-events">
+                    <>
                       {(() => {
                         // Extract failure summary for failed turns
                         const failedEv = trace.state.data.events.find(
@@ -229,6 +241,7 @@ export function RuntimeAudit() {
                               borderColor: "var(--danger)",
                               padding: 10,
                               color: "var(--danger)",
+                              flexShrink: 0,
                             }}
                             data-testid="audit-failure-summary"
                           >
@@ -244,34 +257,54 @@ export function RuntimeAudit() {
                           </div>
                         ) : null;
                       })()}
-                      {trace.state.data.events.map((ev) => {
-                        const eventType = ev.event_type || ev.type || "unknown";
-                        const details = formatEventDetail(ev);
-                        const label = formatEventLabel(ev);
-                        const isOk = eventType !== "turn_failed";
-                        return (
-                        <div
-                          key={ev.event_id}
-                          className="card"
-                          style={{ padding: 12, marginBottom: 8 }}
-                        >
-                          <div className="row-flex" style={{ justifyContent: "space-between" }}>
-                            <span className="row-flex" style={{ minWidth: 0, gap: 8 }}>
-                              <span className={"status-dot " + (isOk ? "ok" : "err")} style={{ width: 8, height: 8 }} />
-                              <span className="text-sm">{label}</span>
-                            </span>
-                            <span className="muted text-xs mono">{formatEventTime(ev)}</span>
-                          </div>
-                          <details className="collapse mt-2">
-                            <summary style={{ fontSize: 11, color: "var(--ink-mute)" }}>开发诊断 · {eventType}</summary>
-                            <CodeBlock language="json">
-                              {JSON.stringify(details, null, 2)}
-                            </CodeBlock>
-                          </details>
+                      <div
+                        ref={parentRef}
+                        className="list-scroll"
+                        data-testid="audit-events"
+                        style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
+                      >
+                        <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+                          {virtualizer.getVirtualItems().map((vi) => {
+                            const ev = events[vi.index];
+                            const eventType = ev.event_type || ev.type || "unknown";
+                            const details = formatEventDetail(ev);
+                            const label = formatEventLabel(ev);
+                            const isOk = eventType !== "turn_failed";
+                            return (
+                              <div
+                                key={ev.event_id}
+                                data-index={vi.index}
+                                ref={virtualizer.measureElement}
+                                className="card"
+                                style={{
+                                  padding: 12,
+                                  marginBottom: 8,
+                                  position: "absolute",
+                                  top: 0,
+                                  left: 0,
+                                  width: "100%",
+                                  transform: `translateY(${vi.start}px)`,
+                                }}
+                              >
+                                <div className="row-flex" style={{ justifyContent: "space-between" }}>
+                                  <span className="row-flex" style={{ minWidth: 0, gap: 8 }}>
+                                    <span className={"status-dot " + (isOk ? "ok" : "err")} style={{ width: 8, height: 8 }} />
+                                    <span className="text-sm">{label}</span>
+                                  </span>
+                                  <span className="muted text-xs mono">{formatEventTime(ev)}</span>
+                                </div>
+                                <details className="collapse mt-2">
+                                  <summary style={{ fontSize: 11, color: "var(--ink-mute)" }}>开发诊断 · {eventType}</summary>
+                                  <CodeBlock language="json">
+                                    {JSON.stringify(details, null, 2)}
+                                  </CodeBlock>
+                                </details>
+                              </div>
+                            );
+                          })}
                         </div>
-                        );
-                      })}
-                    </div>
+                      </div>
+                    </>
                   )}
                 </>
               )}

@@ -1272,14 +1272,25 @@ function parseThinking(text: string): { thinking: string; body: string } {
   return { thinking: "", body: text };
 }
 
-/** Highlight code blocks in rendered HTML */
+/** Highlight code blocks in rendered HTML.
+ *  Cached by (lang + decoded source) so identical code blocks highlight only
+ *  once — avoids blocking the main thread when a session repeats the same
+ *  output (e.g. the same error block across many messages). */
+const highlightCache = new Map<string, string>();
+const HL_CACHE_MAX = 2000;
 function highlightCode(html: string): string {
   return html.replace(/<pre><code class="language-(\w+)?">([\s\S]*?)<\/code><\/pre>/g, (_, lang, code) => {
     try {
       const decoded = new DOMParser().parseFromString(code, "text/html").body.textContent || "";
+      const cacheKey = (lang || "") + " " + decoded;
+      const hit = highlightCache.get(cacheKey);
+      if (hit !== undefined) return hit;
       const langClass = lang && hljs.getLanguage(lang) ? lang : "plaintext";
       const result = hljs.highlight(decoded, { language: langClass }).value;
-      return `<div class="code-block-wrap"><div class="code-block-header"><span>${lang || "code"}</span><button class="code-copy-btn" type="button" data-code-copy="1">复制</button></div><pre><code class="hljs language-${langClass}">${result}</code></pre></div>`;
+      const wrapped = `<div class="code-block-wrap"><div class="code-block-header"><span>${lang || "code"}</span><button class="code-copy-btn" type="button" data-code-copy="1">复制</button></div><pre><code class="hljs language-${langClass}">${result}</code></pre></div>`;
+      if (highlightCache.size >= HL_CACHE_MAX) highlightCache.clear();
+      highlightCache.set(cacheKey, wrapped);
+      return wrapped;
     } catch {
       return `<pre><code>${code}</code></pre>`;
     }

@@ -6,6 +6,7 @@ import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { ReviewItem, ReviewStatus } from "../../types";
 import { IconAlert, IconCheck, IconRefresh } from "../../components/Icon";
+import { PortalModal } from "../../components/PortalModal";
 
 const STATUS_OPTIONS: { value: ReviewStatus | "all"; label: string }[] = [
   { value: "all", label: "全部" },
@@ -192,17 +193,14 @@ export function ReviewCenter() {
         )}
       </div>
 
-      {editing && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setEditing(null)}
-          data-testid="review-modal"
-        >
-          <div
-            className="modal"
-            onClick={(e) => e.stopPropagation()}
-            style={{ minWidth: "min(460px, calc(100vw - 32px))" }}
-          >
+      <PortalModal
+        open={!!editing}
+        onClose={() => setEditing(null)}
+        testId="review-modal"
+        style={{ minWidth: "min(460px, calc(100vw - 32px))" }}
+      >
+        {editing && (
+          <>
             <div className="modal-title">
               <InlineCode>{editing.item_id}</InlineCode>
               <Badge kind={STATUS_KIND[editing.status]} withDot>
@@ -259,9 +257,9 @@ export function ReviewCenter() {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </PortalModal>
     </div>
   );
 }

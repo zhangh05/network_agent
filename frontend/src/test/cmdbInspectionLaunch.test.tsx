@@ -68,7 +68,7 @@ describe("CMDB inspection launch", () => {
       expect(screen.getByTestId("location")).toHaveTextContent("/workbench");
     });
 
-    const stored = sessionStorage.getItem("workbench_auto_prompt");
+    const stored = localStorage.getItem("workbench_inspection");
     expect(stored).toBeTruthy();
     const payload = JSON.parse(stored || "{}");
     expect(payload.metadata).toMatchObject({
@@ -76,15 +76,10 @@ describe("CMDB inspection launch", () => {
       region: "测试一区",
       source: "cmdb_region_button",
     });
-    expect(payload.prompt).toContain("CMDB 区域「测试一区」");
-    expect(payload.prompt).toContain("通用巡检");
-    expect(payload.prompt).toContain("action=get");
-    expect(payload.prompt).toContain("action=report");
-    expect(payload.prompt).toContain("异常项");
-    expect(payload.prompt).toContain("失败或跳过设备");
-    expect(payload.prompt).toContain("inspection.manage");
-    expect(payload.prompt).toContain("基础健康检查");
-    expect(payload.prompt).not.toContain("device.manage");
+    // The launch payload now carries the inspection target + profile (the analysis prompt is
+    // assembled later by the workbench on task completion), not a prebuilt prompt string.
+    expect(String(payload.metadata.target)).toContain("测试一区");
+    expect(payload.metadata.typeLabel).toBe("通用巡检");
   });
 
   it("does not expose a standalone inspection page in navigation", async () => {
@@ -120,12 +115,19 @@ describe("CMDB inspection launch", () => {
       errors: [],
       metadata: { source_count: 0 },
     };
-    sessionStorage.setItem("workbench_auto_prompt", JSON.stringify({
-      prompt: "对 CMDB 区域「测试一区」执行自动巡检。",
+    // New inspection flow: launch writes `localStorage.workbench_inspection`
+    // (task_id + metadata); the workbench picks it up, polls, and auto-sends analysis.
+    localStorage.setItem("workbench_inspection", JSON.stringify({
+      task_id: "insp-task-1",
       metadata: {
         intent: "cmdb_region_inspection",
         region: "测试一区",
         source: "cmdb_region_button",
+        inspection_task_id: "insp-task-1",
+        target: "CMDB 区域「测试一区」",
+        type: "general",
+        typeLabel: "通用巡检",
+        vendor: "",
       },
     }));
     enqueue("/sessions/sess-cmdb/messages", { status: 200, data: { ok: true, messages: [], count: 0 } });
@@ -136,7 +138,7 @@ describe("CMDB inspection launch", () => {
         ok: true,
         task: {
           task_id: "insp-task-1",
-          status: "running",
+          status: "succeeded",
           total_assets: 1,
           succeeded: 0,
           failed: 0,
@@ -153,9 +155,11 @@ describe("CMDB inspection launch", () => {
 
     render(<TaskWorkbench />);
 
-    await screen.findByText("已完成测试一区基础巡检。");
-    const inspectionRequests = getRequests().filter((r) => r.url === "/inspection/tasks" && r.method === "POST");
-    expect(inspectionRequests).toHaveLength(1);
+    await screen.findByText("已完成测试一区基础巡检。", {}, { timeout: 3000 });
+    // New flow: the workbench polls the inspection task (GET) and, on completion, auto-sends an
+    // analysis prompt — it no longer POSTs a new inspection task itself.
+    const pollRequests = getRequests().filter((r) => (r.url ?? "").includes("/inspection/tasks/insp-task-1"));
+    expect(pollRequests.length).toBeGreaterThanOrEqual(1);
     const request = getRequests().find((r) => r.url === "/agent/message");
     expect(request?.data).toMatchObject({
       workspace_id: "default",
@@ -167,11 +171,11 @@ describe("CMDB inspection launch", () => {
         inspection_task_id: "insp-task-1",
       },
     });
-    expect(String(request?.data?.message || "")).toContain("任务 ID：insp-task-1");
-    expect(String(request?.data?.message || "")).toContain("action=get");
-    expect(String(request?.data?.message || "")).toContain("action=report");
-    expect(String(request?.data?.message || "")).not.toContain("task_get");
-    expect(String(request?.data?.message || "")).not.toContain("device.manage");
-    expect(sessionStorage.getItem("workbench_auto_prompt")).toBeNull();
+    const msg = String(request?.data?.message || "");
+    expect(msg).toContain("测试一区");
+    expect(msg).toContain("通用巡检已完成");
+    expect(msg).toContain("分析维度");
+    expect(msg).not.toContain("device.manage");
+    expect(localStorage.getItem("workbench_inspection")).toBeNull();
   });
 });

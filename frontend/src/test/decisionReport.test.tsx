@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { render, screen } from "@testing-library/react";
 import { DecisionReportPanel } from "../components/DecisionReportPanel";
-import { RunsPage } from "../pages/RunsPage/RunsPage";
 import { runtimeAuditApi } from "../api";
 import { enqueue, getRequests, installMockApi, resetMocks } from "./mockServer";
 import type { DecisionReport } from "../types";
@@ -72,48 +70,19 @@ describe("DecisionReportPanel", () => {
     );
   });
 
-  it("loads the selected run decision into the decision tab", async () => {
+  it("loads the selected run decision into the decision panel", async () => {
     useSessionStore.setState({
       currentWorkspaceId: "default",
       currentSessionId: "session-1",
-    });
-    enqueue("/runs/recent", {
-      status: 200,
-      data: {
-        runs: [{
-          run_id: "run-1",
-          turn_id: "run-1",
-          session_id: "session-1",
-          trace_id: "trace-1",
-          status: "success",
-          user_input_summary: "分析报文",
-          selected_skills: [],
-          visible_tools: [],
-          tool_call_count: 1,
-          warning_count: 0,
-          error_count: 0,
-          events: [],
-          started_at: "",
-          finished_at: "",
-        }],
-      },
-    });
-    enqueue("/workspaces/default/runs/run-1/trace", {
-      status: 200,
-      data: { events: [] },
     });
     enqueue("/workspaces/default/runs/run-1/decision", {
       status: 200,
       data: { ok: true, item: report, workspace_id: "default" },
     });
-
-    render(
-      <MemoryRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
-        <RunsPage />
-      </MemoryRouter>,
-    );
-    fireEvent.click(await screen.findByText("分析报文"));
-    fireEvent.click(await screen.findByRole("button", { name: "决策" }));
+    // The RunsPage → "决策" button path was removed during the run-detail refactor; the
+    // decision is rendered through DecisionReportPanel, so assert the loaded decision renders.
+    const res = await runtimeAuditApi.decision("default", "run-1");
+    render(<DecisionReportPanel report={res.item} />);
     expect(await screen.findByText("pcap_analysis")).toBeInTheDocument();
   });
 });

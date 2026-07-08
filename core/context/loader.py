@@ -10,6 +10,30 @@ import logging
 _LOG = logging.getLogger(__name__)
 
 
+def _estimate_tokens(text: str) -> int:
+    """CJK-aware token estimation for context items."""
+    if not text:
+        return 0
+    s = str(text)
+    cjk = sum(1 for c in s if _is_cjk(c))
+    non_cjk = len(s) - cjk
+    return max(1, cjk + non_cjk // 4)
+
+
+def _is_cjk(c: str) -> bool:
+    cp = ord(c)
+    return (
+        0x4E00 <= cp <= 0x9FFF or    # CJK Unified Ideographs
+        0x3400 <= cp <= 0x4DBF or    # CJK Extension A
+        0x3000 <= cp <= 0x303F or    # CJK Symbols and Punctuation
+        0x31C0 <= cp <= 0x31EF or    # CJK Strokes
+        0x3200 <= cp <= 0x32FF or    # Enclosed CJK Letters
+        0x3300 <= cp <= 0x33FF or    # CJK Compatibility
+        0xFE30 <= cp <= 0xFE4F or    # CJK Compatibility Forms
+        0xFF00 <= cp <= 0xFFEF       # Halfwidth and Fullwidth Forms
+    )
+
+
 def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
                        payload: dict = None, capability_id: str = "",
                        user_input: str = "",
@@ -26,7 +50,7 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
         title="User request", summary=msg[:200],
         content={"intent": intent, "payload_keys": list((payload or {}).keys())},
         sensitivity="internal", scope="request",
-        token_estimate=len(msg) // 4,
+        token_estimate=_estimate_tokens(msg),
     ))
 
     # 2. Explicit context_ref item (P1)
@@ -49,7 +73,7 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
                 item_type="workspace_state", source="workspace", priority=30,
                 title="Workspace state", summary=ws.get("last_result_summary", "")[:200],
                 content=safe_ws, sensitivity="internal", scope="workspace",
-                token_estimate=len(str(safe_ws)) // 4,
+                token_estimate=_estimate_tokens(safe_ws),
             ))
         except Exception:
             _LOG.warning("context.loader: silent exception", exc_info=True)
@@ -68,7 +92,7 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
                              "sensitivity": a.get("sensitivity"), "scope": a.get("scope")},
                     sensitivity=a.get("sensitivity", "internal"), scope="workspace",
                     source_id=a.get("artifact_id", ""),
-                    token_estimate=len(str(a)) // 4,
+                    token_estimate=_estimate_tokens(a),
                 ))
         except Exception:
             _LOG.warning("context.loader: silent exception", exc_info=True)
@@ -87,7 +111,7 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
                              "status": j.get("status"), "progress": j.get("progress", {})},
                     sensitivity="internal", scope="workspace",
                     source_id=j.get("job_id", ""),
-                    token_estimate=len(str(j)) // 4,
+                    token_estimate=_estimate_tokens(j),
                 ))
         except Exception:
             _LOG.warning("context.loader: silent exception", exc_info=True)
@@ -104,7 +128,7 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
                     content={"artifact_id": r.get("artifact_id"), "format": r.get("metadata", {}).get("format", "")},
                     sensitivity=r.get("sensitivity", "internal"), scope="workspace",
                     source_id=r.get("artifact_id", ""),
-                    token_estimate=len(str(r)) // 4,
+                    token_estimate=_estimate_tokens(r),
                 ))
         except Exception:
             _LOG.warning("context.loader: silent exception", exc_info=True)

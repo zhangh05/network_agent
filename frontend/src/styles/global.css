@@ -388,7 +388,9 @@ pre code {
   gap: 0;
   min-width: 0;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 .app-nav::-webkit-scrollbar {
@@ -401,9 +403,9 @@ pre code {
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 5px;
   height: var(--h-header);
-  padding: 0 13px;
+  padding: 0 9px;
   color: var(--text-3);
   border-radius: 0;
   font-size: var(--fs-13);
@@ -428,9 +430,9 @@ pre code {
 
 .app-nav-item.active::after {
   position: absolute;
-  right: 13px;
+  right: 9px;
   bottom: 0;
-  left: 13px;
+  left: 9px;
   height: 2px;
   content: "";
   background: var(--accent);
@@ -3936,4 +3938,115 @@ details.collapse[open] summary::before {
 @keyframes sk-pulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 0.8; }
+}
+
+/* ── Route transitions & lazy-load fallback ──
+ * A gentle opacity fade on each route swap makes navigation feel smooth.
+ * Only `opacity` is animated (no transform) so it never creates a containing
+ * block that would break `position: fixed` modals rendered inside a page. */
+.route-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+}
+
+.spinner {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.route-view {
+  height: 100%;
+  min-height: 0;
+  animation: routeIn 0.26s var(--ease-out) both;
+}
+
+@keyframes routeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-view { animation: none; }
+  .spinner { animation-duration: 1.4s; }
+}
+
+/* ── Smoothness & UX polish (2026-07-08) ── */
+
+/* Skip link: first focusable element, hidden until keyboard-focused */
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -52px;
+  z-index: 300;
+  padding: 8px 14px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--r-8);
+  box-shadow: var(--shadow-menu);
+  transition: top var(--dur-2) var(--ease);
+}
+.skip-link:focus {
+  top: 12px;
+}
+
+/* Scroll chaining: keep an inner scroller from dragging the page with it */
+.wb-chat-list,
+.app-nav,
+.modal,
+.sidebar-scroll,
+[style*="overflow"] {
+  overscroll-behavior: contain;
+}
+
+/* Firefox thin scrollbar to match the WebKit styling above */
+html,
+.wb-chat-list,
+.modal,
+.sidebar-scroll,
+.app-nav,
+[style*="overflow"] {
+  scrollbar-width: thin;
+  scrollbar-color: #c8d2de transparent;
+}
+
+/* Keyboard focus fallback for elements not covered by the .btn/.input rules */
+a:focus-visible,
+[role="button"]:focus-visible,
+.card:focus-visible,
+summary:focus-visible,
+.chip:focus-visible,
+.tag:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* Route-level skeleton: stretch to fill the main area (don't center a tiny block) */
+.route-skeleton {
+  align-items: stretch;
+  justify-content: flex-start;
+  padding: 28px 32px;
+}
+.route-skeleton-inner {
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+/* Long lists: skip rendering off-screen rows so scrolling stays smooth.
+   content-visibility is keyboard-safe — the browser renders a row on focus/scroll. */
+.list-scroll > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 64px;
 }

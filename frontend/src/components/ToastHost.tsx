@@ -1,10 +1,11 @@
+import { createPortal } from "react-dom";
 import { useToastStore } from "../stores/toast";
 import { IconClose } from "./Icon";
 
 export function ToastHost() {
   const { messages, dismiss } = useToastStore();
   if (messages.length === 0) return null;
-  return (
+  return createPortal(
     <div
       className="toast-host"
       data-testid="toast-host"
@@ -40,6 +41,7 @@ export function ToastHost() {
           </button>
         </div>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }

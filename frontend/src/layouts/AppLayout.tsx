@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
-import { useEffect } from "react";
-import { NavLink } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import { NavLink, useLocation } from "react-router-dom";
 import { useUIStore } from "../stores/session";
 import { Sidebar } from "./Sidebar";
 import { NAV_ITEMS } from "../config/nav";
+import { preloadRoute } from "../routes";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -22,6 +23,14 @@ export function AppLayout({ children }: AppLayoutProps) {
   const sidebarOpen = useUIStore((s) => s.sidebarOpen);
   const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
   const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
+  const location = useLocation();
+  const mainRef = useRef<HTMLElement | null>(null);
+
+  // On route change, move focus to the main region so keyboard / screen-reader
+  // users are not stranded on the link they clicked.
+  useEffect(() => {
+    mainRef.current?.focus({ preventScroll: true });
+  }, [location.pathname]);
 
   const rootClasses = [
     "app-root",
@@ -56,6 +65,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <div className={rootClasses}>
+      <a className="skip-link" href="#main">跳到主内容</a>
       <aside
         className={"app-sidebar" + (sidebarOpen ? "" : " collapsed")}
         data-testid="layout-left"
@@ -72,6 +82,8 @@ export function AppLayout({ children }: AppLayoutProps) {
                   className={({ isActive }) =>
                     "mobile-nav-item" + (isActive ? " active" : "")
                   }
+                  onMouseEnter={() => preloadRoute(to)}
+                  onFocus={() => preloadRoute(to)}
                 >
                   <Icon size={15} />
                   <span>{label}</span>
@@ -92,7 +104,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         />
       )}
 
-      <section className="app-main" data-testid="layout-center">
+      <section className="app-main" id="main" tabIndex={-1} ref={mainRef} data-testid="layout-center">
         {children}
       </section>
     </div>

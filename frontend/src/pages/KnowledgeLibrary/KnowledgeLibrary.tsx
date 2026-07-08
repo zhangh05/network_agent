@@ -6,6 +6,7 @@ import {
   CodeBlock,
   InlineCode,
 } from "../../components/common";
+import { PortalModal } from "../../components/PortalModal";
 import { knowledgeApi, artifactsApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { formatDate } from "../../utils/format";
@@ -508,9 +509,13 @@ export function KnowledgeLibrary() {
         </div>
       </div>
 
-      {detailSource && (
-        <div className="modal-backdrop" onClick={() => setDetailSource(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640, maxHeight: "80vh", overflow: "auto" }}>
+      <PortalModal
+        open={!!detailSource}
+        onClose={() => setDetailSource(null)}
+        style={{ maxWidth: 640, maxHeight: "80vh", overflow: "auto" }}
+      >
+        {detailSource && (
+          <>
             <div className="modal-title">
               知识源详情
               <button className="btn sm ghost" style={{ marginLeft: "auto" }} onClick={() => setDetailSource(null)} type="button">关闭</button>
@@ -546,9 +551,9 @@ export function KnowledgeLibrary() {
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </PortalModal>
     </div>
   );
 }

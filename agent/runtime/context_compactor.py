@@ -1,22 +1,11 @@
+# agent/runtime/context_compactor.py
 """v2.0 Phase 2 → v3.3 Long-task optimization: Deterministic context compaction.
 
 Strategy:
-- Keep recent 15 messages intact (was 6)
-- Older messages replaced with structured summaries preserving key fields
-- Tool results: keep ok/summary/tool_id/artifacts/source_count/manual_review_count/
-  errors/warnings, PLUS: output/result/devices/hosts/assets/version/model/status
-  (critical data needed for long-running analytical tasks)
-- Strip secrets/tokens/passwords/api_keys/source_config/raw_config
-- Never compact system prompt or current user message
-- Returns compaction metadata
-
-v3.1.1: CompactionStrategy enum + structured metrics
-- fast_eviction: deterministic summary replacement (default, sub-ms)
-- llm_summary: LLM-based summarization (slower, higher quality, optional)
+...
 
 v3.3: PRESERVE_KEYS expanded for long-task data retention.
 """
-
 from __future__ import annotations
 
 import enum
@@ -31,18 +20,39 @@ FORBIDDEN_KEYS = {
 }
 
 # ── v3.3: Keys to always preserve in compacted tool results ──
-# (data critical for long-running analytical/network tasks)
 _PRESERVE_KEYS = {
     "ok", "summary", "tool_id", "artifacts",
     "source_count", "manual_review_count",
     "errors", "warnings",
-    # Long-task data: CMDB, network, pcap, config
     "output", "result", "devices", "hosts", "assets",
     "version", "model", "status", "region",
     "host", "port", "protocol", "device_type",
-    # Workflow / task state
     "task_id", "workflow_id", "step_id", "progress",
 }
+
+
+def _is_cjk(c: str) -> bool:
+    cp = ord(c)
+    return (
+        0x4E00 <= cp <= 0x9FFF or    # CJK Unified Ideographs
+        0x3400 <= cp <= 0x4DBF or    # CJK Extension A
+        0x3000 <= cp <= 0x303F or    # CJK Symbols and Punctuation
+        0x31C0 <= cp <= 0x31EF or    # CJK Strokes
+        0x3200 <= cp <= 0x32FF or    # Enclosed CJK Letters
+        0x3300 <= cp <= 0x33FF or    # CJK Compatibility
+        0xFE30 <= cp <= 0xFE4F or    # CJK Compatibility Forms
+        0xFF00 <= cp <= 0xFFEF       # Halfwidth and Fullwidth Forms
+    )
+
+
+def _estimate_tokens(text: str) -> int:
+    """CJK-aware token estimation: CJK ~1 char/token, ASCII ~4 chars/token."""
+    if not text:
+        return 0
+    s = str(text)
+    cjk = sum(1 for c in s if _is_cjk(c))
+    non_cjk = len(s) - cjk
+    return max(1, cjk + non_cjk // 4)
 
 
 class CompactionStrategy(str, enum.Enum):
@@ -126,7 +136,7 @@ class CompactionMetric:
 
 
 def estimate_context_size(messages: list) -> int:
-    """Estimate token count for a list of messages (char // 4 approximation)."""
+    """Estimate token count for a list of messages (CJK-aware)."""
     total = 0
     for msg in (messages or []):
         content = ""
@@ -136,7 +146,7 @@ def estimate_context_size(messages: list) -> int:
             content = str(msg.get("content", ""))
         elif hasattr(msg, "content"):
             content = str(getattr(msg, "content", ""))
-        total += max(1, len(content) // 4)
+        total += _estimate_tokens(content)
     return max(1, total)
 
 
@@ -288,6 +298,12 @@ def _strip_forbidden(text: str) -> str:
     return "\n".join(kept)
 
 
+def _is_assistant_message(msg) -> bool:
+    if isinstance(msg, dict):
+        return msg.get("role") == "assistant"
+    return hasattr(msg, "role") and getattr(msg, "role", "") == "assistant"
+
+
 def _is_system_message(msg) -> bool:
     """Check if a message is a system message."""
     if isinstance(msg, dict):
@@ -309,6 +325,66 @@ def _message_content(msg) -> str:
     if hasattr(msg, "content"):
         return str(getattr(msg, "content", ""))
     return str(msg)
+
+
+def _get_tool_calls(msg) -> list | None:
+    """Extract tool_calls from a message if present."""
+    if isinstance(msg, dict):
+        return msg.get("tool_calls")
+    return getattr(msg, "tool_calls", None)
+
+
+def _get_tool_call_id(msg) -> str | None:
+    """Extract tool_call_id from a tool result message."""
+    if isinstance(msg, dict):
+        return msg.get("tool_call_id")
+    return getattr(msg, "tool_call_id", None)
+
+
+def _protect_tool_pairs(messages, protected_indices: set) -> set:
+    """Expand protected_indices so tool call ↔ tool result pairs stay together.
+
+    In OpenAI format, an assistant message with ``tool_calls`` is followed by
+    one or more ``tool`` result messages (``tool_call_id`` matching the call id).
+    Breaking this pair causes the LLM to see orphaned tool results without
+    knowing what was called, or tool calls without their results — both trigger
+    hallucination. This helper ensures both sides of every call are either
+    kept or compacted together.
+
+    Logic:
+    - If either side of a pair is protected (e.g. by recent cutoff or user/system),
+      keep the other side too.
+    - If neither side is protected, compact both (pair stays together)."""
+    call_map: dict[str, int] = {}
+    result_map: dict[str, int] = {}
+    for i, m in enumerate(messages):
+        tc = _get_tool_calls(m)
+        if tc and _is_assistant_message(m):
+            for c in tc:
+                cid = c.get("id") if isinstance(c, dict) else getattr(c, "id", None)
+                if cid:
+                    call_map[cid] = i
+        rid = _get_tool_call_id(m)
+        if rid:
+            result_map[rid] = i
+
+    expanded = set(protected_indices)
+    changed = True
+    while changed:
+        changed = False
+        for cid, aidx in call_map.items():
+            ridx = result_map.get(cid)
+            if ridx is None:
+                continue
+            a_in = aidx in expanded
+            r_in = ridx in expanded
+            if a_in and not r_in:
+                expanded.add(ridx)
+                changed = True
+            elif r_in and not a_in:
+                expanded.add(aidx)
+                changed = True
+    return expanded
 
 
 def compact_messages(
@@ -362,10 +438,13 @@ def compact_messages(
         if _is_system_message(m):
             protected_indices.add(i)
 
-    # Protect recent messages
+    # Protect recent messages (before pair protection so pairs at boundary stay together)
     recent_start = max(0, len(messages) - keep_recent)
     for i in range(recent_start, len(messages)):
         protected_indices.add(i)
+
+    # Protect tool call ↔ tool result pairs (must come after recent cutoff)
+    protected_indices = _protect_tool_pairs(messages, protected_indices)
 
     original_est = estimate_context_size(messages)
 

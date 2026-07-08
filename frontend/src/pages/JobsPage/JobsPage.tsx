@@ -254,7 +254,7 @@ export function JobsPage() {
       ) : (
         <div className="split-shell" style={{ flex: 1 }}>
           {/* ══════ 左侧 作业列表 ══════ */}
-          <aside style={{ padding: 12, overflow: "auto" }}>
+          <aside className="list-scroll jobs-list" style={{ padding: 12, overflow: "auto" }}>
             {jobs.map((job) => {
               const meta = sMeta(job.status);
               const active = selectedJob?.job_id === job.job_id;

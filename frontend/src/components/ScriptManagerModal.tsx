@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { scriptsApi, type VendorScriptDetailResponse, type VendorScriptsListResponse } from "../api/index";
 
 interface Props {
@@ -303,7 +304,16 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
     </div>
   );
 
-  return (
+  // Escape closes with the same unsaved-changes guard as the × button
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleClose]);
+
+  return createPortal(
     <div style={{
       position: "fixed", inset: 0, zIndex: 9999,
       background: "var(--overlay)", backdropFilter: "blur(3px)",
@@ -435,6 +445,7 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

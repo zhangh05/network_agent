@@ -114,13 +114,18 @@ describe("Experience polish", () => {
   });
 
   it("fills a clear prompt from a quick chip", async () => {
+    // The chat input only mounts once a session is active (AgentWorkbench gates the input
+    // bar behind `currentSessionId`), so provide one to exercise the chip → input flow.
+    useSessionStore.setState({ currentWorkspaceId: "default", currentSessionId: "sess-chip" });
     render(<TaskWorkbench />);
 
     fireEvent.click((await screen.findAllByText("出口策略放通检查"))[0]);
 
-    expect(screen.getByTestId("chat-input")).toHaveValue(
-      "帮我分析出口访问策略是否放通。请告诉我需要提供源地址、目的地址、端口、协议，以及相关 ACL/NAT/路由配置。",
-    );
+    await waitFor(() => {
+      expect(screen.getByTestId("chat-input")).toHaveValue(
+        "帮我分析出口访问策略是否放通。请告诉我需要提供源地址、目的地址、端口、协议，以及相关 ACL/NAT/路由配置。",
+      );
+    });
   });
 
   it("does not duplicate a leading version prefix from the backend", async () => {

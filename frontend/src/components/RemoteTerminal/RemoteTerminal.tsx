@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useSessionStore } from "../../stores/session";
 import { apiRequest } from "../../api/client";
-import "xterm/css/xterm.css";
+import "@xterm/xterm/css/xterm.css";
 
 interface SavedDevice {
   device_id: string; name: string; host: string; port: number;
@@ -75,7 +75,7 @@ export function RemoteTerminal({ onClose, initial }: {
     let disposed = false;
     let syncResize: (() => void) | null = null;
     const initTerm = async () => {
-      const { Terminal } = await import("xterm");
+      const { Terminal } = await import("@xterm/xterm");
       const { FitAddon } = await import("@xterm/addon-fit");
       if (disposed || !termRef.current) return;
 

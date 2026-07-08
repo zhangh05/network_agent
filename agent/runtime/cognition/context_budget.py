@@ -12,6 +12,30 @@ from typing import Any
 from agent.runtime.cognition.evidence_models import BudgetReport, EvidenceBundle
 
 
+def _is_cjk(c: str) -> bool:
+    cp = ord(c)
+    return (
+        0x4E00 <= cp <= 0x9FFF or    # CJK Unified Ideographs
+        0x3400 <= cp <= 0x4DBF or    # CJK Extension A
+        0x3000 <= cp <= 0x303F or    # CJK Symbols and Punctuation
+        0x31C0 <= cp <= 0x31EF or    # CJK Strokes
+        0x3200 <= cp <= 0x32FF or    # Enclosed CJK Letters
+        0x3300 <= cp <= 0x33FF or    # CJK Compatibility
+        0xFE30 <= cp <= 0xFE4F or    # CJK Compatibility Forms
+        0xFF00 <= cp <= 0xFFEF       # Halfwidth and Fullwidth Forms
+    )
+
+
+def _estimate_text_tokens(text: str) -> int:
+    """CJK-aware token estimation: CJK ~1 char/token, ASCII ~4 chars/token."""
+    if not text:
+        return 0
+    s = str(text)
+    cjk = sum(1 for c in s if _is_cjk(c))
+    non_cjk = len(s) - cjk
+    return max(1, cjk + non_cjk // 4)
+
+
 class ContextBudgetManager:
     """Apply token budget constraints, working at EvidenceItem level."""
 
@@ -150,9 +174,9 @@ class ContextBudgetManager:
         """Rough token estimation from the EvidenceBundle's safe_context form."""
         try:
             text = json.dumps(evidence.to_safe_context(), ensure_ascii=False)
-            return max(1, len(text) // 4)
+            return _estimate_text_tokens(text)
         except Exception:
-            return len(str(evidence)) // 4
+            return _estimate_text_tokens(str(evidence))
 
     @staticmethod
     def _estimate_history_tokens(ctx) -> int:
@@ -160,9 +184,9 @@ class ContextBudgetManager:
             total = 0
             for h in getattr(ctx, "history_window", []):
                 if hasattr(h, "content"):
-                    total += max(1, len(str(h.content)) // 4)
+                    total += _estimate_text_tokens(str(h.content))
                 elif isinstance(h, dict):
-                    total += max(1, len(json.dumps(h, ensure_ascii=False)) // 4)
+                    total += _estimate_text_tokens(json.dumps(h, ensure_ascii=False))
             return total
         except Exception:
             return 0

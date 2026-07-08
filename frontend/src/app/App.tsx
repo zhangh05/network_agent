@@ -1,23 +1,11 @@
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { ErrorBoundary } from "../components/ErrorBoundary";
+import { SkeletonList, SkeletonTable } from "../components/common";
 import { AppLayout } from "../layouts/AppLayout";
-import { TaskWorkbench } from "../pages/AgentWorkbench/AgentWorkbench";
-import { CapabilityCenter } from "../pages/CapabilityCenter/CapabilityCenter";
-import { RunsPage } from "../pages/RunsPage/RunsPage";
-import { Settings } from "../pages/Settings/Settings";
-import { Diagnostics } from "../pages/Diagnostics/Diagnostics";
-import { JobsPage } from "../pages/JobsPage/JobsPage";
-import { PacketAnalysis } from "../pages/PacketAnalysis/PacketAnalysis";
-import { KnowledgeLibrary } from "../pages/KnowledgeLibrary/KnowledgeLibrary";
-import { ArtifactCenter } from "../pages/ArtifactCenter/ArtifactCenter";
-import { MemoryPage } from "../pages/MemoryPage/MemoryPage";
-import { CMDBPage } from "../pages/CMDB/CMDBPage";
-import { ReviewCenter } from "../pages/ReviewCenter/ReviewCenter";
-import { RuntimeAudit } from "../pages/RuntimeAudit/RuntimeAudit";
-import { FileManager } from "../pages/FileManager/FileManager";
 import { ToastHost } from "../components/ToastHost";
 import { useUIStore } from "../stores/session";
+import { initWebVitals } from "../utils/webVitals";
 import { systemApi } from "../api";
 import {
   IconChevronLeft,
@@ -27,9 +15,57 @@ import {
   IconMenu,
 } from "../components/Icon";
 import { NAV_ITEMS } from "../config/nav";
+import {
+  TaskWorkbench,
+  CapabilityCenter,
+  RunsPage,
+  Settings,
+  Diagnostics,
+  JobsPage,
+  PacketAnalysis,
+  KnowledgeLibrary,
+  ArtifactCenter,
+  MemoryPage,
+  CMDBPage,
+  ReviewCenter,
+  RuntimeAudit,
+  FileManager,
+  preloadRoute,
+} from "../routes";
 
 function formatVersion(version: string): string {
   return version.startsWith("v") ? version : `v${version}`;
+}
+
+/** Per-route skeleton shown while a lazily-loaded page chunk is fetched, so
+ *  navigation feels instant instead of flashing an empty spinner. */
+const SKELETON_BY_PATH: Record<string, "list" | "table"> = {
+  "/workbench": "list",
+  "/runs": "list",
+  "/jobs": "list",
+  "/audit": "table",
+  "/reviews": "list",
+  "/cmdb": "list",
+  "/knowledge": "list",
+  "/artifacts": "list",
+  "/memory": "list",
+  "/packet": "list",
+  "/diagnostics": "list",
+  "/capabilities": "list",
+  "/files": "list",
+};
+
+function RouteFallback() {
+  const { pathname } = useLocation();
+  const kind = SKELETON_BY_PATH[pathname] ?? "list";
+  return (
+    <div className="route-fallback route-skeleton" role="status" aria-live="polite" aria-busy="true">
+      <div className="route-skeleton-inner">
+        {kind === "table" ? <SkeletonTable rows={8} cols={4} /> : <SkeletonList rows={9} />}
+      </div>
+      <span className="sr-only">页面加载中…</span>
+    </div>
+  );
 }
 
 function AppShell() {
@@ -47,6 +83,11 @@ function AppShell() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  // Best-effort RUM: ship Core Web Vitals to the backend (silently no-ops if absent).
+  useEffect(() => {
+    initWebVitals();
+  }, []);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -93,6 +134,8 @@ function AppShell() {
               className={({ isActive }) =>
                 "app-nav-item" + (isActive ? " active" : "")
               }
+              onMouseEnter={() => preloadRoute(to)}
+              onFocus={() => preloadRoute(to)}
             >
               <Icon size={14} />
               <span>{label}</span>
@@ -126,121 +169,44 @@ function AppShell() {
       </header>
 
       <div className="app-main">
-        <Routes>
-          <Route
-            path="/workbench"
-            element={
-              <ErrorBoundary>
-                <AppLayout>
-                  <TaskWorkbench />
-                </AppLayout>
-              </ErrorBoundary>
-            }
-          />
-          <Route
-            path="/packet"
-            element={
-              <ErrorBoundary>
-                <AppLayout>
-                  <PacketAnalysis />
-                </AppLayout>
-              </ErrorBoundary>
-            }
-          />
-          <Route path="/knowledge" element={
-              <ErrorBoundary><AppLayout><KnowledgeLibrary /></AppLayout></ErrorBoundary>
-            }
-          />
-          <Route path="/artifacts" element={
-              <ErrorBoundary><AppLayout><ArtifactCenter /></AppLayout></ErrorBoundary>
-            }
-          />
-          <Route path="/memory" element={
-              <ErrorBoundary><AppLayout><MemoryPage /></AppLayout></ErrorBoundary>
-            }
-          />
-          <Route path="/cmdb" element={
-            <ErrorBoundary><AppLayout><CMDBPage /></AppLayout></ErrorBoundary>
-          }
-          />
-          <Route
-            path="/capabilities"
-            element={
-              <ErrorBoundary>
-                <AppLayout>
-                  <CapabilityCenter />
-                </AppLayout>
-              </ErrorBoundary>
-            }
-          />
-          <Route
-            path="/jobs"
-            element={
-              <ErrorBoundary>
-                <AppLayout>
-                  <JobsPage />
-                </AppLayout>
-              </ErrorBoundary>
-            }
-          />
-          <Route
-            path="/diagnostics"
-            element={
-              <ErrorBoundary>
-                <AppLayout>
-                  <Diagnostics />
-                </AppLayout>
-              </ErrorBoundary>
-            }
-          />
-          <Route
-            path="/settings"
-            element={
-              <ErrorBoundary>
-                <AppLayout>
-                  <Settings />
-                </AppLayout>
-              </ErrorBoundary>
-            }
-          />
-          <Route
-            path="/runs"
-            element={
-              <ErrorBoundary>
-                <AppLayout>
-                  <RunsPage />
-                </AppLayout>
-              </ErrorBoundary>
-            }
-          />
-          <Route path="/audit" element={
-              <ErrorBoundary><AppLayout><RuntimeAudit /></AppLayout></ErrorBoundary>
-            }
-          />
-          <Route path="/reviews" element={
-              <ErrorBoundary><AppLayout><ReviewCenter /></AppLayout></ErrorBoundary>
-            }
-          />
-          <Route path="/files" element={
-              <ErrorBoundary><AppLayout><FileManager /></AppLayout></ErrorBoundary>
-            }
-          />
-          <Route path="/" element={<Navigate to="/workbench" replace />} />
-          <Route
-            path="*"
-            element={
-              <ErrorBoundary>
-                <AppLayout>
-                  <div className="hero">
-                    <div className="hero-mark">404</div>
-                    <h1 className="hero-title">页面不存在</h1>
-                    <p className="hero-sub">请通过顶栏导航回到工作台</p>
-                  </div>
-                </AppLayout>
-              </ErrorBoundary>
-            }
-          />
-        </Routes>
+        {/* AppLayout renders the persistent sidebar + main grid once; the
+            Suspense boundary keeps it visible while a route's chunk loads,
+            so navigation never tears down the shell. */}
+        <AppLayout>
+          <Suspense fallback={<RouteFallback />}>
+            <div className="route-view" key={location.pathname}>
+              <Routes>
+                <Route path="/workbench" element={<ErrorBoundary><TaskWorkbench /></ErrorBoundary>} />
+                <Route path="/packet" element={<ErrorBoundary><PacketAnalysis /></ErrorBoundary>} />
+                <Route path="/knowledge" element={<ErrorBoundary><KnowledgeLibrary /></ErrorBoundary>} />
+                <Route path="/artifacts" element={<ErrorBoundary><ArtifactCenter /></ErrorBoundary>} />
+                <Route path="/memory" element={<ErrorBoundary><MemoryPage /></ErrorBoundary>} />
+                <Route path="/cmdb" element={<ErrorBoundary><CMDBPage /></ErrorBoundary>} />
+                <Route path="/capabilities" element={<ErrorBoundary><CapabilityCenter /></ErrorBoundary>} />
+                <Route path="/jobs" element={<ErrorBoundary><JobsPage /></ErrorBoundary>} />
+                <Route path="/diagnostics" element={<ErrorBoundary><Diagnostics /></ErrorBoundary>} />
+                <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+                <Route path="/runs" element={<ErrorBoundary><RunsPage /></ErrorBoundary>} />
+                <Route path="/audit" element={<ErrorBoundary><RuntimeAudit /></ErrorBoundary>} />
+                <Route path="/reviews" element={<ErrorBoundary><ReviewCenter /></ErrorBoundary>} />
+                <Route path="/files" element={<ErrorBoundary><FileManager /></ErrorBoundary>} />
+                <Route path="/" element={<Navigate to="/workbench" replace />} />
+                <Route
+                  path="*"
+                  element={
+                    <ErrorBoundary>
+                      <div className="hero">
+                        <div className="hero-mark">404</div>
+                        <h1 className="hero-title">页面不存在</h1>
+                        <p className="hero-sub">请通过顶栏导航回到工作台</p>
+                      </div>
+                    </ErrorBoundary>
+                  }
+                />
+              </Routes>
+            </div>
+          </Suspense>
+        </AppLayout>
       </div>
       <ToastHost />
     </div>

@@ -50,6 +50,24 @@ export default defineConfig(({ mode }) => {
       // registered languages, the main chunk is expected to sit just above
       // Vite's generic 500 kB warning threshold.
       chunkSizeWarningLimit: 700,
+      rollupOptions: {
+        output: {
+          // Split the React core into its own long-lived vendor chunk so it is
+          // cached independently of page chunks and the app shell. Page chunks
+          // produced by route-level code splitting carry only their own code.
+          manualChunks(id) {
+            if (id.includes("node_modules")) {
+              if (
+                /[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(
+                  id,
+                )
+              ) {
+                return "vendor-react";
+              }
+            }
+          },
+        },
+      },
     },
   };
 });

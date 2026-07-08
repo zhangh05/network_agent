@@ -1,0 +1,92 @@
+// src/routes.tsx
+//
+// Route-level code splitting. Every page is loaded through `React.lazy`
+// so the initial bundle ships only the app shell + the React vendor —
+// each page becomes its own chunk fetched on demand. This is the single
+// biggest win for first paint / TTI and keeps navigation light.
+//
+// `lazyWithPreload` also exposes each page's import promise as `.preload`,
+// so the shell can warm a page's chunk on nav hover/focus (see App.tsx and
+// AppLayout.tsx). By the time the user clicks, the chunk is usually already
+// in cache and the route swaps instantly.
+
+import { lazy, type ComponentType, type LazyExoticComponent } from "react";
+
+type AnyComp = ComponentType<any>;
+type PageModule = Promise<{ default: AnyComp }>;
+
+function lazyWithPreload(
+  factory: () => PageModule,
+): LazyExoticComponent<AnyComp> & { preload: () => PageModule } {
+  const Comp = lazy(factory) as LazyExoticComponent<AnyComp> & {
+    preload: () => PageModule;
+  };
+  Comp.preload = factory;
+  return Comp;
+}
+
+export const TaskWorkbench = lazyWithPreload(() =>
+  import("./pages/AgentWorkbench/AgentWorkbench").then((m) => ({ default: m.TaskWorkbench })),
+);
+export const CapabilityCenter = lazyWithPreload(() =>
+  import("./pages/CapabilityCenter/CapabilityCenter").then((m) => ({ default: m.CapabilityCenter })),
+);
+export const RunsPage = lazyWithPreload(() =>
+  import("./pages/RunsPage/RunsPage").then((m) => ({ default: m.RunsPage })),
+);
+export const Settings = lazyWithPreload(() =>
+  import("./pages/Settings/Settings").then((m) => ({ default: m.Settings })),
+);
+export const Diagnostics = lazyWithPreload(() =>
+  import("./pages/Diagnostics/Diagnostics").then((m) => ({ default: m.Diagnostics })),
+);
+export const JobsPage = lazyWithPreload(() =>
+  import("./pages/JobsPage/JobsPage").then((m) => ({ default: m.JobsPage })),
+);
+export const PacketAnalysis = lazyWithPreload(() =>
+  import("./pages/PacketAnalysis/PacketAnalysis").then((m) => ({ default: m.PacketAnalysis })),
+);
+export const KnowledgeLibrary = lazyWithPreload(() =>
+  import("./pages/KnowledgeLibrary/KnowledgeLibrary").then((m) => ({ default: m.KnowledgeLibrary })),
+);
+export const ArtifactCenter = lazyWithPreload(() =>
+  import("./pages/ArtifactCenter/ArtifactCenter").then((m) => ({ default: m.ArtifactCenter })),
+);
+export const MemoryPage = lazyWithPreload(() =>
+  import("./pages/MemoryPage/MemoryPage").then((m) => ({ default: m.MemoryPage })),
+);
+export const CMDBPage = lazyWithPreload(() =>
+  import("./pages/CMDB/CMDBPage").then((m) => ({ default: m.CMDBPage })),
+);
+export const ReviewCenter = lazyWithPreload(() =>
+  import("./pages/ReviewCenter/ReviewCenter").then((m) => ({ default: m.ReviewCenter })),
+);
+export const RuntimeAudit = lazyWithPreload(() =>
+  import("./pages/RuntimeAudit/RuntimeAudit").then((m) => ({ default: m.RuntimeAudit })),
+);
+export const FileManager = lazyWithPreload(() =>
+  import("./pages/FileManager/FileManager").then((m) => ({ default: m.FileManager })),
+);
+
+// Path → preload thunk. Keys match `NAV_ITEMS.to` plus the secondary routes.
+const PRELOAD: Record<string, () => PageModule> = {
+  "/workbench": TaskWorkbench.preload,
+  "/packet": PacketAnalysis.preload,
+  "/knowledge": KnowledgeLibrary.preload,
+  "/artifacts": ArtifactCenter.preload,
+  "/memory": MemoryPage.preload,
+  "/cmdb": CMDBPage.preload,
+  "/capabilities": CapabilityCenter.preload,
+  "/jobs": JobsPage.preload,
+  "/diagnostics": Diagnostics.preload,
+  "/settings": Settings.preload,
+  "/runs": RunsPage.preload,
+  "/audit": RuntimeAudit.preload,
+  "/reviews": ReviewCenter.preload,
+  "/files": FileManager.preload,
+};
+
+/** Warm a route's chunk ahead of navigation (call on hover/focus). */
+export function preloadRoute(path: string): void {
+  PRELOAD[path]?.();
+}
