@@ -31,17 +31,14 @@ export const TaskWorkbench = lazyWithPreload(() =>
 export const CapabilityCenter = lazyWithPreload(() =>
   import("./pages/CapabilityCenter/CapabilityCenter").then((m) => ({ default: m.CapabilityCenter })),
 );
-export const RunsPage = lazyWithPreload(() =>
-  import("./pages/RunsPage/RunsPage").then((m) => ({ default: m.RunsPage })),
+export const OperationsPage = lazyWithPreload(() =>
+  import("./pages/Operations/OperationsPage").then((m) => ({ default: m.OperationsPage })),
 );
 export const Settings = lazyWithPreload(() =>
   import("./pages/Settings/Settings").then((m) => ({ default: m.Settings })),
 );
 export const Diagnostics = lazyWithPreload(() =>
   import("./pages/Diagnostics/Diagnostics").then((m) => ({ default: m.Diagnostics })),
-);
-export const JobsPage = lazyWithPreload(() =>
-  import("./pages/JobsPage/JobsPage").then((m) => ({ default: m.JobsPage })),
 );
 export const PacketAnalysis = lazyWithPreload(() =>
   import("./pages/PacketAnalysis/PacketAnalysis").then((m) => ({ default: m.PacketAnalysis })),
@@ -77,10 +74,9 @@ const PRELOAD: Record<string, () => PageModule> = {
   "/memory": MemoryPage.preload,
   "/cmdb": CMDBPage.preload,
   "/capabilities": CapabilityCenter.preload,
-  "/jobs": JobsPage.preload,
   "/diagnostics": Diagnostics.preload,
   "/settings": Settings.preload,
-  "/runs": RunsPage.preload,
+  "/runs": OperationsPage.preload,
   "/audit": RuntimeAudit.preload,
   "/reviews": ReviewCenter.preload,
   "/files": FileManager.preload,

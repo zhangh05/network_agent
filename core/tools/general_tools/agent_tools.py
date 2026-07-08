@@ -1,4 +1,8 @@
-"""Agent orchestration tools — OpenCode-aligned profile-based subagent system."""
+"""Agent orchestration tools — OpenCode-aligned profile-based subagent system.
+
+P2 重构: 每个 profile 是独立的具名工具 (spawn_review_agent, spawn_fix_agent 等),
+LLM 从工具列表里选择, 不再需要填写 agent_type 字符串。
+"""
 
 from __future__ import annotations
 
@@ -7,65 +11,15 @@ from workspace.ids import validate_workspace_id
 
 from core.tools.general_tools.shared import _caller_workspace, _error_inv, _ok, _result
 
-
-# ── Agent profiles — declarative, extensible ─────────────────────────
-
-_AGENT_PROFILES: dict[str, dict] = {
-    "explore": {
-        "name": "explore",
-        "description": "Read-only code explorer. Finds files, searches code, answers codebase questions.",
-        "allowed_tools": [
-            "workspace.file", "workspace.artifact",
-            "web.manage", "knowledge.manage",
-            "code.search", "text.analyze",
-        ],
-        "temperature": 0.3,
-        "max_turns": 3,
-        "scale": "small",  # fast, low cost
-    },
-    "research": {
-        "name": "research",
-        "description": "Web and knowledge research. Searches external sources, fetches docs, aggregates findings.",
-        "allowed_tools": [
-            "web.manage", "knowledge.manage",
-            "data.manage", "text.analyze",
-            "workspace.artifact",
-        ],
-        "temperature": 0.5,
-        "max_turns": 5,
-        "scale": "medium",
-    },
-    "worker": {
-        "name": "worker",
-        "description": "Full-capability worker. Reads/writes files, executes commands, processes data.",
-        "allowed_tools": [
-            "workspace.file", "workspace.artifact",
-            "web.manage", "knowledge.manage",
-            "data.manage", "text.analyze",
-            "exec.run", "system.manage",
-            "browser.manage", "config.manage",
-        ],
-        "temperature": 0.4,
-        "max_turns": 8,
-        "scale": "large",
-    },
-    "review": {
-        "name": "review",
-        "description": "Read-only reviewer. Checks code quality, finds issues, suggests improvements.",
-        "allowed_tools": [
-            "workspace.file", "workspace.artifact",
-            "text.analyze", "data.manage",
-            "knowledge.manage",
-        ],
-        "temperature": 0.2,
-        "max_turns": 3,
-        "scale": "small",
-    },
-}
+# Re-export the BUILTIN_PROFILES from subagent runtime for validation
+from agent.runtime.durable.subagent import BUILTIN_PROFILES, SubagentProfile
 
 
-def _get_profile(agent_type: str) -> dict | None:
-    return _AGENT_PROFILES.get(agent_type)
+# ── Subagent execution ───────────────────────────────────────────────
+
+
+def _get_profile(profile_id: str) -> SubagentProfile | None:
+    return BUILTIN_PROFILES.get(profile_id)
 
 
 def _inv_session_id(inv: ToolInvocation) -> str:
@@ -73,12 +27,9 @@ def _inv_session_id(inv: ToolInvocation) -> str:
     return str(args.get("session_id") or getattr(inv, "session_id", "") or "").strip()
 
 
-# ── Subagent execution ───────────────────────────────────────────────
-
-
 def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: str,
                           parent_task_id: str = "",
-                          agent_type: str = "explore",
+                          profile_id: str = "review_agent",
                           max_turns: int = 3,
                           background: bool = False) -> dict:
     from agent.runtime.durable.subagent import (
@@ -87,13 +38,11 @@ def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: st
         run_subagent_task,
     )
 
-    profile = _get_profile(agent_type)
+    profile = _get_profile(profile_id)
     if not profile:
-        return {"ok": False, "error": f"unknown agent_type: {agent_type}"}
+        return {"ok": False, "error": f"unknown profile_id: {profile_id}"}
 
-    profile_id = profile["name"]
-    effective_turns = min(max_turns, profile.get("max_turns", 5))
-    allowed_tools = profile.get("allowed_tools", [])
+    effective_turns = min(max_turns, profile.max_steps)
 
     created = create_subagent_task(
         parent_task_id=parent_task_id,
@@ -109,11 +58,10 @@ def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: st
     subtask_id = created["subtask_id"]
 
     if background:
-        # TODO: Wire up async background execution
         return {
             "ok": True, "subtask_id": subtask_id,
             "background": True,
-            "_hint": f"Subagent {agent_type} launched in background (task: {subtask_id})",
+            "_hint": f"Subagent {profile_id} launched in background (task: {subtask_id})",
         }
 
     result = run_subagent_task(subtask_id, workspace_id)
@@ -125,7 +73,8 @@ def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: st
         "summary": result.get("summary", ""),
         "subtask_id": subtask_id,
         "child_session_id": child_session_id,
-        "agent_type": agent_type,
+        "profile_id": profile_id,
+        "agent_name": profile.name,
         "status": result.get("status", "unknown"),
         "findings": result.get("findings", []),
         "tool_results": result.get("tool_results", []),
@@ -134,50 +83,25 @@ def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: st
     }
 
 
-# ── Action handlers ──────────────────────────────────────────────────
+# ── Generic spawn dispatcher ─────────────────────────────────────────
 
 
-def handle_agent_list(inv: ToolInvocation) -> dict:
-    """List available agent profiles with capabilities."""
-    profiles = []
-    for ptype, p in _AGENT_PROFILES.items():
-        profiles.append({
-            "agent_type": ptype,
-            "description": p["description"],
-            "max_turns": p.get("max_turns", 5),
-            "scale": p.get("scale", "medium"),
-        })
-    return _ok(inv, "", {
-        "agents": profiles, "count": len(profiles),
-        "_hint": (
-            "explore/research/review 用于只读任务。worker 用于需要写文件或执行命令的任务。"
-            "用 spawn 启动子Agent，用 get 获取结果。"
-        ),
-    })
-
-
-def handle_agent_spawn(inv: ToolInvocation) -> dict:
-    """Spawn a subagent with typed profile.
-
-    Required: agent_type (explore|research|worker|review), instruction.
-    Optional: max_turns (default from profile), background (default false).
-    """
+def _spawn_agent(inv: ToolInvocation, profile_id: str, default_max_turns: int = 5) -> dict:
+    """Generic dispatcher for spawning a subagent of a specific profile."""
     args = inv.arguments
     instruction = str(args.get("instruction", "")).strip()
-    agent_type = str(args.get("agent_type", "explore")).strip()
     max_turns = int(args.get("max_turns", 0) or 0)
     background = bool(args.get("background", False))
 
     if not instruction:
         return _error_inv(inv, "instruction is required")
 
-    profile = _get_profile(agent_type)
+    profile = _get_profile(profile_id)
     if not profile:
-        available = list(_AGENT_PROFILES.keys())
-        return _error_inv(inv, f"unknown agent_type: {agent_type!r}. Available: {available}")
+        return _error_inv(inv, f"unknown profile_id: {profile_id}")
 
     workspace_id = _caller_workspace(inv)
-    effective_turns = max_turns or profile.get("max_turns", 5)
+    effective_turns = max_turns or default_max_turns
 
     try:
         validate_workspace_id(workspace_id)
@@ -186,21 +110,83 @@ def handle_agent_spawn(inv: ToolInvocation) -> dict:
             workspace_id=workspace_id,
             session_id=_inv_session_id(inv),
             parent_task_id=getattr(inv, "task_id", "") or "",
-            agent_type=agent_type,
+            profile_id=profile_id,
             max_turns=effective_turns,
             background=background,
         )
         return _result(inv, result.get("ok", False), {
             **result,
             "_hint": (
-                f"Subagent {agent_type} "
+                f"Subagent {profile_id} "
                 + ("已启动（后台）。" if background else f"完成，状态: {result.get('status')}。")
                 + f" subtask_id: {result.get('subtask_id')}。"
-                + " 用 get 获取详细结果。"
+                + " 用 agent.manage(action=get) 获取详细结果。"
             ),
         })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
+
+
+# ── 7 Named spawn tools ──────────────────────────────────────────────
+
+
+def spawn_review_agent(inv: ToolInvocation) -> dict:
+    """Spawn a read-only review agent for code/config review."""
+    return _spawn_agent(inv, "review_agent", default_max_turns=3)
+
+
+def spawn_fix_agent(inv: ToolInvocation) -> dict:
+    """Spawn a fix agent that can modify code/config (requires approval)."""
+    return _spawn_agent(inv, "fix_agent", default_max_turns=8)
+
+
+def spawn_test_agent(inv: ToolInvocation) -> dict:
+    """Spawn a test runner agent for running tests and validations."""
+    return _spawn_agent(inv, "test_agent", default_max_turns=5)
+
+
+def spawn_doc_agent(inv: ToolInvocation) -> dict:
+    """Spawn a documentation agent for updating docs."""
+    return _spawn_agent(inv, "doc_agent", default_max_turns=5)
+
+
+def spawn_network_diag_agent(inv: ToolInvocation) -> dict:
+    """Spawn a network diagnostic agent for troubleshooting."""
+    return _spawn_agent(inv, "network_diag_agent", default_max_turns=8)
+
+
+def spawn_config_translate_agent(inv: ToolInvocation) -> dict:
+    """Spawn a config translation agent for vendor config conversion."""
+    return _spawn_agent(inv, "config_translate_agent", default_max_turns=10)
+
+
+def spawn_security_agent(inv: ToolInvocation) -> dict:
+    """Spawn a security audit agent for permission/review analysis."""
+    return _spawn_agent(inv, "security_agent", default_max_turns=5)
+
+
+# ── Other action handlers ────────────────────────────────────────────
+
+
+def handle_agent_list(inv: ToolInvocation) -> dict:
+    """List available agent profiles with capabilities."""
+    profiles = []
+    for pid, p in BUILTIN_PROFILES.items():
+        profiles.append({
+            "profile_id": pid,
+            "name": p.name,
+            "description": p.description,
+            "max_steps": p.max_steps,
+            "allowed_tools": p.allowed_tools,
+            "can_modify_files": p.can_modify_files,
+            "can_execute_commands": p.can_execute_commands,
+            "can_call_network": p.can_call_network,
+        })
+    return _ok(inv, "", {
+        "profiles": profiles,
+        "count": len(profiles),
+        "_hint": "用 spawn_<profile_id> 工具启动子Agent。可用: " + ", ".join(BUILTIN_PROFILES.keys()),
+    })
 
 
 def handle_agent_get_result(inv: ToolInvocation) -> dict:
@@ -268,7 +254,6 @@ def handle_agent_cancel(inv: ToolInvocation) -> dict:
     try:
         ws = _caller_workspace(inv)
         validate_workspace_id(ws)
-        # Mark subtask as cancelled in trajectory
         from agent.runtime.durable.trajectory import _live_tasks
         task = _live_tasks.get(subtask_id)
         if task:
@@ -293,12 +278,12 @@ def handle_agent_status(inv: ToolInvocation) -> dict:
             tasks.append({
                 "subtask_id": tid,
                 "status": task.get("status", "unknown"),
-                "agent_type": task.get("profile_id", ""),
+                "profile_id": task.get("profile_id", ""),
                 "instruction": (task.get("goal", "") or "")[:100],
             })
         return _ok(inv, "", {
             "tasks": tasks, "count": len(tasks),
-            "_hint": f"{len(tasks)} 个子Agent任务。用 cancel 取消运行中的任务。",
+            "_hint": f"{len(tasks)} 个子Agent任务。用 agent.manage(action=cancel) 取消运行中的任务。",
         })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
@@ -307,10 +292,17 @@ def handle_agent_status(inv: ToolInvocation) -> dict:
 # ── Exports ──────────────────────────────────────────────────────────
 
 __all__ = [
+    # 7 named spawn tools
+    'spawn_review_agent',
+    'spawn_fix_agent',
+    'spawn_test_agent',
+    'spawn_doc_agent',
+    'spawn_network_diag_agent',
+    'spawn_config_translate_agent',
+    'spawn_security_agent',
+    # Other action handlers
     'handle_agent_list',
-    'handle_agent_spawn',
     'handle_agent_get_result',
     'handle_agent_cancel',
     'handle_agent_status',
-    '_AGENT_PROFILES',
 ]

@@ -84,8 +84,8 @@ class TestSecretFields:
 class TestIdempotencyAndRetry:
     def test_safe_to_retry_tools_are_retryable(self):
         # v3.9.2: merged tools whose manifest marks safe_to_retry.
-        # agent.manage is unsafe_to_retry (contains spawn/background execution).
-        for tid in ("web.manage", "browser.manage", "knowledge.manage", "code.search"):
+        # v3.16.2: agent.manage is now safe_to_retry (spawn moved to named tools).
+        for tid in ("web.manage", "browser.manage", "knowledge.manage", "code.search", "agent.manage"):
             assert is_retryable(tid), f"{tid} should be retryable"
 
     def test_destructive_not_retryable(self):
@@ -95,9 +95,10 @@ class TestIdempotencyAndRetry:
 
     def test_non_idempotent_not_retryable(self):
         # v3.9.2: exec.run is unsafe; git.push and exec.python merged into them.
+        # v3.16.2: agent.manage is now read-only (spawn moved to named spawn_*_agent tools).
         assert not is_retryable("exec.run")
         assert not is_retryable("git.manage")
-        assert not is_retryable("agent.manage")
+        assert is_retryable("agent.manage")
 
 
 class TestAllowedCallers:

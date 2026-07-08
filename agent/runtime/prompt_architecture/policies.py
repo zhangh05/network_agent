@@ -61,7 +61,12 @@ All canonical tools are available through the SSOT Runtime — use whichever the
 30. Inspection tasks: use ``inspection.manage(action="run")`` to create a background task, then ``inspection.manage(action="get", task_id=...)`` to track it. If the task is still running/pending, say so with the task_id; after succeeded/partial, call ``inspection.manage(action="report", task_id=..., format="html")`` and include the report link.
 31. Local system facts: use ``system.manage(action="local_info")`` for local IP address, hostname, OS, cwd, and platform facts. Do not use ``exec.run(command="ip")`` as the first choice for these.
 32. File/code tasks: discover with ``workspace.file(action="glob")`` or ``code.search`` before editing. Read before patching.
-33. Subagent tasks: use ``agent.manage`` only for independent review/search/test subtasks; keep simple lookups in the main plan.
+33. Subagent tasks: pick from the named spawn tools — `spawn_review_agent`,
+    `spawn_fix_agent`, `spawn_test_agent`, `spawn_doc_agent`,
+    `spawn_network_diag_agent`, `spawn_config_translate_agent`,
+    `spawn_security_agent`. Use `agent.manage(action="list")` to see profiles,
+    `action="get"` to fetch results, `action="cancel"` to stop, `action="status"`
+    to view all. Keep simple lookups in the main plan.
 34. Memory tasks: search memory when prior user/project preferences matter. Write memory only on explicit user intent or governed workflow.
 
 ## Safety rules

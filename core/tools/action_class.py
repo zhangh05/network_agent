@@ -5,7 +5,7 @@ v2.3.2: Uses category/group/action to classify each tool into:
 - read: list/read/get/search/summary/preview/exists/validate/diff
 - write: save/write/edit/patch/tag/export/render
 - mutate: create/update/delete/disable/reindex/import/load/unload/confirm/set/rewind/checkpoint
-- execute: exec/run/spawn/slash_run
+- execute: exec/run/slash_run/spawn_
 - external: web/search/page/save_artifact/news/weather/extract_links
 """
 
@@ -34,7 +34,10 @@ MUTATE_ACTIONS = {
 }
 
 EXECUTE_ACTIONS = {
-    "exec", "run", "spawn", "slash_run",
+    "exec", "run", "slash_run",
+    "spawn_review_agent", "spawn_fix_agent", "spawn_test_agent",
+    "spawn_doc_agent", "spawn_network_diag_agent",
+    "spawn_config_translate_agent", "spawn_security_agent",
 }
 
 EXTERNAL_ACTIONS = {

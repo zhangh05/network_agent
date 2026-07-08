@@ -7,7 +7,11 @@ from core.tools.general_tools.skill_tools import handle_skill_list, handle_skill
 from core.tools.general_tools.pdf_tools import handle_pdf_extract_text
 from core.tools.general_tools.file_tools import handle_file_list, handle_file_exists, handle_file_read, handle_file_edit, handle_file_patch, handle_ws_list_files, handle_ws_read_text_preview, handle_ws_write_artifact_file, handle_ws_path_exists, handle_ws_get_metadata
 from core.tools.general_tools.command_tools import handle_command_approved_exec, handle_powershell_approved_script, handle_slash_run, handle_python_exec
-from core.tools.general_tools.agent_tools import handle_agent_spawn, handle_agent_list, handle_agent_get_result, handle_agent_cancel, handle_agent_status
+from core.tools.general_tools.agent_tools import (
+    spawn_review_agent, spawn_fix_agent, spawn_test_agent, spawn_doc_agent,
+    spawn_network_diag_agent, spawn_config_translate_agent, spawn_security_agent,
+    handle_agent_list, handle_agent_get_result, handle_agent_cancel, handle_agent_status,
+)
 from core.tools.general_tools.runtime_tools import handle_knowledge_index_artifact, handle_knowledge_reindex, handle_knowledge_search, handle_knowledge_get_source, handle_knowledge_get_chunk_summary, handle_knowledge_explain_not_found, handle_runtime_health, handle_runtime_selfcheck, handle_runtime_diagnostics, handle_runtime_local_info, handle_runtime_retention_preview, handle_runtime_archive_preview, handle_report_render_markdown, handle_report_save_artifact, handle_doc_render_from_safe_summary, handle_table_render_markdown, handle_diagram_render_mermaid, handle_text_redact, handle_text_diff, handle_text_extract_keywords, handle_text_classify
 from core.tools.general_tools.shared import ROOT, WS_ROOT, _generate_diff_preview, _workspace_path
 
@@ -71,7 +75,13 @@ __all__ = [
     'handle_powershell_approved_script',
     'handle_slash_run',
     'handle_python_exec',
-    'handle_agent_spawn',
+    'spawn_review_agent',
+    'spawn_fix_agent',
+    'spawn_test_agent',
+    'spawn_doc_agent',
+    'spawn_network_diag_agent',
+    'spawn_config_translate_agent',
+    'spawn_security_agent',
     'handle_agent_list',
     'handle_agent_get_result',
     'handle_agent_cancel',

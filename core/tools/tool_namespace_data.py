@@ -182,14 +182,38 @@ NS_DATA = [
      'Read-only discovery; loading a skill does not execute the business task.',
      'skill list find load inspect capability', 'skill.manage'),
 
-    # 13. agent.manage — unifies spawn + team.run + result.get + role.list
+    # 13. agent.manage — list/get/cancel/status (spawn moved to 7 named tools)
     ('agent.manage', 'agent', 'subagent', 'multi', 'Agent 多 Agent', 'agent.manage',
-     'Unified agent tool. action=spawn (single sub-agent, max_turns enforced), '
-     'action=team_run (planner+worker+reviewer team; parallel=true for up to 3), '
-     'action=result_get (fetch a child session result by child_session_id), '
-     'action=role_list (available agent roles). '
-     'Do not bypass max_turns; do not return unredacted child payloads.',
-     'agent subagent spawn team result role', 'agent.manage'),
+     'Manage sub-agents. '
+     'action=list (show 7 profiles), result_get (child result by child_session_id), '
+     'cancel (stop subagent), status (view all tasks). '
+     'To spawn a subagent, use spawn_<profile>: '
+     'spawn_review_agent, spawn_fix_agent, spawn_test_agent, spawn_doc_agent, '
+     'spawn_network_diag_agent, spawn_config_translate_agent, spawn_security_agent.',
+     'agent subagent manage list status cancel', 'agent.manage'),
+
+    # 13b-13h. Spawn tools — one per profile (LLM selects from tool list)
+    ('spawn_review_agent', 'agent', 'subagent', 'spawn', '派发审查 Agent', 'spawn_review_agent',
+     'Spawn a read-only review agent. Checks code quality, finds issues, suggests improvements. Read-only, no file modifications.',
+     'agent spawn review code check', 'spawn_review_agent'),
+    ('spawn_fix_agent', 'agent', 'subagent', 'spawn', '派发修复 Agent', 'spawn_fix_agent',
+     'Spawn a fix agent that can modify code/config. Requires approval for write operations.',
+     'agent spawn fix code config', 'spawn_fix_agent'),
+    ('spawn_test_agent', 'agent', 'subagent', 'spawn', '派发测试 Agent', 'spawn_test_agent',
+     'Spawn a test runner agent. Runs tests and validations with limited execution.',
+     'agent spawn test validate', 'spawn_test_agent'),
+    ('spawn_doc_agent', 'agent', 'subagent', 'spawn', '派发文档 Agent', 'spawn_doc_agent',
+     'Spawn a documentation agent. Updates documentation files.',
+     'agent spawn doc documentation', 'spawn_doc_agent'),
+    ('spawn_network_diag_agent', 'agent', 'subagent', 'spawn', '派发网络诊断 Agent', 'spawn_network_diag_agent',
+     'Spawn a network diagnostic agent. Diagnoses network issues with read-only network access.',
+     'agent spawn network diagnose', 'spawn_network_diag_agent'),
+    ('spawn_config_translate_agent', 'agent', 'subagent', 'spawn', '派发配置翻译 Agent', 'spawn_config_translate_agent',
+     'Spawn a config translation agent. Translates network config between vendors.',
+     'agent spawn config translate vendor', 'spawn_config_translate_agent'),
+    ('spawn_security_agent', 'agent', 'subagent', 'spawn', '派发安全审计 Agent', 'spawn_security_agent',
+     'Spawn a security audit agent. Reviews permissions, risks, and access patterns.',
+     'agent spawn security audit', 'spawn_security_agent'),
 
     # 14. system.manage — 13 tools merged
     ('system.manage', 'system', 'health', 'multi', '系统自省', 'system.manage',

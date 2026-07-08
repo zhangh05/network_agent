@@ -21,7 +21,6 @@ describe("CMDB inspection launch", () => {
     useSessionStore.setState({
       currentWorkspaceId: "default",
       currentSessionId: "sess-cmdb",
-      sessions: [],
     });
     useWorkbenchStore.getState().clear();
     useWorkbenchStore.setState({ bySession: {}, sending: false });

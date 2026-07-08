@@ -59,8 +59,8 @@ def test_unrelated_aliases_normalize_for_other_tools():
     # knowledge.manage
     assert normalize_action_alias("knowledge_get")[:2] == ("read", "knowledge_get")
     assert normalize_action_alias("knowledge_search")[:2] == ("search", "knowledge_search")
-    # agent.manage
-    assert normalize_action_alias("agent_spawn")[:2] == ("spawn", "agent_spawn")
+    # agent.manage — spawn alias removed (spawn moved to named tools), still mapped
+    assert normalize_action_alias("agent_spawn")[:2] == ("agent_spawn", None)
     assert normalize_action_alias("agent_list")[:2] == ("list", "agent_list")
 
 

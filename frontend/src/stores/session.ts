@@ -11,7 +11,6 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { Session } from "../types";
 
 export function isInternalSessionId(id: string | null | undefined): boolean {
   const value = (id || "").trim();
@@ -21,11 +20,13 @@ export function isInternalSessionId(id: string | null | undefined): boolean {
 interface SessionState {
   currentWorkspaceId: string;
   currentSessionId: string | null;
-  sessions: Session[];
+
+  /** Bumped whenever the session list must be re-fetched (e.g. session restored elsewhere). */
+  sessionListVersion: number;
+  bumpSessionList: () => void;
 
   setCurrentWorkspace: (id: string) => void;
   setCurrentSession: (id: string | null) => void;
-  setSessions: (s: Session[]) => void;
   reset: () => void;
 }
 
@@ -34,20 +35,13 @@ export const useSessionStore = create<SessionState>()(
     (set) => ({
       currentWorkspaceId: "default",
       currentSessionId: null,
-      sessions: [],
-      setCurrentWorkspace: (id) => set({ currentWorkspaceId: id, currentSessionId: null, sessions: [] }),
+      sessionListVersion: 0,
+      bumpSessionList: () => set((s) => ({ sessionListVersion: s.sessionListVersion + 1 })),
+      setCurrentWorkspace: (id) => set({ currentWorkspaceId: id, currentSessionId: null }),
       setCurrentSession: (id) => set({ currentSessionId: isInternalSessionId(id) ? null : id }),
-      setSessions: (sessions) => set((state) => {
-        const visibleSessions = sessions.filter((s) => !isInternalSessionId(s.session_id));
-        const currentSessionId = state.currentSessionId && visibleSessions.some((s) => s.session_id === state.currentSessionId)
-          ? state.currentSessionId
-          : null;
-        return { sessions: visibleSessions, currentSessionId };
-      }),
       reset: () =>
         set({
           currentSessionId: null,
-          sessions: [],
         }),
     }),
     {
@@ -62,7 +56,6 @@ export const useSessionStore = create<SessionState>()(
           ...current,
           ...p,
           currentSessionId: isInternalSessionId(p.currentSessionId) ? null : (p.currentSessionId ?? null),
-          sessions: [],
         };
       },
     },

@@ -143,7 +143,6 @@ CANONICAL_ALIASES_BY_TOOL: Final[dict[str, dict[str, tuple[str, str | None]]]] =
     },
 
     "agent.manage": {
-        "agent_spawn": ("spawn", None),
         "agent_list": ("list", None),
     },
 
@@ -208,7 +207,7 @@ _CANONICAL_ACTIONS: Final[dict[str, frozenset[str]]] = {
         "list", "get", "add", "delete", "update", "export",
     }),
     "agent.manage": frozenset({
-        "list", "spawn", "get", "cancel", "status",
+        "list", "get", "cancel", "status",
     }),
     "git.manage": frozenset({
         "status", "log", "diff", "commit", "push",

@@ -18,10 +18,9 @@ import { NAV_ITEMS } from "../config/nav";
 import {
   TaskWorkbench,
   CapabilityCenter,
-  RunsPage,
+  OperationsPage,
   Settings,
   Diagnostics,
-  JobsPage,
   PacketAnalysis,
   KnowledgeLibrary,
   ArtifactCenter,
@@ -42,7 +41,6 @@ function formatVersion(version: string): string {
 const SKELETON_BY_PATH: Record<string, "list" | "table"> = {
   "/workbench": "list",
   "/runs": "list",
-  "/jobs": "list",
   "/audit": "table",
   "/reviews": "list",
   "/cmdb": "list",
@@ -183,10 +181,9 @@ function AppShell() {
                 <Route path="/memory" element={<ErrorBoundary><MemoryPage /></ErrorBoundary>} />
                 <Route path="/cmdb" element={<ErrorBoundary><CMDBPage /></ErrorBoundary>} />
                 <Route path="/capabilities" element={<ErrorBoundary><CapabilityCenter /></ErrorBoundary>} />
-                <Route path="/jobs" element={<ErrorBoundary><JobsPage /></ErrorBoundary>} />
                 <Route path="/diagnostics" element={<ErrorBoundary><Diagnostics /></ErrorBoundary>} />
                 <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
-                <Route path="/runs" element={<ErrorBoundary><RunsPage /></ErrorBoundary>} />
+                <Route path="/runs" element={<ErrorBoundary><OperationsPage /></ErrorBoundary>} />
                 <Route path="/audit" element={<ErrorBoundary><RuntimeAudit /></ErrorBoundary>} />
                 <Route path="/reviews" element={<ErrorBoundary><ReviewCenter /></ErrorBoundary>} />
                 <Route path="/files" element={<ErrorBoundary><FileManager /></ErrorBoundary>} />

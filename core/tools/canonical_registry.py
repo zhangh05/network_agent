@@ -1002,11 +1002,10 @@ def _handle_skill_merged(inv: ToolInvocation) -> dict:
 
 
 def _handle_agent_merged(inv: ToolInvocation) -> dict:
-    """agent.manage — action=list|spawn|get|cancel|status."""
+    """agent.manage — action=list|get|cancel/status."""
     action, _ = _action(inv)
     return {
         "list": handle_agent_list,
-        "spawn": handle_agent_spawn,
         "get": handle_agent_get_result,
         "cancel": handle_agent_cancel,
         "status": handle_agent_status,
@@ -1262,7 +1261,13 @@ from core.tools.general_tools.command_tools import (
     handle_python_exec,
 )
 from core.tools.general_tools.agent_tools import (
-    handle_agent_spawn,
+    spawn_review_agent,
+    spawn_fix_agent,
+    spawn_test_agent,
+    spawn_doc_agent,
+    spawn_network_diag_agent,
+    spawn_config_translate_agent,
+    spawn_security_agent,
     handle_agent_list,
     handle_agent_get_result,
     handle_agent_cancel,
@@ -2933,7 +2938,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         ),
     ),
 
-    # 13. agent.manage — list / spawn / get / cancel / status
+    # 13. agent.manage — list / get / cancel / status (spawn moved to 7 named tools)
     CanonicalToolEntry(
         canonical_tool_id="agent.manage",
         handler=_adapt(_handle_agent_merged),
@@ -2941,44 +2946,103 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "workspace_id": _S["workspace_id"],
             "action": {
                 "type": "string",
-                "enum": ["list", "spawn", "get", "cancel", "status"],
+                "enum": ["list", "get", "cancel", "status"],
                 "description": (
-                    "list (show agent profiles) | spawn (launch subagent) | "
+                    "list (show agent profiles) | "
                     "get (fetch subagent result) | cancel (stop subagent) | "
                     "status (view all subagent tasks)"
                 ),
                 "default": "list",
             },
             "session_id": _S["session_id"],
-            "agent_type": {
-                "type": "string",
-                "enum": ["explore", "research", "worker", "review"],
-                "description": "[spawn] Subagent profile. explore=code search, research=web lookup, worker=full access, review=code check.",
-                "default": "explore",
-            },
-            "instruction": {
-                "type": "string",
-                "description": "[spawn] Task description for the subagent.",
-            },
-            "max_turns": {
-                "type": "integer", "default": 3, "minimum": 1, "maximum": 10,
-                "description": "[spawn] Max tool-call turns for subagent.",
-            },
-            "background": {
-                "type": "boolean", "default": False,
-                "description": "[spawn] Run in background (async).",
-            },
             "child_session_id": _S["session_id"],
             "subtask_id": {"type": "string", "description": "[cancel] Subagent task ID to cancel."},
         }, ["action"]),
         risk_level="medium",
         description=(
-            "Delegates tasks to subagents. Use when: search multiple codebases, "
-            "parallel research, independent subtasks. "
-            "list: show 4 profiles (explore=code, research=web, worker=full, review=check). "
-            "spawn: launch subagent with agent_type+instruction. "
-            "get: fetch result. cancel: stop running. status: view all."
+            "Manage subagents. list: show 7 profiles. "
+            "get: fetch result. cancel: stop running. status: view all. "
+            "To spawn, use spawn_<profile> tools (spawn_review_agent, spawn_fix_agent, etc.)."
         ),
+    ),
+
+    # 13b-13h. Spawn tools — one per profile (LLM selects from tool list, no free-text name)
+    CanonicalToolEntry(
+        canonical_tool_id="spawn_review_agent",
+        handler=_adapt(spawn_review_agent),
+        input_schema=_schema({
+            "instruction": {"type": "string", "description": "Task description for the review agent."},
+            "max_turns": {"type": "integer", "default": 3, "minimum": 1, "maximum": 10, "description": "Max tool-call turns."},
+            "background": {"type": "boolean", "default": False, "description": "Run in background."},
+        }, ["instruction"]),
+        risk_level="medium",
+        description="Spawn a read-only review agent. Checks code quality, finds issues, suggests improvements.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="spawn_fix_agent",
+        handler=_adapt(spawn_fix_agent),
+        input_schema=_schema({
+            "instruction": {"type": "string", "description": "Task description for the fix agent."},
+            "max_turns": {"type": "integer", "default": 8, "minimum": 1, "maximum": 10, "description": "Max tool-call turns."},
+            "background": {"type": "boolean", "default": False, "description": "Run in background."},
+        }, ["instruction"]),
+        risk_level="medium",
+        description="Spawn a fix agent that can modify code/config. Requires approval for write operations.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="spawn_test_agent",
+        handler=_adapt(spawn_test_agent),
+        input_schema=_schema({
+            "instruction": {"type": "string", "description": "Task description for the test agent."},
+            "max_turns": {"type": "integer", "default": 5, "minimum": 1, "maximum": 10, "description": "Max tool-call turns."},
+            "background": {"type": "boolean", "default": False, "description": "Run in background."},
+        }, ["instruction"]),
+        risk_level="medium",
+        description="Spawn a test runner agent. Runs tests and validations with limited execution.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="spawn_doc_agent",
+        handler=_adapt(spawn_doc_agent),
+        input_schema=_schema({
+            "instruction": {"type": "string", "description": "Task description for the documentation agent."},
+            "max_turns": {"type": "integer", "default": 5, "minimum": 1, "maximum": 10, "description": "Max tool-call turns."},
+            "background": {"type": "boolean", "default": False, "description": "Run in background."},
+        }, ["instruction"]),
+        risk_level="medium",
+        description="Spawn a documentation agent. Updates documentation files.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="spawn_network_diag_agent",
+        handler=_adapt(spawn_network_diag_agent),
+        input_schema=_schema({
+            "instruction": {"type": "string", "description": "Task description for the network diagnostic agent."},
+            "max_turns": {"type": "integer", "default": 8, "minimum": 1, "maximum": 10, "description": "Max tool-call turns."},
+            "background": {"type": "boolean", "default": False, "description": "Run in background."},
+        }, ["instruction"]),
+        risk_level="medium",
+        description="Spawn a network diagnostic agent. Diagnoses network issues with read-only network access.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="spawn_config_translate_agent",
+        handler=_adapt(spawn_config_translate_agent),
+        input_schema=_schema({
+            "instruction": {"type": "string", "description": "Task description for the config translation agent."},
+            "max_turns": {"type": "integer", "default": 10, "minimum": 1, "maximum": 10, "description": "Max tool-call turns."},
+            "background": {"type": "boolean", "default": False, "description": "Run in background."},
+        }, ["instruction"]),
+        risk_level="medium",
+        description="Spawn a config translation agent. Translates network config between vendors.",
+    ),
+    CanonicalToolEntry(
+        canonical_tool_id="spawn_security_agent",
+        handler=_adapt(spawn_security_agent),
+        input_schema=_schema({
+            "instruction": {"type": "string", "description": "Task description for the security audit agent."},
+            "max_turns": {"type": "integer", "default": 5, "minimum": 1, "maximum": 10, "description": "Max tool-call turns."},
+            "background": {"type": "boolean", "default": False, "description": "Run in background."},
+        }, ["instruction"]),
+        risk_level="medium",
+        description="Spawn a security audit agent. Reviews permissions, risks, and access patterns.",
     ),
 
     # 14. system.manage — 9 system tools merged

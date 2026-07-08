@@ -69,8 +69,28 @@ export function ArtifactCenter() {
               {batch ? "取消" : "批量删除"}
             </button>
           </div>
-          {batch && checked.size > 0 && (
-            <button className="btn sm danger" onClick={delBatch} style={{ marginBottom: 8, width: "100%" }}>删除 {checked.size} 项</button>
+          {batch && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "6px 10px", background: "var(--surface-2)", borderRadius: "var(--r-6)", border: `1px solid ${checked.size > 0 ? "var(--accent)" : "var(--line)"}` }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flex: 1 }}>
+                <input type="checkbox"
+                  checked={list.state.kind === "success" && checked.size === (list.state.data.artifacts ?? []).length && (list.state.data.artifacts ?? []).length > 0}
+                  onChange={(e) => {
+                    if (e.target.checked && list.state.kind === "success") {
+                      setChecked(new Set((list.state.data.artifacts ?? []).map((a) => a.artifact_id)));
+                    } else {
+                      setChecked(new Set());
+                    }
+                  }}
+                  style={{ width: 14, height: 14, cursor: "pointer", accentColor: "var(--accent)" }} />
+                <span style={{ fontSize: "var(--fs-12)", fontWeight: 620, color: "var(--text-2)" }}>
+                  全选 {checked.size > 0 && `(已选 ${checked.size})`}
+                </span>
+              </label>
+              <button className="btn sm danger" disabled={checked.size === 0} onClick={delBatch}
+                style={{ opacity: checked.size === 0 ? 0.5 : 1, cursor: checked.size === 0 ? "not-allowed" : "pointer" }}>
+                删除 {checked.size || ""} 项
+              </button>
+            </div>
           )}
           <AsyncView state={list.state} onRetry={list.reload} emptyText="暂无制品" emptyHint="后端返回为空">
             {(d) => (

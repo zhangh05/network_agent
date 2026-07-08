@@ -177,19 +177,70 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         timeout_seconds=10,
     ),
 
-    # ═══ 13. agent.manage (merged: spawn+team.run+result.get+role.list) ═══
+    # ═══ 13. agent.manage (merged: result.get+role.list+status+cancel) ═══
     "agent.manage": CapabilityManifest(
-        tool_id="agent.manage", category="agent", display_name="Agent (unified)",
+        tool_id="agent.manage", category="agent", display_name="Agent (manage)",
         description=(
-            "Unified agent tool. action=role_list, result_get (reads); "
-            "action=spawn, team_run (execute, dispatcher enforces approval for team_run)."
+            "Manage sub-agents. action=list (show profiles), result_get (child result by id), "
+            "cancel (stop subagent), status (view all)."
         ),
         action_class="execute",
-        risk_level="medium",  # base level; team_run escalates via dispatcher
-        side_effects="remote_exec", idempotency="unsafe_to_retry",
+        risk_level="low",
+        side_effects="none", idempotency="safe_to_retry",
         requires_approval=False,
         allowed_callers=["turn_runner", "rest_api", "job_runner"],
-        timeout_seconds=300,
+        timeout_seconds=30,
+    ),
+
+    # ═══ 13b-13h. Spawn tools — one per profile ═══
+    "spawn_review_agent": CapabilityManifest(
+        tool_id="spawn_review_agent", category="agent", display_name="Spawn Review Agent",
+        description="Spawn a read-only review agent for code/config.",
+        action_class="execute", risk_level="medium", side_effects="none",
+        idempotency="unsafe_to_retry", requires_approval=False,
+        allowed_callers=["turn_runner", "rest_api", "job_runner"], timeout_seconds=300,
+    ),
+    "spawn_fix_agent": CapabilityManifest(
+        tool_id="spawn_fix_agent", category="agent", display_name="Spawn Fix Agent",
+        description="Spawn a fix agent that can modify code/config.",
+        action_class="execute", risk_level="medium", side_effects="none",
+        idempotency="unsafe_to_retry", requires_approval=False,
+        allowed_callers=["turn_runner", "rest_api", "job_runner"], timeout_seconds=300,
+    ),
+    "spawn_test_agent": CapabilityManifest(
+        tool_id="spawn_test_agent", category="agent", display_name="Spawn Test Agent",
+        description="Spawn a test runner agent.",
+        action_class="execute", risk_level="medium", side_effects="none",
+        idempotency="unsafe_to_retry", requires_approval=False,
+        allowed_callers=["turn_runner", "rest_api", "job_runner"], timeout_seconds=300,
+    ),
+    "spawn_doc_agent": CapabilityManifest(
+        tool_id="spawn_doc_agent", category="agent", display_name="Spawn Doc Agent",
+        description="Spawn a documentation agent.",
+        action_class="execute", risk_level="medium", side_effects="none",
+        idempotency="unsafe_to_retry", requires_approval=False,
+        allowed_callers=["turn_runner", "rest_api", "job_runner"], timeout_seconds=300,
+    ),
+    "spawn_network_diag_agent": CapabilityManifest(
+        tool_id="spawn_network_diag_agent", category="agent", display_name="Spawn Network Diag Agent",
+        description="Spawn a network diagnostic agent.",
+        action_class="execute", risk_level="medium", side_effects="none",
+        idempotency="unsafe_to_retry", requires_approval=False,
+        allowed_callers=["turn_runner", "rest_api", "job_runner"], timeout_seconds=300,
+    ),
+    "spawn_config_translate_agent": CapabilityManifest(
+        tool_id="spawn_config_translate_agent", category="agent", display_name="Spawn Config Translate Agent",
+        description="Spawn a config translation agent.",
+        action_class="execute", risk_level="medium", side_effects="none",
+        idempotency="unsafe_to_retry", requires_approval=False,
+        allowed_callers=["turn_runner", "rest_api", "job_runner"], timeout_seconds=300,
+    ),
+    "spawn_security_agent": CapabilityManifest(
+        tool_id="spawn_security_agent", category="agent", display_name="Spawn Security Agent",
+        description="Spawn a security audit agent.",
+        action_class="execute", risk_level="medium", side_effects="none",
+        idempotency="unsafe_to_retry", requires_approval=False,
+        allowed_callers=["turn_runner", "rest_api", "job_runner"], timeout_seconds=300,
     ),
 
     # ═══ 14. system.manage (merged: 9 system tools) ═══

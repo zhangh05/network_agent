@@ -18,8 +18,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { to: "/workbench", label: "工作台", testid: "nav-workbench", Icon: IconChat },
-  { to: "/runs", label: "运行", testid: "nav-runs", Icon: IconHistory },
-  { to: "/jobs", label: "作业", testid: "nav-jobs", Icon: IconBolt },
+  { to: "/runs", label: "运行与作业", testid: "nav-runs", Icon: IconHistory },
   { to: "/capabilities", label: "能力矩阵", testid: "nav-capabilities", Icon: IconLayers },
   { to: "/knowledge", label: "知识库", testid: "nav-knowledge", Icon: IconBox },
   { to: "/artifacts", label: "制品", testid: "nav-artifacts", Icon: IconBox },

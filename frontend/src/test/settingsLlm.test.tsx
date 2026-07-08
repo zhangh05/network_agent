@@ -86,7 +86,7 @@ function mockApi(overrides: Partial<{
 beforeEach(() => {
   vi.restoreAllMocks();
   window.confirm = vi.fn().mockReturnValue(true);
-  useSessionStore.setState({ currentWorkspaceId: "ws-settings", currentSessionId: null, sessions: [] });
+  useSessionStore.setState({ currentWorkspaceId: "ws-settings", currentSessionId: null });
 });
 
 afterEach(() => {

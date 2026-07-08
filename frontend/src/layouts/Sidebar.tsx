@@ -30,7 +30,6 @@ export function Sidebar() {
   const currentWorkspaceId = useSessionStore((s) => s.currentWorkspaceId);
   const currentSessionId = useSessionStore((s) => s.currentSessionId);
   const setCurrentSession = useSessionStore((s) => s.setCurrentSession);
-  const setSessions = useSessionStore((s) => s.setSessions);
   const switchWbSession = useWorkbenchStore((s) => s.switchSession);
   const toast = useToastStore((s) => s.show);
   const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
@@ -141,6 +140,16 @@ export function Sidebar() {
   const sessListRef = useRef(sessList.reload);
   sessListRef.current = sessList.reload;
 
+  // Cross-page session-list invalidation: any component (e.g. OperationsPage
+  // restoring a session) bumps sessionListVersion and the sidebar re-fetches.
+  const sessionListVersion = useSessionStore((s) => s.sessionListVersion);
+  const firstSessionBump = useRef(true);
+  useEffect(() => {
+    if (firstSessionBump.current) { firstSessionBump.current = false; return; }
+    sessListRef.current();
+    recentRunsRef.current();
+  }, [sessionListVersion]);
+
   useEffect(() => {
     const onRunCompleted = () => {
       recentRunsRef.current();
@@ -153,7 +162,6 @@ export function Sidebar() {
   useEffect(() => {
     if (sessList.state.kind !== "success") return;
     const sessions = sessList.state.data.sessions ?? [];
-    setSessions(sessions);
     const cur = useSessionStore.getState().currentSessionId;
     if (!cur || !sessions.some((s) => s.session_id === cur)) {
       setCurrentSession(sessions[0]?.session_id ?? null);
@@ -166,39 +174,14 @@ export function Sidebar() {
       toast({ kind: "warning", title: "未选择 workspace" });
       return;
     }
-    // Optimistic: add placeholder session immediately
-    const optimisticSid = `opt-${Date.now().toString(36)}`;
-    const optimistic: Session = {
-      session_id: optimisticSid,
-      workspace_id: currentWorkspaceId,
-      title: "新会话",
-      status: "active",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      message_count: 0,
-    };
-    setCurrentSession(optimisticSid);
-    // Prepend to local store state
-    const prev = useSessionStore.getState().sessions;
-    useSessionStore.getState().setSessions([optimistic, ...prev]);
     try {
       const res = await sessionsApi.create(currentWorkspaceId, "");
       if (res?.session) {
-        // Replace optimistic with real session
-        const realSid = res.session.session_id;
-        setCurrentSession(realSid);
-        const sessions = useSessionStore.getState().sessions
-          .filter(s => s.session_id !== optimisticSid);
-        useSessionStore.getState().setSessions([res.session, ...sessions]);
+        setCurrentSession(res.session.session_id);
         sessList.reload();
-        toast({ kind: "success", title: "新会话已创建", body: realSid });
+        toast({ kind: "success", title: "新会话已创建", body: res.session.session_id });
       }
     } catch (e: unknown) {
-      // Rollback optimistic
-      const sessions = useSessionStore.getState().sessions
-        .filter(s => s.session_id !== optimisticSid);
-      useSessionStore.getState().setSessions(sessions);
-      setCurrentSession(null);
       toast({
         kind: "error",
         title: "创建会话失败",
@@ -215,8 +198,7 @@ export function Sidebar() {
       if (currentSessionId === sess.session_id) {
         setCurrentSession(null);
       }
-      sessList.reload();
-      recentRuns.reload();
+      useSessionStore.getState().bumpSessionList();
       toast({ kind: "success", title: "已归档", body: sess.session_id });
     } catch (e: unknown) {
       toast({
@@ -232,7 +214,7 @@ export function Sidebar() {
     if (!editingSessName.trim() || !currentWorkspaceId) { cancelEditSession(); return; }
     try {
       await sessionsApi.rename(sess_id, currentWorkspaceId, editingSessName.trim());
-      sessList.reload();
+      useSessionStore.getState().bumpSessionList();
       toast({ kind: "success", title: "会话已重命名" });
       cancelEditSession();
     } catch (e: unknown) {
@@ -246,15 +228,13 @@ export function Sidebar() {
     try {
       await sessionsApi.delete(sess.session_id, currentWorkspaceId);
       if (currentSessionId === sess.session_id) setCurrentSession(null);
-      sessList.reload();
-      recentRuns.reload();
+      useSessionStore.getState().bumpSessionList();
       toast({ kind: "success", title: "已永久删除", body: sess.session_id });
     } catch (e: unknown) {
       // 404 = already deleted on disk → just reload the list
       if (isApiError(e) && e.status === 404) {
         if (currentSessionId === sess.session_id) setCurrentSession(null);
-        sessList.reload();
-        recentRuns.reload();
+        useSessionStore.getState().bumpSessionList();
         return;
       }
       toast({ kind: "error", title: "删除失败", body: isApiError(e) ? e.message : String(e) });

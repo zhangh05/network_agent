@@ -4132,6 +4132,12 @@ summary:focus-visible,
   border-radius: inherit;
 }
 
+/* Programmatic focus on <main> is for screen-reader/keyboard nav — no visual outline */
+#main:focus,
+#main:focus-visible {
+  outline: none;
+}
+
 /* Route-level skeleton: stretch to fill the main area (don't center a tiny block) */
 .route-skeleton {
   align-items: stretch;

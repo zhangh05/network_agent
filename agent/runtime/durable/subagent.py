@@ -7,6 +7,10 @@ from typing import Optional, Literal
 import uuid, time as _time
 from agent.runtime.utils import now_iso
 
+# ── Re-export for convenience ──
+# All 7 profiles are the single source of truth for subagent types.
+# The frontend and tool layer reference these IDs directly.
+
 def _now(): return now_iso()
 def _sid(): return f"sub-{uuid.uuid4().hex[:8]}"
 
