@@ -205,6 +205,16 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
     start = _time.time()
     result = SubagentResult(subtask_id=subtask_id, status="succeeded")
 
+    # Register in live tasks registry for cancel/status
+    from agent.runtime.durable.trajectory import _live_tasks
+    _live_tasks[subtask_id] = {
+        "subtask_id": subtask_id,
+        "status": "running",
+        "profile_id": task.profile_id,
+        "goal": task.goal,
+        "started_at": _now(),
+    }
+
     try:
         # Build goal as system-style prompt
         goal_prompt = (
@@ -311,6 +321,13 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
     task.finished_at = _now()
     _save_task(task)
     result.finished_at = _now()
+
+    # Update live tasks registry with final status
+    from agent.runtime.durable.trajectory import _live_tasks
+    if subtask_id in _live_tasks:
+        _live_tasks[subtask_id]["status"] = result.status
+        _live_tasks[subtask_id]["finished_at"] = _now()
+        _live_tasks[subtask_id]["summary"] = (result.summary or "")[:200]
 
     # Emit timeline events
     event_type = "subagent_succeeded" if result.status == "succeeded" else "subagent_failed"

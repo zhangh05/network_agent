@@ -225,6 +225,11 @@ def save_feedback(traj_id: str, ws_id: str, feedback: dict) -> dict:
 
 # ── Helpers ──
 
+# Module-level live task registry for cancel/status operations.
+# Populated by run_subagent_task, read by handle_agent_cancel/status.
+_live_tasks: dict[str, dict] = {}
+
+
 def _redact_dict(d: dict) -> dict:
     if not isinstance(d, dict): return d
     out = {}

@@ -236,11 +236,7 @@ def _is_forbidden_substring_key(key: str) -> bool:
     if "host" in lowered and "hostname" in lowered:
         # 'hostname' / 'host_name' / etc — explicitly safe.
         return False
-    for forbidden in FORBIDDEN_KEYS:
-        if forbidden in lowered:
-            # already handled by the exact-match branch above
-            continue
-    return False
+    return any(forbidden in lowered for forbidden in FORBIDDEN_KEYS)
 
 
 def _truncate_json_preserving_structure(obj: Any, max_chars: int) -> Any:
