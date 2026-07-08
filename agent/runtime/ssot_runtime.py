@@ -315,13 +315,15 @@ def run_ssot_turn(
 
     persist_run_record(session, turn, result, context)
 
-    # ── v3.15.4: Memory writing ──────────────────────────────────────
+    # ── Memory writing ───────────────────────────────────────────────
+    # llm_first: LLM 总结对话生成记忆（质量更高，额外延迟 0.3-0.5s）
+    #            若 LLM 返回空/解析失败，自动降级到 rule_only
     # rule_only: 纯规则，直接从 tool_calls/events 结构化提取，不调 LLM
-    # llm_first: 调 LLM 总结对话生成记忆（质量更高，额外延迟 0.3-0.5s）
     try:
         from workspace.memory_governance import MemoryRecord, MemoryWriteGate, get_memory_gate_mode
 
         gate_mode = get_memory_gate_mode(workspace_id)
+        items: list[dict] = []
 
         if gate_mode == "llm_first":
             from agent.runtime.memory_write.llm_memory import generate_memories
@@ -335,6 +337,17 @@ def run_ssot_turn(
                 assistant_response=result.final_response or "",
                 tool_summaries=tool_summaries,
             )
+            # Fallback: LLM 未产生有效记忆时降级到规则提取
+            if not items:
+                from agent.runtime.memory_write.rule_extract import extract_memories_rule_only
+                items = extract_memories_rule_only(
+                    user_input=user_input,
+                    assistant_response=result.final_response or "",
+                    tool_calls=result.tool_calls or [],
+                )
+                logging.getLogger("ssot_runtime.memory").debug(
+                    "llm_first produced 0 items, fell back to rule_only (%d items)", len(items),
+                )
         else:
             from agent.runtime.memory_write.rule_extract import extract_memories_rule_only
             items = extract_memories_rule_only(
@@ -360,8 +373,10 @@ def run_ssot_turn(
                     redacted=True,
                 )
                 gate.write(rec, gate_mode=gate_mode)
-    except Exception:
-        pass  # best-effort, never break the main turn
+    except Exception as e:
+        logging.getLogger("ssot_runtime.memory").warning(
+            "memory write failed (gate_mode=%s): %s", gate_mode, e,
+        )
 
     return result
 
