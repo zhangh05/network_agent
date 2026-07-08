@@ -10,11 +10,31 @@ from typing import Any
 
 
 # Skip these generic tool outputs — they carry no meaningful info
-_GENERIC = {"", "started", "completed", "ok", "true", "false", "success", "failed"}
+_GENERIC = {"", "started", "completed", "ok", "true", "false", "success", "failed", "done", "finish", "finished"}
+
+# Also skip if the summary is just a generic verb with punctuation
+_GENERIC_PREFIXES = ("completed", "started", "finished", "success", "failed", "ok", "done", "running", "executed")
+
+
+def _normalize_summary(text: str) -> str:
+    """Strip punctuation and lowercase for robust generic detection."""
+    s = str(text or "").strip().lower()
+    # Strip trailing punctuation (e.g. "Completed." → "completed")
+    s = s.rstrip(".。!！?？,，;；")
+    return s
 
 
 def _is_generic(text: str) -> bool:
-    return str(text or "").strip().lower() in _GENERIC
+    normalized = _normalize_summary(text)
+    if not normalized:
+        return True
+    if normalized in _GENERIC:
+        return True
+    # Check if the first word is a generic verb (e.g. "Completed successfully" → "completed")
+    first_word = normalized.split()[0] if normalized else ""
+    if first_word in _GENERIC_PREFIXES and len(normalized) <= len(first_word) + 3:
+        return True
+    return False
 
 
 def _extract_summary(result: Any) -> str:
