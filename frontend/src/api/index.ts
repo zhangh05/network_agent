@@ -490,6 +490,16 @@ export const memoryApi = {
       signal,
     ),
 
+  batchHardDelete: (
+    workspaceId: string,
+    memoryIds: string[],
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; deleted_count: number; requested: number }> =>
+    apiRequest<{ ok: boolean; deleted_count: number; requested: number }>(
+      { method: "POST", url: "/memory/batch-delete", data: { workspace_id: workspaceId, memory_ids: memoryIds } },
+      signal,
+    ),
+
   getProfile: (
     workspaceId: string,
     signal?: AbortSignal,

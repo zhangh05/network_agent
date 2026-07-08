@@ -29,7 +29,7 @@ from backend.api.llm_api import (
 )
 from backend.api.skills import handle_skills
 from backend.api.modules import handle_modules, handle_module_status, handle_registry_status, handle_capabilities
-from backend.api.memory import handle_memory_status, handle_memory_write, handle_memory_search, handle_memory_confirm, handle_memory_delete, handle_memory_list
+from backend.api.memory import handle_memory_status, handle_memory_write, handle_memory_search, handle_memory_confirm, handle_memory_delete, handle_memory_list, handle_memory_batch_delete
 from backend.api.session_routes import (
     handle_session_create, handle_session_list,
     handle_session_detail, handle_session_update,
@@ -296,6 +296,10 @@ def create_app():
     @app.route("/api/memory/<memory_id>", methods=["DELETE"])
     def api_memory_delete(memory_id):
         return handle_memory_delete(memory_id)
+
+    @app.route("/api/memory/batch-delete", methods=["POST"])
+    def api_memory_batch_delete():
+        return handle_memory_batch_delete()
 
     # ── Sub-route registrations ──
     register_runtime_routes(app)      # /api/runtime/*, /api/workspaces/<ws>/selfcheck, retention, archive

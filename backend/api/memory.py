@@ -161,15 +161,57 @@ def handle_memory_reject():
 
 
 def handle_memory_delete(memory_id):
-    """Tombstone-delete a memory record."""
+    """Hard-delete a memory record — physically remove file and ContextStore index."""
     ws_id, err = _read_ws_id(request.args.get("workspace_id", ""))
     if err:
         return jsonify({"ok": False, "error": err}), 400
-    from workspace.memory_governance import reject_memory
-    result = reject_memory(ws_id, memory_id)
-    if not result.get("ok"):
-        return jsonify({"ok": False, "error": "memory_not_found"})
-    return jsonify({"ok": True, "deleted_count": 1})
+    try:
+        from workspace.memory_governance import MemoryStore
+        store = MemoryStore()
+        ok = store.delete_file(ws_id, memory_id)
+        if not ok:
+            return jsonify({"ok": False, "error": "memory_not_found"}), 404
+        # Also remove from ContextStore index
+        try:
+            from core.context.context_store import get_context_store
+            cs = get_context_store(ws_id)
+            cs.delete(f"mh_{memory_id}")
+        except Exception:
+            pass
+        return jsonify({"ok": True, "deleted_count": 1})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+
+def handle_memory_batch_delete():
+    """Hard-delete multiple memory records."""
+    data = request.get_json(silent=True) or {}
+    ws_id, err = _read_ws_id(data.get("workspace_id", ""))
+    if err:
+        return jsonify({"ok": False, "error": err}), 400
+    ids = data.get("memory_ids") or []
+    if not ids or not isinstance(ids, list):
+        return jsonify({"ok": False, "error": "memory_ids required (list)"}), 400
+
+    from workspace.memory_governance import MemoryStore
+    store = MemoryStore()
+    deleted = 0
+    for mid in ids:
+        if store.delete_file(ws_id, mid):
+            deleted += 1
+    # Purge ContextStore index for all deleted
+    if deleted > 0:
+        try:
+            from core.context.context_store import get_context_store
+            cs = get_context_store(ws_id)
+            for mid in ids:
+                try:
+                    cs.delete(f"mh_{mid}")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    return jsonify({"ok": True, "deleted_count": deleted, "requested": len(ids)})
 
 
 def handle_memory_list():
