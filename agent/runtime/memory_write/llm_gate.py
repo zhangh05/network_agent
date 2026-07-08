@@ -31,6 +31,11 @@ QUICK_SKIP_CONFIDENCE = 0.55
 # Maximum candidates to send in one LLM batch
 MAX_BATCH_SIZE = 5
 
+# Types that LLM gate should never reject even with low score
+# (explicit user preferences, confirmed device facts)
+_ALWAYS_KEEP_TYPES = {"user_preference", "operational_fact", "device_state"}
+
+
 
 class MemoryLLMGate:
     """LLM-based memory quality gating.
@@ -136,11 +141,16 @@ class MemoryLLMGate:
             if cid in kept_ids:
                 accepted.append(c)
             elif score < MIN_KEEP_SCORE:
-                skipped.append({
-                    "candidate_id": cid,
-                    "reason": f"llm_score_too_low: {score}",
-                    "memory_type": c.memory_type,
-                })
+                # Always-keep types: never reject even with low score
+                if getattr(c, "memory_type", "") in _ALWAYS_KEEP_TYPES:
+                    _log.debug("MemoryLLMGate: keeping %s despite score %d (type=%s)", cid, score, c.memory_type)
+                    accepted.append(c)
+                else:
+                    skipped.append({
+                        "candidate_id": cid,
+                        "reason": f"llm_score_too_low: {score}",
+                        "memory_type": c.memory_type,
+                    })
 
         _log.debug(
             "MemoryLLMGate: %d candidates → %d accepted, %d skipped (score threshold=%d)",

@@ -417,7 +417,9 @@ def _llm_gate_record(record: MemoryRecord) -> tuple[bool, list[dict]]:
             return True, skipped
         return False, skipped
     except Exception:
-        return True, [{"reason": "llm_gate_unavailable_fallback"}]
+        # Don't accept-all on LLM failure — agent_suggestion memories
+        # without LLM validation should be pending, not accepted.
+        return False, [{"reason": "llm_gate_unavailable_rejected"}]
 
 def _text_similarity(a: str, b: str) -> float:
     def _tokens(text: str) -> set[str]:
