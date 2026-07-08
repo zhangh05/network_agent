@@ -98,8 +98,10 @@ class TestMemoryWriteGate:
             gate_mode="llm_first",
         )
 
-        assert result["ok"] is True
-        assert result["warnings"] == [{"reason": "llm_gate_unavailable_fallback"}]
+        # LLM failure → agent_suggestion is rejected (never silently accepted)
+        assert result["ok"] is False
+        assert result["rejected"] is True
+        assert result["warnings"] == [{"reason": "llm_gate_unavailable_rejected"}]
         assert "provider leaked prompt" not in str(result)
 
 

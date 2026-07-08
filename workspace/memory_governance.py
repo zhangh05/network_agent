@@ -276,7 +276,8 @@ class MemoryWriteGate:
             if not accepted:
                 reason = skipped[0].get("reason", "llm_gate_rejected") if skipped else "llm_gate_rejected"
                 return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
-                        "rejected": True, "error": reason, "gate_mode": gate_mode}
+                        "rejected": True, "error": reason, "gate_mode": gate_mode,
+                        "warnings": skipped}
             warnings.extend(skipped)
 
         # 8. Conflict detection
