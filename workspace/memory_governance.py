@@ -365,9 +365,25 @@ def _contains_secret_pattern(text: str) -> bool:
 
 
 def _is_low_value_memory(record: MemoryRecord) -> bool:
-    text = " ".join([record.summary or "", record.content or ""]).strip().lower()
-    if not text:
-        return True
+    # Check summary and content independently — concatenating them can
+    # hide generic content (e.g. "completed" + "completed." → "completed completed.").
+    generic_words = {"", "started", "completed", "ok", "true", "false", "success", "failed", "done", "finish", "finished"}
+    for text in (record.summary, record.content):
+        text = (text or "").strip().lower().rstrip(".。!！?？,，;；")
+        if not text:
+            return True
+        if text in generic_words:
+            return True
+        # Check after common separators (e.g. "workspace.file: completed" → "completed")
+        for sep in (": ", ":", " — ", " - "):
+            if sep in text:
+                after = text.split(sep, 1)[1].strip()
+                if after in generic_words:
+                    return True
+                after_first = after.split()[0] if after else ""
+                if after_first in {"completed", "started", "finished", "success", "failed", "ok", "done", "running", "executed"} and len(after) <= len(after_first) + 8:
+                    return True
+    full = " ".join([record.summary or "", record.content or ""]).strip().lower()
     if record.memory_type == "task_pattern":
         import re
         generic_task_patterns = [
@@ -375,9 +391,9 @@ def _is_low_value_memory(record: MemoryRecord) -> bool:
             r"task completed successfully",
             r"result:\s*search completed successfully",
         ]
-        if any(re.search(p, text) for p in generic_task_patterns):
+        if any(re.search(p, full) for p in generic_task_patterns):
             return True
-    if len(text) < 12 and record.source in ("agent_suggestion", "task", "subagent"):
+    if len(full) < 12 and record.source in ("agent_suggestion", "task", "subagent"):
         return True
     return False
 

@@ -26,9 +26,11 @@ Return a JSON array of memory items. Each item:
   "user_preference", "task_pattern"
 - "confidence": 0.0-1.0. Higher = more certain it's worth remembering.
 
-Only return memories that would be genuinely useful in a future conversation.
-Skip trivial or redundant facts. Max 3 items. If nothing worth remembering,
-return an empty array [].
+Skip trivial or redundant facts. In particular, do NOT create memories that
+only state a tool completed without any substantive finding (e.g. "pcap
+analysis completed", "Completed", "Started"). Such items will be rejected.
+
+Max 3 items. If nothing worth remembering, return an empty array [].
 
 Respond ONLY with valid JSON. No markdown, no explanation."""
 

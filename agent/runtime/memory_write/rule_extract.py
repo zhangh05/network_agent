@@ -35,6 +35,16 @@ def _is_generic(text: str) -> bool:
     first_word = normalized.split()[0] if normalized else ""
     if first_word in _GENERIC_PREFIXES and len(normalized) <= len(first_word) + 8:
         return True
+    # Check if the text AFTER a common prefix (like "workspace.file: ") is generic.
+    # e.g. "workspace.file: Completed." → after stripping prefix → "completed"
+    for prefix_sep in (": ", ":", " — ", " - "):
+        if prefix_sep in normalized:
+            after = normalized.split(prefix_sep, 1)[1].strip()
+            if after in _GENERIC:
+                return True
+            after_first = after.split()[0] if after else ""
+            if after_first in _GENERIC_PREFIXES and len(after) <= len(after_first) + 8:
+                return True
     return False
 
 

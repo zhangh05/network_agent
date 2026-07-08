@@ -24,7 +24,9 @@ _log = logging.getLogger("memory_write.llm_gate")
 # Minimum score to keep a candidate (operational facts are factual, not opinion)
 MIN_KEEP_SCORE = 2
 
-# Quick-gate: skip LLM when total candidates ≤ this and all low-confidence
+# Quick-gate: skip LLM when total candidates ≤ this and all HIGH-confidence.
+# Low-confidence candidates (≤0.55) must NOT bypass LLM review — they are the
+# ones most likely to be spam like "workspace.file: Completed.".
 QUICK_SKIP_MAX = 2
 QUICK_SKIP_CONFIDENCE = 0.55
 
@@ -61,13 +63,15 @@ class MemoryLLMGate:
         if not candidates:
             return [], []
 
-        # Quick-gate: skip LLM when candidates are few and low-confidence
+        # Quick-gate: skip LLM when candidates are few AND all high-confidence.
+        # Low-confidence candidates (≤0.55) must NOT bypass LLM review — they
+        # are the ones most likely to be spam like "workspace.file: Completed.".
         if (
             len(candidates) <= QUICK_SKIP_MAX
-            and all(getattr(c, "confidence", 0) <= QUICK_SKIP_CONFIDENCE for c in candidates)
+            and all(getattr(c, "confidence", 0) > QUICK_SKIP_CONFIDENCE for c in candidates)
         ):
             _log.debug(
-                "MemoryLLMGate: quick-skipping LLM call (%d candidates, all ≤%.2f)",
+                "MemoryLLMGate: quick-skipping LLM call (%d candidates, all >%.2f)",
                 len(candidates), QUICK_SKIP_CONFIDENCE,
             )
             return list(candidates), []
