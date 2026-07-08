@@ -261,7 +261,7 @@ class TestBudgetController:
         assert not status.ok
 
     def test_llm_call_limit(self):
-        bc = BudgetController()
+        bc = BudgetController(SSOTRuntimeConfig(max_llm_calls=2))
         assert bc.check_llm_call().ok  # call 1
         assert bc.check_llm_call().ok  # call 2
         assert not bc.check_llm_call().ok  # call 3 — exceed

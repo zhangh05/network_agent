@@ -117,7 +117,10 @@ def kill_process_tree(pid: int) -> bool:
     try:
         os.kill(pid, 0)
         # Still alive — last resort
-        os.kill(pid, signal.SIGKILL)
+        if os.name == "nt":
+            _kill_tree_windows(pid)
+        else:
+            os.kill(pid, signal.SIGKILL)
         return False
     except (ProcessLookupError, OSError):
         return True
