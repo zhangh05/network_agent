@@ -23,7 +23,6 @@ export function MemoryPage() {
   const [searchQ, setSearchQ] = useState("");
   const [searchRes, setSearchRes] = useState<MemEntry[] | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [showDel, setShowDel] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [sel, setSel] = useState<MemEntry | null>(null);
@@ -36,13 +35,13 @@ export function MemoryPage() {
     setLoading(true);
     setErr("");
     try {
-      const d = await memoryApi.list({ workspace_id: wsId, include_deleted: showDel, limit: 500 });
+      const d = await memoryApi.list({ workspace_id: wsId, limit: 500 });
       if (d.ok) setEntries((d.records || []) as MemEntry[]);
     } catch (e: any) {
       setErr(e?.message || "加载失败");
     }
     setLoading(false);
-  }, [wsId, showDel]);
+  }, [wsId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -200,11 +199,6 @@ export function MemoryPage() {
             )}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line-2)" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--fs-12)", color: "var(--text-3)", cursor: "pointer", userSelect: "none" }}>
-              <input type="checkbox" checked={showDel} onChange={(e) => setShowDel(e.target.checked)}
-                style={{ accentColor: "var(--accent)", width: 14, height: 14, cursor: "pointer" }} />
-              包含已删除
-            </label>
             {display.length > 0 && (
               <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--fs-12)", color: "var(--text-3)", cursor: "pointer", userSelect: "none" }}>
                 <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
@@ -255,12 +249,12 @@ export function MemoryPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {display.map((e, i) => {
               const isSelected = sel?.memory_id === e.memory_id;
-              const isDeleted = e.status === "deleted";
               const isChecked = checked.has(e.memory_id ?? "");
-              const dotColor = isDeleted ? "err" : "ok";
+              const isInactive = e.status && e.status !== "active";
+              const dotColor = isInactive ? "err" : "ok";
 
               return (
-                <div key={e.memory_id || i} className="card" style={{ padding: 0, cursor: "pointer", opacity: isDeleted ? 0.55 : 1, transition: "all var(--dur-2) var(--ease)", outline: isChecked ? "2px solid var(--accent)" : "none" }}>
+                <div key={e.memory_id || i} className="card" style={{ padding: 0, cursor: "pointer", opacity: isInactive ? 0.55 : 1, transition: "all var(--dur-2) var(--ease)", outline: isChecked ? "2px solid var(--accent)" : "none" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "14px 16px" }}
                     onClick={() => setSel(isSelected ? null : e)}>
                     {/* Checkbox */}
@@ -280,7 +274,7 @@ export function MemoryPage() {
                         <strong style={{ fontSize: "var(--fs-14)", lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {e.title || ""}
                         </strong>
-                        {isDeleted && <Badge kind="err">已删除</Badge>}
+                        {isInactive && <Badge kind="err">{e.status}</Badge>}
                         {e.memory_type && <Badge kind="info">{e.memory_type}</Badge>}
                         {e.scope && <Badge kind="muted">{e.scope}</Badge>}
                       </div>
@@ -325,14 +319,6 @@ export function MemoryPage() {
                           {e.tags.map((t: string) => <Badge key={t} kind="accent">{t}</Badge>)}
                         </div>
                       )}
-                      <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
-                        {e.memory_id && (
-                          <button className="btn sm danger-ghost"
-                            onClick={() => handleDeleteHard(e.memory_id!)}>
-                            永久删除
-                          </button>
-                        )}
-                      </div>
                     </div>
                   )}
                 </div>
