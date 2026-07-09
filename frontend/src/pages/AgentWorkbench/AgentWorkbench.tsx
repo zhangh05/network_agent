@@ -445,14 +445,12 @@ export function TaskWorkbench() {
             handleCompletion();
             return;
           }
-          if (t.status === "failed" || t.status === "cancelled") {
-            // Show failure in bubble for 6s then dismiss
+          if (t.status === "failed" || t.status === "cancelled" || t.status === "crashed") {
             setInspectionStatus(t.status);
             done = true;
-            setTimeout(() => {
-              setInspectionTaskId(null);
-              safeRemoveLocal("workbench_inspection");
-            }, 6000);
+            // 异步拉取已完成制品并触发 LLM 分析（部分设备可能已成功）
+            handleCompletion();
+            safeRemoveLocal("workbench_inspection");
             return;
           }
           // Still running — poll again
