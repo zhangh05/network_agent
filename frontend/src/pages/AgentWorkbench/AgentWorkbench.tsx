@@ -204,7 +204,11 @@ export function TaskWorkbench() {
   const [llmHealth, setLlmHealth] = useState<{ connected: boolean; provider?: string; model?: string; recentFailure?: string }>({ connected: false });
   const toast = useToastStore((s) => s.show);
   const abortRef = useRef<AbortController | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  // FIX 3: Separate refs for system WebSocket and message WebSocket
+  // to prevent race conditions where message streaming overwrites the
+  // system WS reference and vice versa.
+  const systemWsRef = useRef<WebSocket | null>(null);
+  const msgWsRef = useRef<WebSocket | null>(null);
   const pendingAutoMetadataRef = useRef<Record<string, unknown> | null>(null);
   // v3.10: live inspection task surfaced from the workbench. When
   // the user launches a CMDB inspection via the CMDB page, the
@@ -216,10 +220,11 @@ export function TaskWorkbench() {
   const onSendRef = useRef(onSend);
   useEffect(() => { onSendRef.current = onSend; }, [onSend]);
 
-  // Stop generation: abort active request + close WebSocket
+  // Stop generation: abort active request + close message WebSocket
+  // FIX 3: Only close msgWsRef (not systemWsRef).
   const stopGeneration = useCallback(() => {
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
-    if (wsRef.current) { try { wsRef.current.close(); } catch {} wsRef.current = null; }
+    if (msgWsRef.current) { try { msgWsRef.current.close(); } catch {} msgWsRef.current = null; }
     setSending(false);
   }, []);  // eslint-disable-line
 
@@ -242,16 +247,18 @@ export function TaskWorkbench() {
   }, []);
 
   // ── Persistent system WebSocket — replaces all polling ──
+  // FIX 3: Uses systemWsRef (separate from msgWsRef) to avoid race
+  // conditions where message streaming overwrites the system WS.
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/ws/agent`;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let ws: WebSocket | null = null;
     let closed = false;
     let retryDelay = 1000; // start at 1s, exponential backoff capped at 30s
 
     const connect = () => {
       if (closed) return;
+      let ws: WebSocket | null = null;
       try {
         ws = new WebSocket(wsUrl);
       } catch {
@@ -259,6 +266,7 @@ export function TaskWorkbench() {
         if (!closed) reconnectTimer = setTimeout(connect, 5000);
         return;
       }
+      systemWsRef.current = ws;
       ws.onopen = () => {
         retryDelay = 1000; // reset on successful connection
         try { ws?.send(JSON.stringify({ type: "ping", workspace_id: currentWorkspaceId || "default" })); } catch {}
@@ -272,7 +280,7 @@ export function TaskWorkbench() {
         } catch {}
       };
       ws.onclose = () => {
-        ws = null;
+        systemWsRef.current = null;
         if (!closed) {
           reconnectTimer = setTimeout(connect, retryDelay);
           retryDelay = Math.min(retryDelay * 2, 30000);
@@ -288,7 +296,8 @@ export function TaskWorkbench() {
     return () => {
       closed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      try { ws?.close(); } catch {}
+      try { systemWsRef.current?.close(); } catch {}
+      systemWsRef.current = null;
     };
   }, [currentWorkspaceId]);
 
@@ -563,7 +572,9 @@ export function TaskWorkbench() {
 
     try {
       ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+      // FIX 3: Use msgWsRef (separate from systemWsRef) so message
+      // streaming doesn't interfere with the persistent system WS.
+      msgWsRef.current = ws;
 
       // Track streaming state
       let streamedText = "";
@@ -765,21 +776,45 @@ export function TaskWorkbench() {
           } catch { /* ignore parse errors */ }
         };
 
+        // FIX 5: onclose handler — ensure token buffer is flushed and
+        // streamedText is updated even if the WS closes before `done`.
+        // This prevents partial text from being lost on abnormal close.
         ws!.onclose = () => {
           clearInterval(flushTimer);
+          // Flush any remaining buffered tokens into the store.
           flushTokenBuffer();
+          // If we haven't resolved yet (no `done` event received), update
+          // the store with whatever text we have so far.
+          if (tokenBufferRef.pending || streamState.draft !== streamedText) {
+            streamState.draft += tokenBufferRef.pending;
+            streamedText = streamState.draft;
+            tokenBufferRef.pending = "";
+            useWorkbenchStore.getState().updateAssistant(
+              streamingMsgId, { text: streamedText }, scratch,
+            );
+          }
           resolve();
         };
         ws!.onerror = () => {
           clearInterval(flushTimer);
+          // FIX 5: Same flush logic for error path.
           flushTokenBuffer();
+          if (tokenBufferRef.pending || streamState.draft !== streamedText) {
+            streamState.draft += tokenBufferRef.pending;
+            streamedText = streamState.draft;
+            tokenBufferRef.pending = "";
+            useWorkbenchStore.getState().updateAssistant(
+              streamingMsgId, { text: streamedText }, scratch,
+            );
+          }
           resolve();
         };
       });
 
       try { ws.close(); } catch { /* already closed */ }
       ws = null;
-      wsRef.current = null;
+      // FIX 3: Clear msgWsRef (not wsRef which is now systemWsRef).
+      msgWsRef.current = null;
 
       // Phase 1: defer session migration to next microtask
       if (!currentSessionId && resolvedSid) {
@@ -895,7 +930,7 @@ export function TaskWorkbench() {
         toast({ kind: "error", title: "请求失败", body: msg });
       }
     } finally {
-      wsRef.current = null;
+      msgWsRef.current = null;
       setSending(false);
     }
   }

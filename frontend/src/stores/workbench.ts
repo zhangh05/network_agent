@@ -189,8 +189,12 @@ interface WorkbenchState {
    * events/tool_calls trace. Not persisted — re-fetched on reload.
    */
   runDetails: Record<string, AgentResult>;
-  /** Track in-flight run detail loads to avoid duplicate requests. */
-  runDetailLoading: Record<string, boolean>;
+  /**
+   * FIX 6: Track in-flight run detail loads as shared Promises so concurrent
+   * callers await the same load instead of polling. Replaces the old
+   * `Record<string, boolean>` + 6s polling loop.
+   */
+  runDetailLoading: Record<string, Promise<AgentResult | null>>;
   /** Track failed loads so the Timeline can show a retry hint. */
   runDetailError: Record<string, string>;
 
@@ -238,7 +242,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       sending: false,
       lastUserInput: "",
       runDetails: {},
-      runDetailLoading: {},
+      runDetailLoading: /** @type {Record<string, Promise<AgentResult | null>>} */ ({}),
       runDetailError: {},
 
       switchSession: (session_id) => {
@@ -294,7 +298,16 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           const cur = s.bySession[sid] ?? [];
           const idx = cur.findIndex((m) => m.id === msgId);
           if (idx < 0) return s;
-          const updated = { ...cur[idx], ...patch };
+          // FIX 1: Skip set() if all patch fields are already identical to
+          // the current message — avoids triggering re-renders for no-op
+          // updates during high-frequency streaming (every 50ms flush).
+          const existing = cur[idx];
+          let changed = false;
+          for (const key of Object.keys(patch) as Array<keyof typeof patch>) {
+            if (existing[key] !== patch[key]) { changed = true; break; }
+          }
+          if (!changed) return s;
+          const updated = { ...existing, ...patch };
           const next = capHistory(
             { ...s.bySession, [sid]: [...cur.slice(0, idx), updated, ...cur.slice(idx + 1)] },
             sid,
@@ -345,131 +358,137 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       //   3. merges into an AgentResult, attaches to the matching assistant msg,
       //      and stores in `runDetails` cache for repeat expansions.
       // ────────────────────────────────────────────────────────────────────
-      loadRunDetail: async (workspace_id, run_id, sid) => {
+      loadRunDetail: function loadRunDetailImpl(workspace_id, run_id, sid) {
+        // FIX 6: Return a shared Promise so concurrent callers await the
+        // same load instead of polling. This avoids the 6s polling loop
+        // and eliminates the need for cancellation mechanisms.
         const targetSid = sid ?? get().currentSessionId;
         const state = get();
-        // Already cached → just attach (no-op if already attached).
+        // Already cached → return immediately.
         if (state.runDetails[run_id]) {
-          get().setLatestResult(state.runDetails[run_id], targetSid ?? undefined);
-          return state.runDetails[run_id];
+          const cached = state.runDetails[run_id];
+          get().setLatestResult(cached, targetSid ?? undefined);
+          return Promise.resolve(cached);
         }
-        // Already in-flight → wait for the existing load (avoids dup requests).
-        if (state.runDetailLoading[run_id]) {
-          // simple poll: wait until cache populated or error set
-          for (let i = 0; i < 60; i++) {
-            await new Promise((r) => setTimeout(r, 100));
-            const cur = get();
-            if (cur.runDetails[run_id]) {
-              cur.setLatestResult(cur.runDetails[run_id], targetSid ?? undefined);
-              return cur.runDetails[run_id];
-            }
-            if (!cur.runDetailLoading[run_id]) {
-              return null; // the other loader failed
-            }
-          }
-          return null;
+        // Already in-flight → return the same Promise.
+        const existing = state.runDetailLoading[run_id];
+        if (existing) {
+          return existing.then((result) => {
+            if (result) get().setLatestResult(result, targetSid ?? undefined);
+            return result;
+          });
         }
 
+        // Clear any stale error for this run_id before starting.
         set((s) => ({
-          runDetailLoading: { ...s.runDetailLoading, [run_id]: true },
           runDetailError: { ...s.runDetailError, [run_id]: "" },
         }));
 
-        try {
-          const [runResp, traceResp] = await Promise.all([
-            runtimeAuditApi.run(workspace_id, run_id),
-            runtimeAuditApi.trace(workspace_id, run_id),
-          ]);
-          const runRecord = (runResp && typeof runResp === "object" ? runResp : {}) as Record<string, unknown>;
-          const traceData = (traceResp && typeof traceResp === "object" ? traceResp : {}) as {
-            events?: RuntimeEvent[];
-          };
-          const metadata = (runRecord.metadata && typeof runRecord.metadata === "object"
-            ? runRecord.metadata
-            : {}) as Record<string, unknown>;
-          const runtimeMetadata = (metadata.ssot_runtime && typeof metadata.ssot_runtime === "object"
-            ? metadata.ssot_runtime
-            : {}) as Record<string, unknown>;
+        // Kick off the actual fetch and store the Promise directly.
+        const loadPromise = (async (): Promise<AgentResult | null> => {
+          try {
+            const [runResp, traceResp] = await Promise.all([
+              runtimeAuditApi.run(workspace_id, run_id),
+              runtimeAuditApi.trace(workspace_id, run_id),
+            ]);
+            const runRecord = (runResp && typeof runResp === "object" ? runResp : {}) as Record<string, unknown>;
+            const traceData = (traceResp && typeof traceResp === "object" ? traceResp : {}) as {
+              events?: RuntimeEvent[];
+            };
+            const metadata = (runRecord.metadata && typeof runRecord.metadata === "object"
+              ? runRecord.metadata
+              : {}) as Record<string, unknown>;
+            const runtimeMetadata = (metadata.ssot_runtime && typeof metadata.ssot_runtime === "object"
+              ? metadata.ssot_runtime
+              : {}) as Record<string, unknown>;
 
-          const merged: AgentResult = {
-            ok: runRecord.ok !== false,  // default true if missing
-            final_response: (runRecord.final_response_summary as string) || "",
-            events: Array.isArray(traceData.events) ? traceData.events : [],
-            trace_id: (runRecord.trace_id as string) || "",
-            session_id: (runRecord.session_id as string) || "",
-            turn_id: run_id,
-            tool_calls: Array.isArray(runRecord.tool_calls) ? (runRecord.tool_calls as AgentResult["tool_calls"]) : [],
-            warnings: Array.isArray(runRecord.warnings) ? (runRecord.warnings as string[]) : [],
-            errors: [
-              ...(Array.isArray(runRecord.errors) ? (runRecord.errors as string[]) : []),
-              ...(((runRecord as Record<string, unknown>).error as string | null) ? [(runRecord.error as string)] : []),
-            ],
-            tool_decision: (runRecord.tool_decision as AgentResult["tool_decision"]) || { needed: false },
-            no_tool_reason: (runRecord.no_tool_reason as string) || "",
-            metadata: {
-              selected_capabilities: (metadata.selected_capabilities as string[]) || [],
-              selected_skills: (metadata.selected_skills as string[]) || [],
-              visible_tools: (metadata.visible_tools as string[]) || [],
-              retry_summary: (metadata.retry_summary as AgentResult["metadata"]["retry_summary"])
-                || (runtimeMetadata.retry_summary as AgentResult["metadata"]["retry_summary"])
-                || undefined,
-              retry_events: (metadata.retry_events as AgentResult["metadata"]["retry_events"])
-                || (runtimeMetadata.retry_events as AgentResult["metadata"]["retry_events"])
-                || [],
-              source_count: 0,
-              workspace_id,
-            },
-          };
+            const merged: AgentResult = {
+              ok: runRecord.ok !== false,
+              final_response: (runRecord.final_response_summary as string) || "",
+              events: Array.isArray(traceData.events) ? traceData.events : [],
+              trace_id: (runRecord.trace_id as string) || "",
+              session_id: (runRecord.session_id as string) || "",
+              turn_id: run_id,
+              tool_calls: Array.isArray(runRecord.tool_calls) ? (runRecord.tool_calls as AgentResult["tool_calls"]) : [],
+              warnings: Array.isArray(runRecord.warnings) ? (runRecord.warnings as string[]) : [],
+              errors: [
+                ...(Array.isArray(runRecord.errors) ? (runRecord.errors as string[]) : []),
+                ...(((runRecord as Record<string, unknown>).error as string | null) ? [(runRecord.error as string)] : []),
+              ],
+              tool_decision: (runRecord.tool_decision as AgentResult["tool_decision"]) || { needed: false },
+              no_tool_reason: (runRecord.no_tool_reason as string) || "",
+              metadata: {
+                selected_capabilities: (metadata.selected_capabilities as string[]) || [],
+                selected_skills: (metadata.selected_skills as string[]) || [],
+                visible_tools: (metadata.visible_tools as string[]) || [],
+                retry_summary: (metadata.retry_summary as AgentResult["metadata"]["retry_summary"])
+                  || (runtimeMetadata.retry_summary as AgentResult["metadata"]["retry_summary"])
+                  || undefined,
+                retry_events: (metadata.retry_events as AgentResult["metadata"]["retry_events"])
+                  || (runtimeMetadata.retry_events as AgentResult["metadata"]["retry_events"])
+                  || [],
+                source_count: 0,
+                workspace_id,
+              },
+            };
 
-          set((s) => {
-            const nextDetails = { ...s.runDetails, [run_id]: merged };
-            const nextLoading = { ...s.runDetailLoading };
-            delete nextLoading[run_id];
-            // Also attach to the assistant message in this session
-            let nextBySession = s.bySession;
-            if (targetSid) {
-              const msgs = s.bySession[targetSid];
-              if (Array.isArray(msgs) && msgs.length > 0) {
-                let idx = -1;
-                for (let i = msgs.length - 1; i >= 0; i--) {
-                  const m = msgs[i];
-                  if (m.role === "assistant" && m.run_id === run_id) {
-                    idx = i;
-                    break;
+            set((s) => {
+              const nextDetails = { ...s.runDetails, [run_id]: merged };
+              const nextLoading = { ...s.runDetailLoading };
+              delete nextLoading[run_id];
+              let nextBySession = s.bySession;
+              if (targetSid) {
+                const msgs = s.bySession[targetSid];
+                if (Array.isArray(msgs) && msgs.length > 0) {
+                  let idx = -1;
+                  for (let i = msgs.length - 1; i >= 0; i--) {
+                    const m = msgs[i];
+                    if (m.role === "assistant" && m.run_id === run_id) {
+                      idx = i;
+                      break;
+                    }
+                  }
+                  if (idx >= 0 && !msgs[idx].result) {
+                    const updated: ChatMsg = { ...msgs[idx], result: merged };
+                    const nextMsgs = [
+                      ...msgs.slice(0, idx),
+                      updated,
+                      ...msgs.slice(idx + 1),
+                    ];
+                    nextBySession = { ...s.bySession, [targetSid]: nextMsgs };
                   }
                 }
-                if (idx >= 0 && !msgs[idx].result) {
-                  const updated: ChatMsg = { ...msgs[idx], result: merged };
-                  const nextMsgs = [
-                    ...msgs.slice(0, idx),
-                    updated,
-                    ...msgs.slice(idx + 1),
-                  ];
-                  nextBySession = { ...s.bySession, [targetSid]: nextMsgs };
-                }
               }
-            }
-            return {
-              runDetails: nextDetails,
-              runDetailLoading: nextLoading,
-              bySession: nextBySession,
-            };
-          });
-          return merged;
-        } catch (e) {
-          const msg = (e && typeof e === "object" && "message" in e)
-            ? String((e as { message?: unknown }).message)
-            : "加载失败";
-          set((s) => {
-            const nextLoading = { ...s.runDetailLoading };
-            delete nextLoading[run_id];
-            return {
-              runDetailLoading: nextLoading,
-              runDetailError: { ...s.runDetailError, [run_id]: msg },
-            };
-          });
-          return null;
-        }
+              return {
+                runDetails: nextDetails,
+                runDetailLoading: nextLoading,
+                bySession: nextBySession,
+              };
+            });
+            get().setLatestResult(merged, targetSid ?? undefined);
+            return merged;
+          } catch (e) {
+            const msg = (e && typeof e === "object" && "message" in e)
+              ? String((e as { message?: unknown }).message)
+              : "加载失败";
+            set((s) => {
+              const nextLoading = { ...s.runDetailLoading };
+              delete nextLoading[run_id];
+              return {
+                runDetailLoading: nextLoading,
+                runDetailError: { ...s.runDetailError, [run_id]: msg },
+              };
+            });
+            return null;
+          }
+        })();
+
+        // Store the Promise in the loading map BEFORE any await resolves.
+        set((s) => ({
+          runDetailLoading: { ...s.runDetailLoading, [run_id]: loadPromise },
+        }));
+
+        return loadPromise;
       },
 
       clear: (session_id) => {
