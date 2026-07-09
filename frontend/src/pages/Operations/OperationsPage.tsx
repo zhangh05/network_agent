@@ -197,6 +197,25 @@ export function OperationsPage() {
     return () => window.removeEventListener(APP_EVENTS.RUN_COMPLETED, onRunCompleted);
   }, []);
 
+  // Self-healing reactivity for jobs that complete OUTSIDE the conversation flow
+  // (export_report / translate_config / topology_build / knowledge_index and
+  // backend-scheduled runs). These never emit RUN_COMPLETED, so we poll the job
+  // list only while at least one job is in a transient state, then stop.
+  const TRANSIENT_JOB_STATUS = new Set([
+    "running", "pending", "queued", "in_progress",
+    "executing", "scheduled", "dispatching", "waiting",
+  ]);
+  const hasTransientJob = useMemo(
+    () => jobs.some((j) =>
+      TRANSIENT_JOB_STATUS.has(String((j as any).status || "").toLowerCase())),
+    [jobs],
+  );
+  useEffect(() => {
+    if (!hasTransientJob || !wsId) return;
+    const id = window.setInterval(() => loadJobsRef.current(), 3000);
+    return () => window.clearInterval(id);
+  }, [hasTransientJob, wsId]);
+
   /** Select a job and load its runs (if it backs a session). */
   const selectJob = useCallback(async (job: JobItem, focusRunId?: string | null) => {
     if (selectedJob?.job_id === job.job_id && !focusRunId) {

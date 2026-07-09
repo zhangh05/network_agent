@@ -3,11 +3,13 @@
 // v3.10: when the workbench auto-launches a CMDB inspection
 // (intent=cmdb_region_inspection or cmdb_asset_inspection), this
 // card sits at the top of the workbench message stream and
-// shows the live task state with a cancel button. The backend
-// doesn't push a separate SSE channel for inspection yet
-// (issue #71) — the card polls /api/inspection/tasks using
-// the task tracking policy while a task is live, then fades
-// out 8 seconds after the task reaches a terminal state.
+// shows the live task state with a cancel button.
+//
+// Update: the backend pushes `inspection_progress` over the per-session
+// agent WebSocket (dispatched as a window "ws-event"), so refresh() already
+// fires on every server-side update. Polling /api/inspection/tasks is only a
+// safety net now, and it is paused while the tab is hidden to avoid wasted
+// requests. The card fades out 8s after the task reaches a terminal state.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSessionStore } from "../stores/session";
@@ -116,12 +118,24 @@ export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props
       }
     };
     window.addEventListener("ws-event", handler);
-    // Background polling while a task is live (see file header: the card
-    // polls /api/inspection/tasks because there is no dedicated SSE channel yet).
-    pollRef.current = window.setInterval(refresh, pollMs);
+
+    // The backend already pushes inspection_progress over the agent WebSocket, so
+    // refresh() fires on every server event. Polling is only a safety net, and we
+    // pause it while the tab is hidden to avoid wasted requests.
+    const startPolling = () => {
+      if (pollRef.current == null) pollRef.current = window.setInterval(refresh, pollMs);
+    };
+    const stopPolling = () => {
+      if (pollRef.current != null) { window.clearInterval(pollRef.current); pollRef.current = null; }
+    };
+    const onVisibility = () => { if (document.hidden) stopPolling(); else startPolling(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    if (!document.hidden) startPolling();
+
     return () => {
       window.removeEventListener("ws-event", handler);
-      if (pollRef.current) window.clearInterval(pollRef.current);
+      document.removeEventListener("visibilitychange", onVisibility);
+      stopPolling();
       if (settleRef.current) window.clearTimeout(settleRef.current);
       if (fadeRef.current) window.clearTimeout(fadeRef.current);
     };

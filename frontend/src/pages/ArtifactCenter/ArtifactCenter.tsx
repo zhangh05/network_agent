@@ -311,7 +311,8 @@ function ReportSection() {
 
   const load = useCallback(async () => {
     if (!wsId) return; setLoading(true);
-    try { const d = await reportsApi.list(wsId); setReports(d.reports ?? []); } catch { }
+    try { const d = await reportsApi.list(wsId); setReports(d.reports ?? []); }
+    catch (e: unknown) { toast({ kind: "error", title: "报告列表加载失败", body: isApiError(e) ? e.message : String(e) }); }
     setLoading(false);
   }, [wsId]);
 

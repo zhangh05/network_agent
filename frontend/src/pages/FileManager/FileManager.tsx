@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useSessionStore } from "../../stores/session";
+import { useToastStore } from "../../stores/toast";
 import { apiRequest } from "../../api/client";
 import { artifactsApi } from "../../api";
+import { isApiError } from "../../types";
 import { formatFileSize, formatDate } from "../../utils/format";
 
 interface FileItem {
@@ -42,6 +44,7 @@ function isRawPacketCapture(f: FileItem): boolean {
 export function FileManager() {
   const { currentWorkspaceId } = useSessionStore();
   const navigate = useNavigate();
+  const toast = useToastStore((s) => s.show);
   const ws = currentWorkspaceId;
 
   const [activeType, setActiveType] = useState("all");
@@ -62,7 +65,9 @@ export function FileManager() {
       const res = await artifactsApi.list(ws);
       const items: FileItem[] = (res as any).artifacts || [];
       setAllFiles(items);
-    } catch {}
+    } catch (e: unknown) {
+      toast({ kind: "error", title: "文件列表加载失败", body: isApiError(e) ? e.message : String(e) });
+    }
     finally { setLoading(false); }
   };
 
@@ -80,7 +85,9 @@ export function FileManager() {
         method: "POST", url: `/workspaces/${ws}/artifacts/upload`, data: form,
       });
       if (res.ok) { await fetchFiles(); setShowUpload(false); }
-    } catch {}
+    } catch (e: unknown) {
+      toast({ kind: "error", title: "上传失败", body: isApiError(e) ? e.message : String(e) });
+    }
     setUploading(false);
   };
 
@@ -92,7 +99,9 @@ export function FileManager() {
     try {
       await apiRequest({ method: "POST", url: "/pcap/parse", data: form });
       await fetchFiles();
-    } catch {}
+    } catch (e: unknown) {
+      toast({ kind: "error", title: "pcap 解析失败", body: isApiError(e) ? e.message : String(e) });
+    }
     setPcapUploading(false);
   };
 
@@ -101,7 +110,9 @@ export function FileManager() {
     setDetailContent(null);
     artifactsApi.content(ws, f.artifact_id)
       .then((r: any) => { if (r?.ok) setDetailContent(r.content || null); })
-      .catch(() => {});
+      .catch((e: unknown) => {
+        toast({ kind: "error", title: "读取文件内容失败", body: isApiError(e) ? e.message : String(e) });
+      });
   };
 
   const deleteFile = async (artifactId: string) => {
@@ -110,7 +121,9 @@ export function FileManager() {
       await artifactsApi.batchDelete(ws, [artifactId]);
       setAllFiles(prev => prev.filter(x => x.artifact_id !== artifactId));
       if (selected?.artifact_id === artifactId) setSelected(null);
-    } catch {}
+    } catch (e: unknown) {
+      toast({ kind: "error", title: "删除失败", body: isApiError(e) ? e.message : String(e) });
+    }
   };
 
   const openPacketAnalysis = async (f: FileItem) => {
@@ -127,8 +140,12 @@ export function FileManager() {
       });
       if (res.ok && res.session_id) {
         navigate(`/packet?sid=${encodeURIComponent(res.session_id)}`);
+      } else if (res && (res.error || res.message)) {
+        toast({ kind: "error", title: "无法打开流量分析", body: res.error || res.message });
       }
-    } catch {}
+    } catch (e: unknown) {
+      toast({ kind: "error", title: "无法打开流量分析", body: isApiError(e) ? e.message : String(e) });
+    }
   };
 
   return (
