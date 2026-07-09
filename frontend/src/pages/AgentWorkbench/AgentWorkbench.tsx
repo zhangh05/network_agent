@@ -1233,8 +1233,7 @@ export function TaskWorkbench() {
             ))}
           </div>
         )}
-        {currentSessionId && (
-          <div className="wb-input-row">
+        <div className="wb-input-row">
             <input ref={fileInputRef} type="file" multiple accept=".txt,.pdf,.md,.json,.csv,.log,.conf,.cfg,.yaml,.yml,.png,.jpg,.jpeg,.gif,.webp" onChange={(e) => { if (e.target.files) { addFiles(e.target.files); e.target.value = ""; } }} style={{ display: "none" }} />
             <button className="wb-attach-btn" onClick={pickFile} disabled={sending} title="上传文件 (Ctrl+V 粘贴图片 / 拖拽)" type="button">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8.5 1.5v9M5 5l3.5-3.5L12 5M2.5 10v2.5a1 1 0 001 1h9a1 1 0 001-1V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -1270,7 +1269,6 @@ export function TaskWorkbench() {
               </button>
             )}
           </div>
-        )}
       </div>
 
       {/* ── Inline approval bubble for high-risk tools ── */}
