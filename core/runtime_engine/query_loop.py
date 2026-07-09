@@ -133,7 +133,7 @@ def _build_cached_tool_definitions(tool_registry: dict) -> List[dict]:
 TOOL_MESSAGE_MAX_CHARS = 6000     # Per-tool output cap fed to LLM; balances article coverage vs context pressure
 FINALIZER_TOOL_MAX_CHARS = 3000
 FALLBACK_TOOL_MAX_CHARS = 1600
-MAX_INLINE_STRING_CHARS = 4000    # Per-string-value cap in compacted output; must leave room for JSON overhead within TOOL_MESSAGE_MAX_CHARS
+MAX_INLINE_STRING_CHARS = 3000    # Per-string-value cap in compacted output
 MAX_INLINE_LIST_ITEMS = 8
 
 _PRIORITY_OUTPUT_KEYS = (
@@ -625,6 +625,7 @@ class QueryLoop:
         # Doom-loop detection: key=(tool, args_hash) → consecutive_failures
         failure_counts: Dict[str, int] = {}
         successful_call_keys: set[str] = set()
+        empty_streak = 0  # Local counter for consecutive empty LLM responses
 
         # Build initial messages (cacheable prefix)
         messages = self._build_initial(ctx)
@@ -664,8 +665,17 @@ class QueryLoop:
             response = await self._call_llm(messages, ctx)
 
             if response is None or response.error:
+                final_resp: str
+                if all_results:
+                    final_resp = self._build_tool_result_fallback(ctx, all_results)
+                elif response is not None and response.content and response.content.strip():
+                    final_resp = response.content.strip()
+                elif response is not None:
+                    final_resp = "LLM 调用失败"
+                else:
+                    final_resp = "LLM 调用失败"
                 return QueryLoopResult(
-                    final_response=response.content if response else "LLM 调用失败",
+                    final_response=final_resp,
                     tool_results=all_results,
                     iterations=iterations,
                     total_tool_calls=len(all_results),
@@ -709,7 +719,7 @@ class QueryLoop:
 
                 gate = self._prepare_tool_calls(ctx, tool_calls)
                 if not gate["ok"]:
-                    if gate.get("hard_block") or gate.get("approval_nodes"):
+                    if gate.get("hard_block") or gate.get("approval_nodes") or gate.get("approval_required"):
                         return QueryLoopResult(
                             final_response=gate["message"],
                             tool_results=all_results,
@@ -841,13 +851,22 @@ class QueryLoop:
 
             # No tool calls → final response
             final_text = response.content or ""
-            if not final_text.strip() and all_results:
-                # Try LLM finalizer first, fall back to static summary
-                final_text = await self._finalize_with_results(
-                    ctx, messages, all_results, budget
-                )
-                # _finalize_with_results consumed one LLM call — update count
-                llm_calls = budget.llm_calls
+            if not final_text.strip():
+                if all_results and iterations < max_iterations:
+                    reminder = (
+                        "You just received tool results. "
+                        "Now answer the user's original question in natural language. "
+                        "Do NOT call any more tools — produce the final response directly."
+                    )
+                elif all_results:
+                    # iterations >= max_iterations or nudge already tried enough
+                    final_text = self._build_tool_result_fallback(ctx, all_results)
+                else:
+                    final_text = "抱歉，我无法生成回复。请重新描述您的问题后再试。"
+            else:
+                # Reset counter on successful text
+                if hasattr(self, "_empty_streak"):
+                    self._empty_streak = 0
             elapsed = (time.monotonic() - t_start) * 1000
 
             return QueryLoopResult(
@@ -1317,6 +1336,21 @@ class QueryLoop:
             ctx.extras["pre_exec_repair_events"] = events
         ctx.extras["pre_exec_repair_applied"] = bool(getattr(repair, "repaired", False))
 
+    def _append_turn_nudge(
+        self,
+        messages: List[LLMMessage],
+        nudge_text: str,
+    ) -> List[LLMMessage]:
+        """Append a user nudge to guide the LLM toward a final answer.
+
+        Used when the LLM returns empty text after tools have produced
+        results — instead of calling a separate "finalizer", we nudge it
+        to produce the answer directly.
+        """
+        new_msgs = list(messages)
+        new_msgs.append(LLMMessage(role="user", content=nudge_text))
+        return new_msgs
+
     def _append_tool_round(
         self,
         messages: List[LLMMessage],
@@ -1516,93 +1550,12 @@ class QueryLoop:
             return 0.0
         return max(0.0, min(requested, cap, remaining))
 
-    async def _finalize_with_results(
-        self,
-        ctx: StatelessContext,
-        messages: List[LLMMessage],
-        results: List[StreamingToolResult],
-        budget,
-    ) -> str:
-        """Call the LLM one final time without tools to produce a natural-language
-        summary from tool execution results.
-
-        Falls back to ``_build_tool_result_fallback`` if the LLM call fails or
-        the budget is exhausted.
-        """
-        # P2-2: budget already checked in main loop; skip duplicate check here
-        if budget.llm_calls >= budget.max_llm_calls:
-            return self._build_tool_result_fallback(ctx, results)
-
-        # Build user prompt: original request + tool result summaries
-        tool_summary_parts: list[str] = []
-        for r in results:
-            status = "✅" if r.ok else "❌"
-            tool_summary_parts.append(
-                f"- {status} `{r.tool_name}`: "
-                f"{_json_compact(r.output, max_chars=FINALIZER_TOOL_MAX_CHARS)}"
-            )
-        tool_results_block = "\n".join(tool_summary_parts)
-
-        finalizer_user = (
-            f"ORIGINAL REQUEST:\n{ctx.user_input}\n\n"
-            f"TOOL EXECUTION RESULTS:\n{tool_results_block}\n\n"
-            "Please write a clear natural-language summary of what was done, "
-            "what was found, and any next steps. "
-            "DO NOT call any more tools. Respond directly."
-        )
-
-        try:
-            if self._llm_invoke is not None:
-                raw = self._llm_invoke(
-                    system=QUERY_LOOP_FINALIZER_PROMPT,
-                    user=finalizer_user,
-                    temperature=0.2,
-                    timeout=120,
-                    tools=None,  # No tools — force text-only response
-                    workspace_id=ctx.workspace_id,
-                    session_id=ctx.session_id,
-                    extra={
-                        "runtime_engine": "ssot_runtime",
-                        "stream_scope": "finalizer",
-                        "stream_to_user": True,
-                        "workspace_id": ctx.workspace_id,
-                        "session_id": ctx.session_id,
-                    },
-                )
-                resp = self._coerce_llm_response(raw)
-                if resp.content and resp.content.strip():
-                    return resp.content.strip()
-            else:
-                from agent.llm.runtime import invoke_llm
-                resp = invoke_llm(
-                    task="assistant_chat",
-                    messages=[
-                        LLMMessage(role="system", content=QUERY_LOOP_FINALIZER_PROMPT),
-                        LLMMessage(role="user", content=finalizer_user),
-                    ],
-                    tools=None,
-                    user_input=finalizer_user,
-                    extra={
-                        "runtime_engine": "ssot_runtime",
-                        "stream_scope": "finalizer",
-                        "stream_to_user": True,
-                    },
-                )
-                if (resp_content := (resp.content or "").strip()):
-                    return resp_content
-        except Exception:
-            pass
-
-        return self._build_tool_result_fallback(ctx, results)
-
     def _build_tool_result_fallback(
         self,
         ctx: StatelessContext,
         results: List[StreamingToolResult],
     ) -> str:
         """Build a useful final answer when the LLM returns empty text.
-
-        This is the *last resort* — ``_finalize_with_results`` is tried first.
         Produces a human-readable report, not raw JSON dumps.
         """
         lines: list[str] = []

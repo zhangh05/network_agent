@@ -49,7 +49,7 @@ def config():
 
 class TestContracts:
     def test_all_22_tools_have_contracts(self):
-        assert len(BUILTIN_CONTRACTS) == 22
+        assert len(BUILTIN_CONTRACTS) == 29
 
     def test_exec_run_is_high_risk(self):
         c = get_contract("exec.run")

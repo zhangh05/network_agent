@@ -314,6 +314,10 @@ class RiskPolicyEngine:
             )
             if not assessment.approval_reason:
                 assessment.approval_reason = "large_command_batch"
+            # 填充 approval_nodes，走路径 A 立即返回
+            for node in dag.nodes:
+                if node.tool == "exec.run" and node.id not in assessment.approval_nodes:
+                    assessment.approval_nodes.append(node.id)
 
         # Total nodes tiers (config-driven)
         if total_nodes > self._max_tool_approval and not assessment.hard_block:
@@ -331,6 +335,10 @@ class RiskPolicyEngine:
             assessment.warnings.append(
                 f"Large tool batch: {total_nodes} total nodes"
             )
+            # 填充 approval_nodes，走路径 A 立即返回
+            for node in dag.nodes:
+                if node.id not in assessment.approval_nodes:
+                    assessment.approval_nodes.append(node.id)
 
         # NOTE: exec+external+credential combo triggers false-positives in production — P2-9
             # exec + external + credential → approval
@@ -344,6 +352,10 @@ class RiskPolicyEngine:
             assessment.requires_approval = True
             if not assessment.approval_reason:
                 assessment.approval_reason = "exec_external_credential_combo"
+            # 填充 approval_nodes，走路径 A 立即返回
+            for node in dag.nodes:
+                if node.id not in assessment.approval_nodes:
+                    assessment.approval_nodes.append(node.id)
 
     def _compute_composite(self, dag: ExecutionDAG) -> str:
         max_risk = RiskLevel.LOW

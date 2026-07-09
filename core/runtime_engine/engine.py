@@ -191,12 +191,63 @@ class SSOTRuntimeEngine:
         t_total = time.monotonic()
         metrics = MetricsCollector()
         budget = BudgetController(self._config)
+        errors: list[SSOTRuntimeError] = []
+        node_results: dict[str, ToolResult] = {}
 
-        # ── v3.16: pre-import SystemUnstableError so Python 3.12+
-        # does not treat it as a potentially-unbound local variable
-        # when the ``except SystemUnstableError`` clause is reached
-        # inside the try block below.
+        try:
+            return await self._run_internal(
+                user_input, workspace_id, session_id, cwd,
+                extras=extras,
+                t_total=t_total, metrics=metrics, budget=budget,
+                errors=errors, node_results=node_results,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            errors.append(build_error(
+                "RUNTIME_EXCEPTION",
+                f"Engine exception: {str(exc)[:300]}",
+                stage="engine",
+                risk_level="critical",
+            ))
+            # 构造最小可用 ctx，避免 _build_result 中 audit 访问 ctx.user_input 失败
+            fallback_ctx = StatelessContext(
+                workspace_id=workspace_id or "default",
+                session_id=session_id or "error",
+                request_id="error",
+                user_input=user_input or "",
+                cwd=cwd or "",
+                extras={},
+            )
+            return self._build_result(
+                fallback_ctx, None, {}, "", errors, metrics, budget, t_total,
+                "critical", False,
+            )
+
+    async def _run_internal(
+        self,
+        user_input: str,
+        workspace_id: str,
+        session_id: str,
+        cwd: str,
+        extras: dict[str, Any] | None = None,
+        t_total: float = 0.0,
+        metrics: MetricsCollector | None = None,
+        budget: BudgetController | None = None,
+        errors: list | None = None,
+        node_results: dict | None = None,
+    ) -> SSOTRuntimeResult:
+        """Internal run method wrapped by top-level try/except."""
         from .runtime_stability import SystemUnstableError  # noqa: F401
+
+        if metrics is None:
+            metrics = MetricsCollector()
+        if budget is None:
+            budget = BudgetController(self._config)
+        if errors is None:
+            errors = []
+        if node_results is None:
+            node_results = {}
 
         request_span = self._trace.start_request(str(uuid.uuid4())[:8])
 
@@ -223,8 +274,8 @@ class SSOTRuntimeEngine:
         ContractBoundary.validate_all(ctx)
 
         # ── init result variables before contract validation ──
-        errors: list[SSOTRuntimeError] = []
-        node_results: dict[str, ToolResult] = {}
+        errors: list = errors
+        node_results: dict = node_results
         final_response = ""
 
         # ── v4.2: self-healing contract validation ─────────
@@ -323,8 +374,16 @@ class SSOTRuntimeEngine:
                     ),
                 )
                 final_response = (direct_resp or "").strip()
-            except Exception:
-                final_response = "收到。"
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                final_response = ""
+                errors.append(build_error(
+                    "FAST_PATH_FAILURE",
+                    f"direct_answer failed: {str(exc)[:300]}",
+                    stage="engine",
+                    risk_level="low",
+                ))
             direct_answer_latency_ms = (
                 time.monotonic() - direct_latency_start
             ) * 1000
@@ -450,7 +509,8 @@ class SSOTRuntimeEngine:
         ))
         await self._stop_heartbeat()
         return self._build_result(
-            ctx, None, node_results, "",
+            ctx, None, node_results,
+            "抱歉，QueryLoop 引擎已禁用，无法处理您的请求。",
             errors, metrics, budget, t_total,
             risk_level="high", approval_required=False,
         )
@@ -469,7 +529,7 @@ class SSOTRuntimeEngine:
         """Generate a direct answer without tools or JSON planning."""
         llm_budget = budget.check_llm_call()
         if not llm_budget.ok:
-            return "收到。"
+            return ""
 
         context_block = conversation_context or ""
 

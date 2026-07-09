@@ -99,6 +99,7 @@ _CONVERSATION_REF_PATTERNS = (
 _CONVERSATION_COMPREHENSION_PATTERNS = (
     "什么意思", "什么含义", "啥意思", "这是什么意思",
     "这句话什么意思", "你刚才是什么意思",
+    "什么情况", "怎么了", "怎么回事",
 )
 
 
@@ -126,6 +127,10 @@ def is_conversation_comprehension_ref(user_input: str) -> bool:
     text = (user_input or "").strip()
     if not text or len(text) > 30:
         return False
+    # Single punctuation or very short tokens ("？", "?", "嗯", "哦")
+    # are conversation follow-ups when they arrive after prior messages.
+    if len(text) <= 2:
+        return True
     return any(pat in text for pat in _CONVERSATION_COMPREHENSION_PATTERNS)
 
 

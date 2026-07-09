@@ -220,8 +220,14 @@ def run_ssot_turn(
                 persist_run_record(session, turn, denied_result, context)
                 return denied_result
 
-        final_response = _final_response(runtime_result)
         tool_calls = _project_tool_calls(runtime_result)
+        final_response = _final_response(runtime_result)
+        if not final_response:
+            if tool_calls:
+                ok_count = sum(1 for c in tool_calls if c.get('ok'))
+                final_response = f"服务已完成。共调用 {ok_count} 个工具。"
+            else:
+                final_response = "抱歉，服务暂时无法处理您的请求，请稍后重试。"
         events.extend(_project_events(runtime_result, trace_id, turn.turn_id))
         events.append(_event("final", "final", trace_id, turn.turn_id, started_at=started))
 
@@ -648,7 +654,7 @@ def _is_bogus_final(text: str) -> bool:
     """Return True when *text* is a placeholder stub rather than
     a real answer produced by the finalizer LLM."""
     t = text.strip()
-    if len(t) <= 10:
+    if len(t) <= 3:
         return True
     return any(p in t for p in _BOGUS_FINAL_PATTERNS)
 
@@ -657,20 +663,15 @@ def _final_response(runtime_result) -> str:
     text = str(getattr(runtime_result, "final_response", "") or "").strip()
 
     # v3.16: if the final response is a known placeholder but we
-    # have actual tool results, degrade gracefully instead of
-    # returning a useless stub like "收到。".
+    # have actual tool results, return empty string — let the caller
+    # do a runtime-aware retry instead of surfacing a useless stub.
     if text and _is_bogus_final(text):
-        text = ""  # fall through to meaningful defaults
+        text = ""
 
     if text:
         return text
-    if runtime_result.node_results:
-        ok = runtime_result.node_success_count
-        failed = runtime_result.node_failure_count
-        return f"工具执行完成：成功 {ok} 个，失败 {failed} 个。"
-    if runtime_result.errors:
-        return "任务执行失败：" + "; ".join(str(e) for e in runtime_result.errors[:3])
-    return "收到。"
+    # No tool results and no text — return empty so caller can fall back.
+    return ""
 
 
 def _project_tool_calls(runtime_result) -> list[dict[str, Any]]:
@@ -1094,6 +1095,9 @@ def _sync_session_history(session, user_input: str, final_response: str) -> None
                 and getattr(last_user, "content", "") == user_input
                 and getattr(last_asst, "content", "") == final_response):
                 return
+
+        if not final_response:
+            return
 
         history.append(UserMessage(content=user_input))
         history.append(AssistantMessage(content=final_response))
