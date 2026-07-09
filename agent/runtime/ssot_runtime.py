@@ -640,7 +640,6 @@ def _run_async(awaitable):
 
 
 _BOGUS_FINAL_PATTERNS = (
-    "收到",
     "已完成。",
     "工具执行成功",
     "工具执行完成",
@@ -654,7 +653,7 @@ def _is_bogus_final(text: str) -> bool:
     """Return True when *text* is a placeholder stub rather than
     a real answer produced by the finalizer LLM."""
     t = text.strip()
-    if len(t) <= 3:
+    if len(t) <= 1:
         return True
     return any(p in t for p in _BOGUS_FINAL_PATTERNS)
 
