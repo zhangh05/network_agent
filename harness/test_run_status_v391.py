@@ -25,7 +25,7 @@ def _state(**overrides):
     base = dict(
         request_id="r1", session_id="s1", created_at="2026-01-01T00:00:00",
         user_input="hello", intent="", context=_ctx(),
-        active_module="chat", selected_skill="chat", runtime_mode="codex_v1",
+        active_module="chat", selected_skill="chat", runtime_mode="ssot_runtime",
         final_response="", warnings=[], trace_id="", error=None,
         result_ok=None, result_errors=[],
         skill_results={}, tool_results={},
@@ -222,6 +222,7 @@ def test_persist_run_record_uses_result_llm_metadata(monkeypatch, tmp_path):
     persist_run_record(_Session(), _Turn(), _Result(), context)
 
     rec = json.loads((tmp_path / "default" / "runs" / "r-llm.json").read_text())
+    assert rec["runtime_mode"] == "ssot_runtime"
     assert rec["llm_metadata"]["used"] is True
     assert rec["llm_metadata"]["provider"] == "test-provider"
     assert rec["llm_metadata"]["model"] == "test-model"

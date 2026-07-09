@@ -212,7 +212,7 @@ class SSOTRuntimeEngine:
             ))
             # 构造最小可用 ctx，避免 _build_result 中 audit 访问 ctx.user_input 失败
             fallback_ctx = StatelessContext(
-                workspace_id=workspace_id or "default",
+                workspace_id=workspace_id or "",
                 session_id=session_id or "error",
                 request_id="error",
                 user_input=user_input or "",
@@ -220,7 +220,7 @@ class SSOTRuntimeEngine:
                 extras={},
             )
             return self._build_result(
-                fallback_ctx, None, {}, "", errors, metrics, budget, t_total,
+                fallback_ctx, None, {}, "运行时异常，当前请求未完成。请查看系统诊断或稍后重试。", errors, metrics, budget, t_total,
                 "critical", False,
             )
 
@@ -377,7 +377,7 @@ class SSOTRuntimeEngine:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                final_response = ""
+                final_response = "暂时无法生成回复，模型服务调用失败。请稍后重试或检查 LLM 配置。"
                 errors.append(build_error(
                     "FAST_PATH_FAILURE",
                     f"direct_answer failed: {str(exc)[:300]}",
@@ -1093,7 +1093,6 @@ def _v6_validate_plan_consistency(ctx) -> None:
     )
 
 
-# Backward-compatible aliases
 # ── Ultimate Stability: issue collector ────────────────────────────────────
 
 

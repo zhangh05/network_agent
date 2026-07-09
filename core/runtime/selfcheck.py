@@ -217,7 +217,7 @@ def run_checks(result: SelfcheckResult, ws_id: str):
                         "Redact absolute paths from trace metadata"))
 
     # 13. Tool Runtime current policy/governance summary.
-    # All 22 canonical tools are active by default.
+    # All canonical tools are active by default.
     # V02_FORBIDDEN_TOOLS is a separate policy blacklist
     # (tool names that should never be invoked) — it
     # is NOT a subset of the canonical registry.

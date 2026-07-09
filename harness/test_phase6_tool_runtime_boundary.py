@@ -174,7 +174,7 @@ class TestNoBypass:
         helper that re-enters the canonical ``web.manage`` handler with a
         synthetic ToolInvocation. This is preferred over ``client.invoke``
         for the web sub-tools because ``web.search`` no longer exists in
-        the canonical 22-tool namespace.
+        the canonical namespace.
         """
         import core.tools.general_tools.web_tools as wt
         source = open(wt.__file__).read()

@@ -306,7 +306,7 @@ class ToolExecutionPipeline:
             tool_call.arguments.update(hook_input)
 
         # ── Visibility: always use the full canonical set ──
-        # All 22 canonical tools are available to SSOT Runtime planning. This
+        # All canonical tools are available to SSOT Runtime planning. This
         # fallback keeps archived tool-execution records renderable.
         ctx = getattr(state, 'context', None)
         if ctx is not None:

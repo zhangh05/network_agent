@@ -16,7 +16,11 @@ class WorkspaceStateFragment(ContextFragment):
     token_budget = 4096
 
     def build(self, state) -> dict:
-        ws_id = getattr(state, "workspace_id", "default") or "default"
+        ws_id = getattr(state, "workspace_id", "") or ""
+        if not ws_id:
+            return {"ok": False, "error": "workspace_id_required",
+                    "workspace_id": "", "workspace_state_available": False,
+                    "last_result": {"has_result": False}}
         context_ref = getattr(state, "context", {}).get("context_ref", "")
         try:
             from workspace.manager import get_workspace_state

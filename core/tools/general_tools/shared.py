@@ -176,7 +176,7 @@ def _summarize(output: dict) -> str:
         return f"Archive preview: {output['archive_count']} item(s)."
     if "candidate_count" in output:
         return f"Retention preview: {output['candidate_count']} candidate(s)."
-    return "Completed."
+    return "Tool completed without structured output."
 
 
 def _generate_diff_preview(old: str, new: str, max_lines: int = 6) -> str:

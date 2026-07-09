@@ -26,7 +26,7 @@ interface PendingApproval {
  * approval state across re-renders; useState triggers re-renders.
  * Auto-denies after 60s.
  */
-export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
+export function ApprovalBubble({ onResolved }: { onResolved?: (decision: "approve" | "reject") => void }) {
   const { currentSessionId, currentWorkspaceId } = useSessionStore();
   const [pending, setPending] = useState<PendingApproval | null>(null);
   const [secondsLeft, setSecondsLeft] = useState(60);
@@ -164,7 +164,7 @@ export function ApprovalBubble({ onResolved }: { onResolved?: () => void }) {
       resolvedIdsRef.current.set(p.approval_id, Date.now());
       setPending(null);
       setSecondsLeft(60);
-      onResolvedRef.current?.();
+      onResolvedRef.current?.(decision);
     } catch (err) {
       console.error("[Approval] resolve failed:", err);
       // Keep bubble visible so user can retry

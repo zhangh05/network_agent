@@ -325,7 +325,6 @@ def register_inspection_routes(app):
         overrides = load_vendor_commands(ws_id, vkey, script_type=script_type)
         # v4.1: built-in commands are empty — scripts come from workspace overrides
         effective_commands = list(overrides.get("commands", [])) if overrides else []
-        # pre/post: None means legacy file (missing field) → fall back to builtin defaults
         if overrides:
             pre = overrides.get("pre_commands")
             effective_pre = list(pre if pre is not None else (builtin.pre_commands or []))
@@ -364,11 +363,7 @@ def register_inspection_routes(app):
 
         commands: list[str] = data.get("commands", [])
         if not isinstance(commands, list):
-            # v4.0: also accept old dict format for backward compat
-            if isinstance(commands, dict):
-                commands = list(commands.values())
-            else:
-                return jsonify({"ok": False, "error": "commands_must_be_list"}), 400
+            return jsonify({"ok": False, "error": "commands_must_be_list"}), 400
 
         pre_commands: list[str] = data.get("pre_commands", [])
         if not isinstance(pre_commands, list):

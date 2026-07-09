@@ -79,64 +79,70 @@ def test_5_exec_borderline(risk_engine):
     assert result.requires_approval is False
 
 
-# ── Tests: approval_required (count-based) ─────────────────────────────
+# ── Tests: count-based batches are warnings only ───────────────────────
 
 def test_6_exec_large_batch(risk_engine):
-    """6 exec → approval_required, reason=large_command_batch."""
+    """6 exec → warning only, not approval."""
     nodes = [_node(str(i), "exec.run", command=f"cmd{i}") for i in range(6)]
     dag = _dag(nodes)
     result = risk_engine.assess(dag)
-    assert result.requires_approval is True
+    assert result.requires_approval is False
     assert result.hard_block is False
-    assert result.approval_reason == "large_command_batch"
+    assert result.approval_reason == ""
+    assert any("command batch" in w.lower() for w in result.warnings)
 
 
-def test_20_exec_approval(risk_engine):
-    """20 exec → approval_required, NOT hard block."""
+def test_20_exec_warning_only(risk_engine):
+    """20 exec → warning only, NOT hard block."""
     nodes = [_node(str(i), "exec.run", command=f"cmd{i}") for i in range(20)]
     dag = _dag(nodes)
     result = risk_engine.assess(dag)
-    assert result.requires_approval is True
+    assert result.requires_approval is False
     assert result.hard_block is False
+    assert any("command batch" in w.lower() for w in result.warnings)
 
 
 def test_21_total_nodes_large_batch(risk_engine):
-    """21 total tool nodes → approval_required, reason=large_tool_batch."""
+    """21 total tool nodes → warning only."""
     nodes = [_node(str(i), "knowledge.manage", action="search") for i in range(21)]
     dag = _dag(nodes)
     result = risk_engine.assess(dag)
-    assert result.requires_approval is True
+    assert result.requires_approval is False
     assert result.hard_block is False
-    assert result.approval_reason == "large_tool_batch"
+    assert result.approval_reason == ""
+    assert any("tool batch" in w.lower() for w in result.warnings)
 
 
-def test_50_total_nodes_approval(risk_engine):
-    """50 total nodes → approval_required, NOT hard block."""
+def test_50_total_nodes_warning_only(risk_engine):
+    """50 total nodes → warning only, NOT hard block."""
     nodes = [_node(str(i), "knowledge.manage", action="search") for i in range(50)]
     dag = _dag(nodes)
     result = risk_engine.assess(dag)
-    assert result.requires_approval is True
+    assert result.requires_approval is False
     assert result.hard_block is False
+    assert any("tool batch" in w.lower() for w in result.warnings)
 
 
-# ── Tests: hard_block (count-based) ────────────────────────────────────
+# ── Tests: count-based batches never hard-block ────────────────────────
 
-def test_21_exec_hard_block(risk_engine):
-    """21 exec → hard_block (excessive_command_batch)."""
+def test_21_exec_warning_not_hard_block(risk_engine):
+    """21 exec → warning only; runtime budgets cap execution."""
     nodes = [_node(str(i), "exec.run", command=f"cmd{i}") for i in range(21)]
     dag = _dag(nodes)
     result = risk_engine.assess(dag)
-    assert result.hard_block is True
-    assert "Excessive command batch" in result.blocked_reason
+    assert result.requires_approval is False
+    assert result.hard_block is False
+    assert result.blocked_reason == ""
 
 
-def test_51_total_nodes_hard_block(risk_engine):
-    """51 total nodes → hard_block (excessive_tool_batch)."""
+def test_51_total_nodes_warning_not_hard_block(risk_engine):
+    """51 total nodes → warning only; runtime budgets cap execution."""
     nodes = [_node(str(i), "knowledge.manage", action="search") for i in range(51)]
     dag = _dag(nodes)
     result = risk_engine.assess(dag)
-    assert result.hard_block is True
-    assert "Excessive tool batch" in result.blocked_reason
+    assert result.requires_approval is False
+    assert result.hard_block is False
+    assert result.blocked_reason == ""
 
 
 # ── Tests: destructive commands (approval) ─────────────────────────────
@@ -316,34 +322,35 @@ def test_hard_block_denied_approval():
 
 
 def test_custom_thresholds_exec():
-    """Custom config: max_exec_allow=2, max_exec_approval=4."""
+    """Custom config controls warning threshold only."""
     cfg = SSOTRuntimeConfig(rp_max_exec_allow=2, rp_max_exec_approval=4)
     engine = RiskPolicyEngine(cfg)
-    # 3 exec → approval (2 < 3 ≤ 4)
+    # 3 exec → warning
     nodes = [_node(str(i), "exec.run", command=f"cmd{i}") for i in range(3)]
     dag = _dag(nodes)
     result = engine.assess(dag)
-    assert result.requires_approval is True
-    assert result.approval_reason == "large_command_batch"
-    # 5 exec → hard_block (5 > 4)
+    assert result.requires_approval is False
+    assert any("command batch" in w.lower() for w in result.warnings)
+    # 5 exec → still warning, not hard_block
     nodes2 = [_node(str(i), "exec.run", command=f"cmd{i}") for i in range(5)]
     dag2 = _dag(nodes2)
     result2 = engine.assess(dag2)
-    assert result2.hard_block is True
+    assert result2.hard_block is False
 
 
 def test_custom_thresholds_tools():
-    """Custom config: max_tool_nodes_allow=3, max_tool_nodes_approval=6."""
+    """Custom config controls tool-batch warning threshold only."""
     cfg = SSOTRuntimeConfig(rp_max_tool_nodes_allow=3, rp_max_tool_nodes_approval=6)
     engine = RiskPolicyEngine(cfg)
-    # 5 nodes → approval
+    # 5 nodes → warning
     nodes = [_node(str(i), "knowledge.manage", action="search") for i in range(5)]
     dag = _dag(nodes)
     result = engine.assess(dag)
-    assert result.requires_approval is True
+    assert result.requires_approval is False
     assert result.hard_block is False
-    # 7 nodes → hard_block
+    assert any("tool batch" in w.lower() for w in result.warnings)
+    # 7 nodes → still warning, not hard_block
     nodes2 = [_node(str(i), "knowledge.manage", action="search") for i in range(7)]
     dag2 = _dag(nodes2)
     result2 = engine.assess(dag2)
-    assert result2.hard_block is True
+    assert result2.hard_block is False

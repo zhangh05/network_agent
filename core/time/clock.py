@@ -259,10 +259,10 @@ STAGE_DISPLAY: dict[str, str] = {
 }
 
 
-# ── Compatibility ───────────────────────────────────────────────────────
+# ── Timeline projection ─────────────────────────────────────────────────
 
 def derive_timeline(events: list[dict]) -> dict[str, Any]:
-    """Simple timeline — backward compatibility wrapper."""
+    """Return a compact stage timeline from raw runtime events."""
     timeline = RunTimeline.compute(events)
     stage_ms = {s: t.wall_ms for s, t in timeline.stages.items()}
 

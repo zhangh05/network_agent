@@ -1,6 +1,6 @@
-"""Canonical tool namespace — current 22-tool set.
+"""Canonical tool namespace — current 29-tool set.
 
-All 22 canonical tools are available to the SSOT Runtime planner. Each uses an
+All 29 canonical tools are available to the SSOT Runtime planner. Each uses an
 ``action`` parameter to dispatch sub-capabilities.
 """
 
@@ -67,7 +67,7 @@ CATEGORY_DEFS: dict[str, dict[str, str]] = {
 }
 
 
-# Current 22-tool namespace. Every canonical tool is available to SSOT Runtime planning.
+# Current 29-tool namespace. Every canonical tool is available to SSOT Runtime planning.
 # Schema: (tool_id, category, group, action, display_name, canonical_id,
 #          usage_hint, search_keyword)
 NS_DATA = [
@@ -185,7 +185,7 @@ NS_DATA = [
     # 13. agent.manage — list/get/cancel/status (spawn moved to 7 named tools)
     ('agent.manage', 'agent', 'subagent', 'multi', 'Agent 多 Agent', 'agent.manage',
      'Manage sub-agents. '
-     'action=list (show 7 profiles), result_get (child result by child_session_id), '
+     'action=list (show 7 profiles), get (child result by child_session_id), '
      'cancel (stop subagent), status (view all tasks). '
      'To spawn a subagent, use spawn_<profile>: '
      'spawn_review_agent, spawn_fix_agent, spawn_test_agent, spawn_doc_agent, '
@@ -283,7 +283,7 @@ NS_DATA = [
      'Extract text from a PDF.',
      'Do not use for non-PDF files.', 'workspace.document.pdf.extract_text'),
 
-    # 22. inspection.manage (CMDB-driven device health inspection)
+    # 29. inspection.manage (CMDB-driven device health inspection)
     ('inspection.manage', 'inspection', 'inspection', 'manage', 'CMDB 巡检任务', 'inspection.manage',
      'CMDB-driven device health inspection. '
      'Actions: run, list, get, cancel, report. '

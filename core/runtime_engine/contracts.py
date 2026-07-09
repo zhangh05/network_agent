@@ -56,7 +56,7 @@ class ToolContract:
 
 
 # ============================================================================
-# Built-in Contract Registry — all 22 canonical tools
+# Built-in Contract Registry — all 29 canonical tools
 # ============================================================================
 
 BUILTIN_CONTRACTS: dict[str, ToolContract] = {

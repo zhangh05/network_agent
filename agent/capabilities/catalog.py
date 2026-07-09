@@ -27,7 +27,7 @@ from core.tools.tool_namespace import TOOL_NAMESPACE
 #   display_name        str   human-readable name
 #   description         str   one-sentence description
 #   module_ids          tuple  backend module name(s) (e.g. "cmdb", "pcap")
-#   recommended_tool_ids tuple  canonical tool ids from the 22-tool set
+#   recommended_tool_ids tuple  canonical tool ids from the 29-tool set
 #   prompt_hints        tuple  short hints for the LLM when invoking
 #   safety_notes        tuple  short safety warnings for the LLM
 #   status              str   "enabled" or "planned"
@@ -111,11 +111,22 @@ _CAPABILITIES: tuple[dict, ...] = (
         "display_name": "Agent Delegation",
         "description": "Spawn sub-agents, list roles, run teams, fetch results.",
         "module_ids": ("runtime",),
-        "recommended_tool_ids": ("agent.manage",),
-        "prompt_hints": (),
+        "recommended_tool_ids": (
+            "agent.manage",
+            "spawn_review_agent",
+            "spawn_fix_agent",
+            "spawn_test_agent",
+            "spawn_doc_agent",
+            "spawn_network_diag_agent",
+            "spawn_config_translate_agent",
+            "spawn_security_agent",
+        ),
+        "prompt_hints": (
+            "Use named spawn tools to start subagents; use agent.manage(action=get) to fetch results.",
+        ),
         "safety_notes": (
             "Sub-agents inherit workspace/session boundaries.",
-            "Read results via agent.manage(action=result_get).",
+            "Do not spawn a sub-agent for a simple single-step lookup.",
         ),
         "status": "enabled",
     },
@@ -144,7 +155,7 @@ _CAPABILITIES: tuple[dict, ...] = (
         "recommended_tool_ids": ("device.manage", "exec.run"),
         "prompt_hints": (),
         "safety_notes": (
-            "Live-device access requires approval.",
+            "Live-device reads and connection attempts are medium risk; only destructive commands require approval.",
             "Dangerous commands (reload/erase/format) are auto-blocked.",
         ),
         "status": "enabled",

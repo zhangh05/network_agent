@@ -61,7 +61,8 @@ class InspectionCheck:
     """A single read-only command to run against an asset.
 
     The ``command_key`` is what we look up in ``VendorCommandProfile``.
-    v4.0: ``parser_key`` is kept for backward compat; analysis is LLM-driven.
+    ``parser_key`` identifies the structured parser/analyzer path for this
+    check; empty means the LLM-driven report analyzer handles the result.
     """
 
     check_id: str

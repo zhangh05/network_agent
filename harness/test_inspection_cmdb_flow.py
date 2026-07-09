@@ -48,82 +48,6 @@ def test_catalog_inspection_capability_enabled():
     for tid in cap["recommended_tool_ids"]:
         assert tid in TOOL_NAMESPACE, f"{tid} not in canonical namespace"
 
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_canonical_inspection_manage_registered():
-    from core.tools.canonical_registry import CANONICAL_REGISTRY
-    assert "inspection.manage" in CANONICAL_REGISTRY
-    entry = CANONICAL_REGISTRY["inspection.manage"]
-    schema = entry.input_schema or {}
-    fields = set(schema.get("properties", {}).keys())
-    # action discriminator must expose only user-facing task actions.
-    enum_actions = set(schema["properties"]["action"].get("enum", []))
-    assert "profile_list" not in enum_actions, (
-        "LLM-visible schema must not send users through profile selection"
-    )
-    assert "profile_id" not in fields, (
-        "LLM-visible schema must not expose inspection profile selection"
-    )
-    for required_action in ("run", "list", "get", "cancel", "report"):
-        assert required_action in enum_actions, (
-            f"missing action={required_action} in inspection.manage schema"
-        )
-    assert "wait" not in enum_actions, "LLM-visible inspection schema must not expose blocking wait"
-    assert "html" in schema["properties"]["format"].get("enum", [])
-    # No raw password / credential field — runner is server-side only
-    forbidden = {"password", "credentials", "secret", "token"}
-    leaked = forbidden & fields
-    assert not leaked, f"inspection.manage schema leaks {leaked}"
-
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_internal_script_catalog_contains_vendor_device_scripts():
-    from agent.modules.inspection import service as svc
-    profiles = svc.list_profiles()
-    assert len(profiles) >= 7, (
-        f"expected at least 7 internal profiles including firewall/server, got {len(profiles)}"
-    )
-    ids = {p["profile_id"] for p in profiles}
-    assert {"basic_health", "interface_health", "routing_health",
-            "config_backup", "full_basic", "firewall_health",
-            "server_health"} <= ids
-    # All profiles must be read-only; long remote-read templates can be medium
-    # without requiring approval.
-    for p in profiles:
-        assert p["risk_level"] in {"low", "medium"}
-        assert p["requires_approval"] is False
-        # Every check must have a known parser_key (LLM-typed strings rejected)
-        for c in p["checks"]:
-            assert c["command_key"], "command_key required"
-            assert c["parser_key"], "parser_key required"
-
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_profile_commands_fixed_per_vendor_no_llm_input():
-    """Vendor command profiles are fixed maps. The LLM never composes commands."""
-    from agent.modules.inspection.profiles import (
-        VENDOR_COMMAND_PROFILES, is_read_only_command,
-    )
-    expected = {"h3c", "h3c_firewall", "huawei", "cisco",
-                "ruijie", "hillstone", "server", "generic"}
-    assert expected <= set(VENDOR_COMMAND_PROFILES), (
-        f"vendor profile set missing entries: got {set(VENDOR_COMMAND_PROFILES)}"
-    )
-    # Every command in every vendor profile must pass the static read-only check
-    for vendor, prof in VENDOR_COMMAND_PROFILES.items():
-        for ck, cmd in prof.commands.items():
-            assert cmd, f"{vendor}.{ck} is empty"
-            assert is_read_only_command(cmd), (
-                f"{vendor}.{ck} = {cmd!r} failed read-only check"
-            )
-    # Negative check: a destructive command must be rejected
-    assert not is_read_only_command("reload")
-    assert not is_read_only_command("write memory")
-    assert not is_read_only_command("erase flash:")
-    assert not is_read_only_command("delete running-config")
-    assert not is_read_only_command("format c:")
-
-
 def test_inspection_policy_allows_long_read_only_task_without_approval():
     """CMDB inspection is a read-only long task; it must not be blocked by
     the generic low/medium timeout ceiling and must not request approval.
@@ -158,58 +82,6 @@ def test_inspection_policy_allows_long_read_only_task_without_approval():
     assert decision.requires_approval is False
     assert decision.risk_level in {"low", "medium"}
 
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_server_assets_resolve_to_server_command_profile():
-    """Server assets must not fall through to network-device show commands."""
-    from agent.modules.inspection.profiles import (
-        CK_CPU,
-        CK_MEMORY,
-        CK_VERSION,
-        resolve_command_profile,
-        is_read_only_command,
-    )
-
-    prof = resolve_command_profile(vendor="", device_type="server")
-    assert prof.vendor == "server"
-    assert resolve_command_profile(vendor="Linux", device_type="").vendor == "server"
-    assert "uname" in prof.commands[CK_VERSION]
-    assert prof.commands[CK_CPU].startswith("top ")
-    assert "free" in prof.commands[CK_MEMORY]
-    for cmd in prof.commands.values():
-        assert is_read_only_command(cmd), cmd
-
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_firewall_and_vendor_script_profiles_include_real_read_commands():
-    """Firewall/Ruijie/Hillstone profiles must carry concrete read-only
-    inspection commands rather than silently falling back to generic.
-    """
-    from agent.modules.inspection.profiles import (
-        CK_FIREWALL_POLICY,
-        CK_FIREWALL_SESSION,
-        CK_ROUTE_SUMMARY,
-        VENDOR_COMMAND_PROFILES,
-        is_read_only_command,
-    )
-
-    h3c_fw = VENDOR_COMMAND_PROFILES["h3c_firewall"]
-    from agent.modules.inspection.profiles import resolve_command_profile
-    assert resolve_command_profile("H3C Firewall", "").vendor == "h3c_firewall"
-    assert h3c_fw.commands[CK_FIREWALL_SESSION].startswith("display session")
-    assert h3c_fw.commands[CK_FIREWALL_POLICY].startswith("display security-policy")
-
-    ruijie = VENDOR_COMMAND_PROFILES["ruijie"]
-    assert ruijie.commands[CK_ROUTE_SUMMARY].startswith("show ip route")
-
-    hillstone = VENDOR_COMMAND_PROFILES["hillstone"]
-    assert hillstone.commands[CK_FIREWALL_SESSION].startswith("show session")
-
-    for profile_id in ("h3c_firewall", "ruijie", "hillstone"):
-        for cmd in VENDOR_COMMAND_PROFILES[profile_id].commands.values():
-            assert is_read_only_command(cmd), f"{profile_id}: {cmd}"
-
-
 def test_create_task_defaults_to_auto_profile_without_user_selection():
     """CMDB-triggered inspection must not require the user/LLM to choose a
     template. The backend stores profile_id=auto and resolves scripts per asset.
@@ -229,23 +101,6 @@ def test_create_task_rejects_unknown_explicit_profile():
     bad = svc.create_task(workspace_id="ws_demo", profile_id="does_not_exist_xyz")
     assert bad.status == "failed"
     assert bad.error.startswith("unknown_profile:")
-
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_create_task_with_known_profile_and_empty_scope_fails_clearly():
-    """Empty CMDB scope must not be reported as a successful inspection."""
-    from agent.modules.inspection import service as svc
-
-    task = svc.create_task(
-        workspace_id="ws_test_inspect",
-        profile_id="basic_health",
-        scope={"limit": 10},
-    )
-    assert task.status == "failed"
-    assert task.error == "no_assets_matched_scope"
-    assert task.total_assets == 0
-    assert task.started_at and task.finished_at
-
 
 def test_canonical_run_does_not_require_profile_id():
     """LLM/CMDB run action passes only scope; backend chooses scripts."""
@@ -315,7 +170,7 @@ def test_html_report_route_returns_viewable_html():
 def test_manifest_registry_has_29_manifests_with_inspection():
     from core.tools.manifest_registry import MANIFESTS, validate_all
     errors, count = validate_all()
-    assert count == 29, f"expected 29 manifests (22 canonical + 7 spawn tools), got {count}"
+    assert count == 29, f"expected 29 canonical manifests, got {count}"
     assert not errors, f"manifest validation errors: {errors}"
     assert "inspection.manage" in MANIFESTS
     # The runner caller (inspection_runner) must be in allowed_callers
@@ -388,31 +243,6 @@ def test_canonical_run_handler_uses_existing_manifests():
             "use canonical exec.run(asset_id) for live access"
         )
 
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_report_render_does_not_embed_passwords():
-    """render_report for a task with empty scope returns a Markdown report
-    containing no `password=` substring and no CMDB credential field."""
-    from agent.modules.inspection import service as svc
-    task = svc.create_task(
-        workspace_id="ws_test_inspect",
-        profile_id="basic_health",
-        scope={"limit": 5},
-    )
-    rep = svc.render_report("ws_test_inspect", task.task_id, "md")
-    assert rep["ok"] is True, rep.get("error")
-    md = rep["content"]
-    # The empty-asset report must not contain password / token / secret literals
-    for needle in ("password=", "password:", "secret=", "token="):
-        assert needle.lower() not in md.lower(), (
-            f"report unexpectedly contains {needle!r}"
-        )
-    # Empty-scope report must still include the basic structure: scope / auto policy / summary
-    assert "巡检策略" in md, "report must include auto policy section"
-    assert "巡检范围" in md, "report must include scope section"
-    assert "总体" in md or "总设备" in md, "report must include summary section"
-
-
 def test_explicit_asset_ids_are_authoritative_over_scope_filters():
     """Explicit asset ids must not be hidden by region/vendor/type filters."""
     from agent.modules.cmdb.service import save_asset
@@ -439,105 +269,6 @@ def test_explicit_asset_ids_are_authoritative_over_scope_filters():
     )
     assert [t["asset_id"] for t in targets] == [aid]
 
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_telnet_asset_uses_telnet_target(monkeypatch):
-    """The runner must pass the CMDB protocol into exec.run target."""
-    from agent.modules.inspection import runner
-    from agent.modules.inspection.models import InspectionCheck, InspectionProfile, InspectionTask, InspectionScope
-
-    seen_protocols = []
-
-    def fake_exec(workspace_id, asset_id, protocol, command, timeout, session_id=""):
-        seen_protocols.append(protocol)
-        return {"ok": True, "output": "H3C Comware Software", "error": "", "session_id": ""}
-
-    monkeypatch.setattr(runner, "_exec_one_command", fake_exec)
-
-    task = InspectionTask(
-        task_id="ins_test_telnet",
-        workspace_id="ws_test_inspect",
-        scope=InspectionScope(),
-        profile_id="one",
-    )
-    profile = InspectionProfile(
-        profile_id="one",
-        display_name="One",
-        description="One check",
-        checks=(InspectionCheck(
-            check_id="basic.version",
-            category="health",
-            display_name="Version",
-            command_key="version",
-            parser_key="version",
-        ),),
-    )
-    dr = runner._run_checks_on_asset(task, profile, {
-        "asset_id": "asset_telnet",
-        "name": "telnet-device",
-        "host": "10.251.13.2",
-        "vendor": "h3c",
-        "type": "switch",
-        "protocol": "telnet",
-    }, "ws_test_inspect")
-
-    assert dr.status == "succeeded"
-    assert seen_protocols == ["telnet"]
-
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_current_config_snippet_is_not_raw_config(monkeypatch):
-    """Raw current-config belongs in a sensitive artifact, not task JSON."""
-    from agent.modules.inspection import runner
-    from agent.modules.inspection.models import InspectionCheck, InspectionProfile, InspectionTask, InspectionScope
-
-    class FakeArtifact:
-        artifact_id = "art_sensitive_config"
-
-    monkeypatch.setattr(
-        runner,
-        "_exec_one_command",
-        lambda *args, **kwargs: {
-            "ok": True,
-            "output": "sysname demo\npassword=plain-secret\ninterface Vlanif1",
-            "error": "",
-        },
-    )
-    monkeypatch.setattr(runner, "save_artifact", lambda **kwargs: FakeArtifact())
-
-    task = InspectionTask(
-        task_id="ins_test_config",
-        workspace_id="ws_test_inspect",
-        scope=InspectionScope(),
-        profile_id="config",
-    )
-    profile = InspectionProfile(
-        profile_id="config",
-        display_name="Config",
-        description="Config backup",
-        checks=(InspectionCheck(
-            check_id="config.current",
-            category="config",
-            display_name="Current config",
-            command_key="current_config",
-            parser_key="current_config",
-        ),),
-    )
-    dr = runner._run_checks_on_asset(task, profile, {
-        "asset_id": "asset_cfg",
-        "name": "cfg-device",
-        "host": "10.251.13.3",
-        "vendor": "h3c",
-        "type": "switch",
-        "protocol": "ssh",
-    }, "ws_test_inspect")
-
-    assert dr.command_results[0].artifact_id == "art_sensitive_config"
-    snippet = dr.command_results[0].output_snippet.lower()
-    assert "plain-secret" not in snippet
-    assert "password=" not in snippet
-    assert "sensitive artifact" in snippet
-
 def test_scope_schema_exposes_inner_filter_fields():
     """The `scope` parameter is an object; the schema must document
     which fields the runner accepts (region/location/type/vendor/tags/
@@ -553,27 +284,6 @@ def test_scope_schema_exposes_inner_filter_fields():
         assert field in desc, (
             f"scope description must mention {field!r}; got: {desc!r}"
         )
-
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_run_with_empty_profile_id_resolves_to_auto_profile():
-    """The runner must accept a missing/empty profile_id and route the
-    task through AUTO_PROFILE. This is the contract that lets the LLM
-    safely call inspection.manage(action=run) without a profile choice.
-    """
-    from agent.modules.inspection.profiles import (
-        AUTO_PROFILE_ID, resolve_profile, BUILTIN_PROFILES,
-    )
-    # resolve_profile("") -> AUTO_PROFILE (already wired by f32de51)
-    assert resolve_profile("").profile_id == AUTO_PROFILE_ID
-    assert resolve_profile("auto").profile_id == AUTO_PROFILE_ID
-    # resolve_profile(unknown) -> None — surface as a clean error
-    assert resolve_profile("totally_made_up") is None
-    # And the 5 builtin ids are all resolvable
-    for pid in ("basic_health", "interface_health", "routing_health",
-                 "config_backup", "full_basic"):
-        assert pid in BUILTIN_PROFILES, f"missing builtin {pid!r}"
-
 
 def test_backend_routes_return_400_for_empty_profile_id():
     """Live backend route must not crash on missing profile_id; it must
@@ -669,31 +379,6 @@ def test_task_from_dict_does_not_crash_on_disk_round_trip():
     assert "asset_x" in loaded2.devices
     assert loaded2.devices["asset_x"].asset_id == "asset_x"
     assert loaded2.devices["asset_x"].task_id == task.task_id
-
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_inspection_get_returns_tracking_summary():
-    """LLM tracking uses get instead of a blocking wait call."""
-    from core.tools.canonical_registry import CANONICAL_REGISTRY
-    from core.tools.schemas import ToolInvocation
-    from agent.modules.inspection import service as svc
-
-    task = svc.create_task("ws_wait_action", profile_id="", scope={"limit": 0})
-    result = CANONICAL_REGISTRY["inspection.manage"].handler(ToolInvocation(
-        tool_id="inspection.manage",
-        arguments={
-            "workspace_id": "ws_wait_action",
-            "action": "get",
-            "task_id": task.task_id,
-        },
-        requested_by="turn_runner",
-    ))
-    assert result["ok"] is True
-    assert result["task"]["task_id"] == task.task_id
-    assert result["tracking"]["task_id"] == task.task_id
-    assert result["tracking"]["status"] in {"succeeded", "partial", "failed", "cancelled", "skipped"}
-    assert result["tracking"]["done"] is True
-
 
 def test_exec_one_command_uses_status_not_ok():
     """v3.9.14 follow-up: ToolResult has no ``ok`` attribute — it has
@@ -826,245 +511,6 @@ def test_exec_one_command_passes_session_id_to_canonical_layer():
     assert invoke_args.get("session_id") == "ssh_pinned", (
         f"session_id not threaded into canonical invoke; got {invoke_args!r}"
     )
-
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_default_timeout_for_clamps_and_uses_hints():
-    """per-command-key timeout hints should be tighter than the
-    30s/45s defaults in the profile, and the function must clamp
-    to [5, 120] seconds.
-    """
-    from agent.modules.inspection.profiles import default_timeout_for
-
-    assert default_timeout_for("version") == 5
-    assert default_timeout_for("memory") == 5
-    assert default_timeout_for("current_config") == 60
-    # Unknown command key falls back to the supplied profile_default
-    assert default_timeout_for("nonsense_key", profile_default=15) == 15
-    # Clamp to safe range
-    assert default_timeout_for("anything", profile_default=0) >= 5
-    assert default_timeout_for("anything", profile_default=9999) <= 120
-
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_run_checks_uses_single_session_per_asset(monkeypatch):
-    """Default config (workers=1) must dispatch every check against
-    the same asset with the cached session_id. 6 calls → 1 distinct
-    session_id reused 5 times.
-    """
-    from agent.modules.inspection import runner
-    from agent.modules.inspection.models import InspectionCheck, InspectionProfile, InspectionTask, InspectionScope
-
-    seen_sessions: list[str] = []
-
-    def fake_exec(workspace_id, asset_id, protocol, command, timeout, session_id=""):
-        # Simulate exec.run returning a fresh session_id only on the
-        # first call (i.e. when no session_id was provided).
-        if not session_id:
-            sid = f"ssh_simulated_{len(seen_sessions)}"
-        else:
-            sid = session_id
-        seen_sessions.append(sid)
-        return {
-            "ok": True,
-            "output": f"fake-output-for-{command}",
-            "error": "",
-            "session_id": sid,
-        }
-
-    monkeypatch.setattr(runner, "_exec_one_command", fake_exec)
-
-    profile = InspectionProfile(
-        profile_id="server_health",
-        display_name="Server",
-        description="server checks",
-        checks=tuple(InspectionCheck(
-            check_id=f"srv.x{i}",
-            category="server",
-            display_name=f"X{i}",
-            command_key="version",
-            parser_key="version",
-            timeout_seconds=30,
-        ) for i in range(6)),
-    )
-    task = InspectionTask(
-        task_id="ins_test_session",
-        workspace_id="ws_test_inspect",
-        scope=InspectionScope(),
-        profile_id="server_health",
-    )
-    dr = runner._run_checks_on_asset(task, profile, {
-        "asset_id": "asset_x",
-        "name": "fake-server",
-        "host": "10.0.0.1",
-        "vendor": "",
-        "type": "server",
-        "protocol": "ssh",
-    }, "ws_test_inspect")
-    assert dr.status == "succeeded", dr.errors
-    # 6 checks, 1 session_id reused across all 6
-    assert len(seen_sessions) == 6
-    distinct = set(seen_sessions)
-    assert len(distinct) == 1, (
-        f"expected 1 session reused, got {len(distinct)}: {distinct}"
-    )
-
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_run_checks_closes_reused_session_after_asset(monkeypatch):
-    from agent.modules.inspection import runner
-    from agent.modules.inspection.models import InspectionCheck, InspectionProfile, InspectionTask, InspectionScope
-
-    closed: list[tuple[str, str]] = []
-
-    def fake_exec(workspace_id, asset_id, protocol, command, timeout, session_id=""):
-        return {
-            "ok": True,
-            "output": f"fake-output-for-{command}",
-            "error": "",
-            "session_id": session_id or "ssh_asset_session",
-        }
-
-    monkeypatch.setattr(runner, "_exec_one_command", fake_exec)
-    monkeypatch.setattr(
-        runner,
-        "_close_remote_session",
-        lambda workspace_id, protocol, session_id: closed.append((protocol, session_id)),
-    )
-
-    profile = InspectionProfile(
-        profile_id="server_health",
-        display_name="Server",
-        description="server checks",
-        checks=tuple(InspectionCheck(
-            check_id=f"srv.close{i}",
-            category="server",
-            display_name=f"X{i}",
-            command_key="version",
-            parser_key="version",
-            timeout_seconds=30,
-        ) for i in range(2)),
-    )
-    task = InspectionTask(
-        task_id="ins_test_close_session",
-        workspace_id="ws_test_inspect",
-        scope=InspectionScope(),
-        profile_id="server_health",
-    )
-    dr = runner._run_checks_on_asset(task, profile, {
-        "asset_id": "asset_x",
-        "name": "fake-server",
-        "host": "10.0.0.1",
-        "vendor": "",
-        "type": "server",
-        "protocol": "ssh",
-    }, "ws_test_inspect")
-
-    assert dr.status == "succeeded", dr.errors
-    assert closed == [("ssh", "ssh_asset_session")]
-
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_per_device_workers_setting_is_ignored_for_interactive_safety(monkeypatch):
-    """Per-device checks must remain serial even if an old worker
-    tuning knob is present. Device-level concurrency is allowed, but
-    one asset gets one ordered interactive stream and one session_id.
-    """
-    from agent.modules.inspection import runner
-    from agent.modules.inspection.models import InspectionCheck, InspectionProfile, InspectionTask, InspectionScope
-
-    seen_sessions: list[str] = []
-
-    def fake_exec(workspace_id, asset_id, protocol, command, timeout, session_id=""):
-        if not session_id:
-            sid = "ssh_single_1"
-        else:
-            sid = session_id
-        seen_sessions.append(sid)
-        return {
-            "ok": True, "output": f"fake-{command}",
-            "error": "", "session_id": sid,
-        }
-
-    monkeypatch.setattr(runner, "_exec_one_command", fake_exec)
-    monkeypatch.setattr(runner, "INSPECTION_PER_DEVICE_WORKERS", 2,
-                        raising=False)
-
-    profile = InspectionProfile(
-        profile_id="server_health",
-        display_name="Server",
-        description="checks",
-        checks=tuple(InspectionCheck(
-            check_id=f"srv.x{i}",
-            category="server",
-            display_name=f"X{i}",
-            command_key="version",
-            parser_key="version",
-            timeout_seconds=30,
-        ) for i in range(6)),
-    )
-    task = InspectionTask(
-        task_id="ins_test_workers",
-        workspace_id="ws_test_inspect",
-        scope=InspectionScope(),
-        profile_id="server_health",
-    )
-    dr = runner._run_checks_on_asset(task, profile, {
-        "asset_id": "asset_x",
-        "name": "fake-server",
-        "host": "10.0.0.1",
-        "vendor": "",
-        "type": "server",
-        "protocol": "ssh",
-    }, "ws_test_inspect")
-    assert dr.status == "succeeded", dr.errors
-    assert len(seen_sessions) == 6
-    assert len(set(seen_sessions)) == 1, (
-        f"per-device execution must stay serial, got sessions {set(seen_sessions)}"
-    )
-
-
-# ── v3.9.14 post-50-round fixes ─────────────────────────────────────────
-
-
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_cancel_task_returns_supported_true(monkeypatch, tmp_path):
-    """Cancel endpoint is real now, not a 501 placeholder.
-
-    The runner reads its per-workspace storage root from
-    ``workspace.run_store.WS_ROOT``; monkey-patching that module
-    attribute redirects all in-runner reads/writes to ``tmp_path``
-    without touching the real on-disk store.
-    """
-    from agent.modules.inspection import runner
-    import workspace.run_store as ws_store
-    ws = "ws_cancel_real"
-    (tmp_path / ws).mkdir(parents=True)
-    # also create inspection/tasks subdir the runner expects
-    (tmp_path / ws / "inspection" / "tasks").mkdir(parents=True)
-    orig = ws_store.WS_ROOT
-    ws_store.WS_ROOT = tmp_path
-    try:
-        # Service layer is what HTTP callers see; it's also the
-        # one that coerces dict → InspectionScope properly.
-        from agent.modules.inspection import service as insp_svc
-        task = insp_svc.create_task(
-            workspace_id=ws,
-            profile_id="server_health",
-            scope={"limit": 1},
-            created_by="user",
-        )
-        result = insp_svc.cancel_task(ws, task.task_id)
-    finally:
-        ws_store.WS_ROOT = orig
-    assert "ok" in result
-    if result.get("ok"):
-        assert result.get("supported") is True
-        assert "marked_at" in result
-    else:
-        assert "error" in result
-        assert result["error"].startswith("task_already_")
-
 
 def test_cancel_task_closes_registered_remote_sessions(monkeypatch, tmp_path):
     """Cancel should actively close already-known SSH/Telnet sessions."""
@@ -1209,73 +655,26 @@ def test_cancel_route_maps_already_terminal_to_409(monkeypatch):
     assert resp.get_json()["error"] == "task_already_succeeded"
 
 
-@pytest.mark.skip(reason="needs update for v4.x inspection refactor")
-def test_parallel_cancel_records_completed_future_before_stopping(monkeypatch, tmp_path):
-    """A completed future observed at cancel time must still be merged."""
-    from agent.modules.inspection import runner
-    from agent.modules.inspection.models import DeviceResult, InspectionScope
-    import workspace.run_store as ws_store
+def test_inspection_script_update_rejects_dict_commands(monkeypatch):
+    """Script update API accepts only the current list-of-commands contract."""
+    from flask import Flask
+    from backend.api.inspection_routes import register_inspection_routes
 
-    ws = "ws_cancel_done_future"
-    (tmp_path / ws).mkdir(parents=True)
-    orig = ws_store.WS_ROOT
-    ws_store.WS_ROOT = tmp_path
-    try:
-        monkeypatch.setattr(runner, "_resolve_target_assets", lambda scope, workspace_id: [
-            {
-                "asset_id": "a_0", "name": "asset-0", "type": "server",
-                "vendor": "linux", "host": "127.0.0.1", "port": 22,
-                "protocol": "ssh",
-            },
-            {
-                "asset_id": "a_1", "name": "asset-1", "type": "server",
-                "vendor": "linux", "host": "127.0.0.1", "port": 22,
-                "protocol": "ssh",
-            },
-        ])
+    app = Flask(__name__)
+    register_inspection_routes(app)
+    client = app.test_client()
 
-        class FakeFuture:
-            def __init__(self, asset_id: str):
-                self.asset_id = asset_id
-            def done(self):
-                return True
-            def cancel(self):
-                return False
-            def result(self):
-                dr = DeviceResult(task_id="will_be_overwritten", asset_id=self.asset_id)
-                dr.status = "succeeded"
-                dr.finished_at = "2026-07-01T00:00:00+00:00"
-                return dr
+    def fail_save(*args, **kwargs):
+        raise AssertionError("save_vendor_commands must not run for invalid commands")
 
-        class FakeExecutor:
-            def __init__(self, max_workers):
-                self.futures = []
-            def __enter__(self):
-                return self
-            def __exit__(self, *args):
-                return False
-            def submit(self, fn, workspace_id, asset_meta, task, profile):
-                fut = FakeFuture(asset_meta["asset_id"])
-                self.futures.append(fut)
-                return fut
-
-        submitted: list[FakeFuture] = []
-        def fake_as_completed(futures):
-            submitted[:] = list(futures)
-            return iter(submitted)
-
-        monkeypatch.setattr(runner, "ThreadPoolExecutor", FakeExecutor)
-        monkeypatch.setattr(runner, "as_completed", fake_as_completed)
-        monkeypatch.setattr(runner, "_cancel_requested", lambda workspace_id, task_id: True)
-        monkeypatch.setattr(runner, "_consume_cancel_marker", lambda workspace_id, task_id: "2026-07-01T00:00:01+00:00")
-        task = runner.run_task(ws, "server_health", InspectionScope(limit=2), max_concurrency=2)
-    finally:
-        ws_store.WS_ROOT = orig
-
-    assert task.succeeded == 2, (
-        "completed futures must be recorded even if cancel marker is visible"
-    )
-
+    monkeypatch.setattr("backend.api.inspection_routes.save_vendor_commands", fail_save)
+    resp = client.put("/api/inspection/scripts/h3c", json={
+        "workspace_id": "default",
+        "commands": {"version": "display version"},
+    })
+    body = resp.get_json()
+    assert resp.status_code == 400
+    assert body["error"] == "commands_must_be_list"
 
 def test_reconcile_all_workspaces_flips_phantom_running(tmp_path):
     """On startup the backend should sweep all workspaces and mark

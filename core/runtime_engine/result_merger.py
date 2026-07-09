@@ -93,7 +93,7 @@ class ResultMerger:
             },
             # v3.14: structured normalized_content
             "normalized_content": normalized_contents,
-            # v3.14 legacy: flat content strings for backward compat
+            # Flat text projection for callers that only render content.
             "normalized_content_texts": [
                 nc.get("content", "") for nc in normalized_contents
             ],

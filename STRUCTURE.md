@@ -40,7 +40,7 @@ network_agent/
 │   ├── runtime/                # Diagnostics/Selfcheck/Retention
 │   ├── runtime_engine/         # SSOT Runtime engine (planner/DAG/finalizer)
 │   ├── time/
-│   ├── tools/                  # 22 canonical tools, manifest, policy, executor
+│   ├── tools/                  # 29 canonical tools, manifest, policy, executor
 │   └── workspaces/             # Workspace abstractions
 ├── workspace/                  # Workspace/session/run/message/memory stores
 ├── workspaces/                 # Local workspace data; not committed

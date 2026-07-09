@@ -57,14 +57,10 @@ def test_legacy_tool_ids_absent_from_tooL_namespace():
     )
 
 
-def test_canonical_namespace_has_exactly_22_tools():
-    """v3.9.2 design: 22 canonical tools baseline.
-    v3.9.13 added `inspection.manage` (CMDB-driven device inspection);
-    the canonical set may grow when a new merged tool lands, but a
-    hardcoded floor of 22 documents the v3.9.2 baseline.
-    """
-    assert len(TOOL_NAMESPACE) >= 21, (
-        f"canonical tool count below v3.9.2 baseline: {len(TOOL_NAMESPACE)}"
+def test_canonical_namespace_has_current_29_tools():
+    """Current design: 29 canonical tools, including seven named spawn tools."""
+    assert len(TOOL_NAMESPACE) == 29, (
+        f"canonical tool count drifted from current SSOT set: {len(TOOL_NAMESPACE)}"
     )
     # No legacy names may sneak in.
     for tid in TOOL_NAMESPACE:

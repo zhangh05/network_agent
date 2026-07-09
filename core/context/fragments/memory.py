@@ -21,7 +21,10 @@ class MemoryHitsFragment(ContextFragment):
     token_budget = 2048
 
     def build(self, state) -> dict:
-        ws_id = getattr(state, "workspace_id", "default") or "default"
+        ws_id = getattr(state, "workspace_id", "") or ""
+        if not ws_id:
+            return {"ok": False, "error": "workspace_id_required",
+                    "hits": [], "count": 0}
         user_input = getattr(state, "user_input", "") or ""
         try:
             from core.context.unified_retriever import get_retriever

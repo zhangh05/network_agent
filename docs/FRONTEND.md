@@ -42,7 +42,7 @@ Approval bubbles subscribe to the unified approval API/SSE. Buttons resolve a du
 
 ## Tool And Capability UI
 
-The visible tool catalog is based on the current 22 canonical tools. Business capabilities are display metadata from `agent/capabilities/catalog.py`. Frontend labels may be friendly, but API payloads must use canonical tool IDs.
+The visible tool catalog is based on the current 29 canonical tools. Business capabilities are display metadata from `agent/capabilities/catalog.py`. Frontend labels may be friendly, but API payloads must use canonical tool IDs.
 
 ## Validation
 

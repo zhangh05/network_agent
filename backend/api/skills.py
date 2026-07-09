@@ -2,7 +2,7 @@
 """Skills API — backed by the business capability catalog (v3.9.4).
 
 Single source of truth: `agent.capabilities.catalog`. The returned
-``capabilities`` list contains canonical tool ids only (the 22-tool
+``capabilities`` list contains canonical tool ids only (the 29-tool
 set). Removed tool names are not emitted from this endpoint.
 """
 

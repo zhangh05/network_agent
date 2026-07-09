@@ -392,7 +392,7 @@ _EXTRACTORS = {
     "links": _extract_links,
 }
 
-# Legacy alias — "article" maps to "full" (markdownify) for backward compat
+# Current fetch mode alias: article uses the same readable Markdown extractor.
 _EXTRACTORS["article"] = _extract_full_page
 
 

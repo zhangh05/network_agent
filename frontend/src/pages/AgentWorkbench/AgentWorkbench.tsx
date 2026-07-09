@@ -475,7 +475,11 @@ export function TaskWorkbench() {
     };
   }, [currentSessionId, currentWorkspaceId]);
 
-  async function onSend(textOverride?: string, metadataOverride?: Record<string, unknown>) {
+  async function onSend(
+    textOverride?: string,
+    metadataOverride?: Record<string, unknown>,
+    options?: { appendUser?: boolean },
+  ) {
     const hasAttachments = attachments.length > 0;
     const raw = typeof textOverride === "string" ? textOverride : input;
     const text = raw.trim();
@@ -525,7 +529,9 @@ export function TaskWorkbench() {
     }
 
     const scratch = currentSessionId ?? "_scratch";
-    appendUser(fullText, scratch);
+    if (options?.appendUser !== false) {
+      appendUser(fullText, scratch);
+    }
     const streamingMsgId = appendAssistantStreaming(scratch);
     userScrolledUpRef.current = false; // reset scroll state when sending a new message
     setSending(true);
@@ -1218,7 +1224,16 @@ export function TaskWorkbench() {
       </div>
 
       {/* ── Inline approval bubble for high-risk tools ── */}
-      <ApprovalBubble />
+      <ApprovalBubble onResolved={(decision) => {
+        if (decision !== "approve") return;
+        if (sendingRef.current) return;
+        if (!lastUserInput) return;
+        void onSendRef.current(
+          lastUserInput,
+          { approved_risk: true, approval_resume: true },
+          { appendUser: false },
+        );
+      }} />
     </div>
   );
 }

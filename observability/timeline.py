@@ -58,10 +58,13 @@ def add_event(state, event_type: str, name: str, status: str = "started",
               trace_id: str = "", summary: str = "", metadata: dict = None,
               duration_ms: float = 0.0):
     """Add a trace event to state."""
+    workspace_id = getattr(state, "workspace_id", "") or ""
+    if not workspace_id:
+        raise ValueError("workspace_id is required for trace events")
     evt = TraceEvent(
         trace_id=trace_id,
         run_id=state.request_id,
-        workspace_id=state.workspace_id or "default",
+        workspace_id=workspace_id,
         event_type=event_type,
         name=name,
         status=status,

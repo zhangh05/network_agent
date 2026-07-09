@@ -83,8 +83,9 @@ Valid values in the `type` field:
 Used by `MemoryWriteGate._llm_gate_record()` in `memory_governance.py` as soft gate
 after write acceptance (still runs in `llm_first` mode for extra quality check).
 **Note:** `generate_memories()` (llm_memory.py) already filters trivial content, so
-the LLM gate in the write path is redundant. It is kept for backward compatibility
-but has marginal value when `llm_memory.py` drives generation.
+the LLM gate in the write path is a secondary quality check. It has marginal
+value when `llm_memory.py` drives generation, but remains part of the current
+`llm_first` governance mode.
 
 ## Stage 2: Write
 

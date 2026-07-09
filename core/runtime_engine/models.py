@@ -176,14 +176,12 @@ class SSOTRuntimeConfig:
     tracking_max_seconds: int = 45
     tracking_poll_interval_cap_seconds: float = 2.0
 
-    # v3.12: RiskPolicy thresholds
-    # Total tool nodes: <=20 → no approval trigger;
-    #   >20 ≤50 → approval_required; >50 → hard_block.
+    # RiskPolicy warning thresholds. These no longer trigger approval/blocking;
+    # QueryLoop budgets enforce hard runtime limits.
     rp_max_tool_nodes_allow: int = 20
     rp_max_tool_nodes_approval: int = 50
 
-    # Exec.run command count: ≤5 → no approval trigger;
-    #   >5 ≤20 → approval_required; >20 → hard_block.
+    # Exec.run command count warning threshold.
     rp_max_exec_allow: int = 5
     rp_max_exec_approval: int = 20
 

@@ -110,6 +110,48 @@ def sample_tool_registry():
     }
 
 
+class TestEngineFailureFallbacks:
+    @pytest.mark.asyncio
+    async def test_top_level_exception_does_not_default_workspace(self, config):
+        from core.runtime_engine.engine import SSOTRuntimeEngine
+
+        engine = SSOTRuntimeEngine(config=config)
+
+        async def boom(*args, **kwargs):
+            raise RuntimeError("synthetic crash")
+
+        engine._run_internal = boom
+
+        result = await engine.run(
+            "触发异常",
+            workspace_id="",
+            session_id="",
+        )
+
+        assert result.success is False
+        assert result.metadata["workspace_id"] == ""
+        assert result.metadata["session_id"] == "error"
+        assert "synthetic crash" in "; ".join(result.errors)
+        assert result.final_response
+        assert "运行时异常" in result.final_response
+
+    @pytest.mark.asyncio
+    async def test_fast_path_llm_failure_returns_user_visible_message(self, config):
+        from core.runtime_engine.engine import SSOTRuntimeEngine
+
+        def failing_llm(**kwargs):
+            raise RuntimeError("provider down")
+
+        engine = SSOTRuntimeEngine(config=config, llm_invoke=failing_llm)
+
+        result = await engine.run("你好", workspace_id="ws_fast", session_id="s1")
+
+        assert result.success is False
+        assert result.final_response
+        assert "暂时无法生成回复" in result.final_response
+        assert any("provider down" in err for err in result.errors)
+
+
 # ============================================================================
 # Graph Compiler Tests
 # ============================================================================

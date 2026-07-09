@@ -2475,7 +2475,7 @@ def _ws_artifact_list_basic(inv: ToolInvocation) -> dict:
 
 # canonical_tool_id -> CanonicalToolEntry
 _RAW_REGISTRY: list[CanonicalToolEntry] = [
-    # ── 22-tool Codex-style registry (all visible to LLM) ──
+    # ── 29-tool Codex-style registry (all visible to LLM) ──
     # Merged tools use action=... dispatch (see _handle_*_merged above).
     # LLMs and runtime callers use the merged canonical_tool_ids below.
 
@@ -2575,7 +2575,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         risk_level="medium", requires_approval=False,  # add/delete require approval at runtime
         description=(
             "CMDB device inventory. Use list to search/filter by type/vendor/region, "
-            "get to view details (including SSH credentials), "
+            "get to view details (credentials stay server-side and are never returned), "
             "add/update/delete for management (requires approval). "
             "export for CSV backup. Never fabricate asset data."
         ),
@@ -3223,7 +3223,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         description="Extract text from PDF files in workspace.",
     ),
 
-    # 22. inspection.manage (CMDB-driven device health inspection)
+    # 29. inspection.manage (CMDB-driven device health inspection)
     CanonicalToolEntry(
         canonical_tool_id="inspection.manage",
         handler=_adapt(_handle_inspection_managed),

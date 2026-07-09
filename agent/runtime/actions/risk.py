@@ -46,7 +46,7 @@ _READ_ACTIONS = {
     "list", "get", "search", "read", "source_list", "chunk_list",
     "status", "log", "diff", "export", "diagnostics", "health",
     "selfcheck", "tasks", "audit_log", "session_get", "run_get",
-    "role_list", "result_get", "find", "load", "inspect",
+    "role_list", "get", "find", "load", "inspect",
     "weather", "page", "parse", "summarize", "validate",
 }
 _DESTRUCTIVE_ACTIONS = {

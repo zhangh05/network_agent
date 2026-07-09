@@ -6,7 +6,7 @@ This file is the handoff contract for AI coding agents working in this repositor
 
 1. Keep the current architecture only. Do not add compatibility branches, old tool names, fallback APIs, or historical docs.
 2. All tool invocation goes through the SSOT QueryLoop runtime and registered canonical handlers. Do not add alternate planner, dispatch, or compatibility paths.
-3. All tools must be one of the 22 canonical IDs in `core/tools/tool_namespace.py`.
+3. All tools must be one of the 29 canonical IDs in `core/tools/tool_namespace.py`.
 4. `workspace_id` must be explicit and validated at API boundaries. Empty values return 400.
 5. Approval is for high-risk/destructive actions, not for ordinary read/list/query operations.
 6. Memory writes go through `workspace.memory_governance.MemoryWriteGate`.
@@ -88,9 +88,9 @@ _READ_ONLY_TOOLS = {
 
 ## Canonical Tools
 
-There are exactly 22 public tool IDs:
+There are exactly 29 public tool IDs:
 
-`agent.manage`, `browser.manage`, `code.search`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `git.manage`, `inspection.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
+`agent.manage`, `browser.manage`, `code.search`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `git.manage`, `inspection.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `spawn_config_translate_agent`, `spawn_doc_agent`, `spawn_fix_agent`, `spawn_network_diag_agent`, `spawn_review_agent`, `spawn_security_agent`, `spawn_test_agent`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
 
 If a change needs a new operation, add it behind an existing canonical tool unless there is a strong product reason to create a new public tool.
 

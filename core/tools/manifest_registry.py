@@ -1,5 +1,5 @@
 # core/tools/manifest_registry.py
-"""All tool manifests — single source of truth for the 22 canonical tools.
+"""All tool manifests — single source of truth for the 29 canonical tools.
 
 Each merged tool carries a base risk profile. Per-action destructive
 checks in ``core.tools.policy`` escalate delete/rewind/destructive
@@ -181,7 +181,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
     "agent.manage": CapabilityManifest(
         tool_id="agent.manage", category="agent", display_name="Agent (manage)",
         description=(
-            "Manage sub-agents. action=list (show profiles), result_get (child result by id), "
+            "Manage sub-agents. action=list (show profiles), get (child result by id), "
             "cancel (stop subagent), status (view all)."
         ),
         action_class="execute",
@@ -333,7 +333,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         idempotency="safe_to_retry", timeout_seconds=60,
     ),
 
-    # ═══ 22. inspection.manage (CMDB-driven device health check) ═══
+    # ═══ 29. inspection.manage (CMDB-driven device health check) ═══
     "inspection.manage": CapabilityManifest(
         tool_id="inspection.manage", category="inspection",
         display_name="设备巡检 (CMDB)",

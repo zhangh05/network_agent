@@ -84,7 +84,7 @@ def persist_run_record(session, turn, result, context) -> None:
             },
             active_module=active_module,
             selected_skill=selected_skill,
-            runtime_mode="codex_v1",
+            runtime_mode="ssot_runtime",
             final_response=final_response,
             warnings=(result.warnings if result and result.warnings else []),
             trace_id=(result.trace_id if result else ""),

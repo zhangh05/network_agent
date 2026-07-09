@@ -31,7 +31,7 @@ The frontend timeline consumes runtime events and tool results instead of inferr
 
 ## Tool Boundary
 
-The public tool namespace has 22 canonical IDs. `core/tools/tool_namespace.py`, `core/tools/manifest_registry.py`, and the default registry must remain count-aligned.
+The public tool namespace has 29 canonical IDs. `core/tools/tool_namespace.py`, `core/tools/manifest_registry.py`, and the default registry must remain count-aligned.
 
 Tool execution requires:
 

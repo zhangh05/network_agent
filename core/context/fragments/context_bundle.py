@@ -18,12 +18,17 @@ class ContextBundleFragment(ContextFragment):
     token_budget = 16384  # large, but still capped
 
     def build(self, state) -> dict:
+        workspace_id = getattr(state, "workspace_id", "") or ""
+        if not workspace_id:
+            return {"ok": False, "error": "workspace_id_required",
+                    "bundle_available": False,
+                    "safe_llm_context": {}, "execution_context": {}, "citations": []}
         try:
             from core.context.builder import build_context_bundle
 
             ctx_ref = state.context.get("context_ref", "")
             bundle = build_context_bundle(
-                workspace_id=state.workspace_id or "default",
+                workspace_id=workspace_id,
                 user_input=state.user_input or "",
                 intent=state.intent or "",
                 capability_id=state.context.get("capability_id", ""),

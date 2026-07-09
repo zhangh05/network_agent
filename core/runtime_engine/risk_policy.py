@@ -77,16 +77,11 @@ class RiskAssessment:
 class RiskPolicyEngine:
     """Risk assessment for execution DAGs.
 
-    Rules (v3.12.1, config-driven thresholds):
+    Rules:
       - credential_access / system dir delete → **hard_block**
       - Destructive commands (rm -rf, git reset --hard, etc.) → **approval_required**
-      - 3+ write/mutate → **approval_required**
-      - exec.run ≤ rp_max_exec_allow → no approval trigger
-      - exec.run > rp_max_exec_allow ≤ rp_max_exec_approval → approval_required
-      - exec.run > rp_max_exec_approval → hard_block
-      - total nodes ≤ rp_max_tool_nodes_allow → no approval trigger
-      - total nodes > rp_max_tool_nodes_allow ≤ rp_max_tool_nodes_approval → approval
-      - total nodes > rp_max_tool_nodes_approval → hard_block
+      - Large write/exec/tool batches → warnings only. They are bounded by
+        runtime budgets and must not trigger approval by themselves.
     """
 
     def __init__(self, config=None):
@@ -221,7 +216,7 @@ class RiskPolicyEngine:
             # workspace.artifact, report.manage) that supports both read and
             # write sub-actions should only increment write_count for the
             # write actions. Previously the hard-coded contract side_effect
-            # counted every call as a write, triggering multiple_writes
+            # counted every call as a write, creating noisy batch warnings
             # when the LLM simply read 3+ files.
             se = contract.side_effect
             action = str(node.args.get("action", "")).lower()
@@ -275,87 +270,41 @@ class RiskPolicyEngine:
         cred_count: int,
         dag: ExecutionDAG,
     ) -> None:
-        total_nodes = dag.total_nodes if dag else len(dag.nodes)
+        nodes = list(getattr(dag, "nodes", []) or [])
+        total_nodes = int(getattr(dag, "total_nodes", len(nodes)) or len(nodes))
 
-        # 3+ writes → approval required (unchanged)
+        # 3+ writes → warning only. The user-facing policy is destructive-only
+        # approval; ordinary batches stay usable and are bounded elsewhere.
         if write_count >= 3 and not assessment.hard_block:
             assessment.combo_reasons.append(f"{write_count} write/mutate operations")
             assessment.warnings.append(
                 f"Combo: {write_count} write operations detected"
             )
-            assessment.requires_approval = True
-            if not assessment.approval_reason:
-                assessment.approval_reason = "multiple_writes"
-            # Populate approval_nodes so downstream gates can detect approval
-            for node in dag.nodes:
-                contract = get_contract(node.tool)
-                action = str(node.args.get("action", "")).lower()
-                if contract and contract.side_effect in ("write_file", "mutate_local"):
-                    if action not in ("read", "list", "glob", "read_image", "diff", "export", "references", "status", "log", "get"):
-                        if node.id not in assessment.approval_nodes:
-                            assessment.approval_nodes.append(node.id)
 
-        # exec.run tiers (config-driven)
-        if exec_count > self._max_exec_approval and not assessment.hard_block:
-            assessment.hard_block = True
-            assessment.safe_to_run = False
-            assessment.blocked_reason = (
-                assessment.blocked_reason or
-                f"Excessive command batch: {exec_count} exec nodes "
-                f"(> {self._max_exec_approval})"
-            )
-        elif exec_count > self._max_exec_allow and not assessment.hard_block:
-            assessment.requires_approval = True
+        # exec.run tiers → warning only. QueryLoop/tool budgets cap runtime.
+        if exec_count > self._max_exec_allow and not assessment.hard_block:
             assessment.combo_reasons.append(
                 f"{exec_count} command executions"
             )
             assessment.warnings.append(
-                f"Large command batch: {exec_count} exec nodes — approval required"
+                f"Large command batch: {exec_count} exec nodes"
             )
-            if not assessment.approval_reason:
-                assessment.approval_reason = "large_command_batch"
-            # 填充 approval_nodes，走路径 A 立即返回
-            for node in dag.nodes:
-                if node.tool == "exec.run" and node.id not in assessment.approval_nodes:
-                    assessment.approval_nodes.append(node.id)
 
-        # Total nodes tiers (config-driven)
-        if total_nodes > self._max_tool_approval and not assessment.hard_block:
-            assessment.hard_block = True
-            assessment.safe_to_run = False
-            assessment.blocked_reason = (
-                assessment.blocked_reason or
-                f"Excessive tool batch: {total_nodes} total nodes "
-                f"(> {self._max_tool_approval})"
-            )
-        elif total_nodes > self._max_tool_allow and not assessment.hard_block:
-            assessment.requires_approval = True
-            if not assessment.approval_reason:
-                assessment.approval_reason = "large_tool_batch"
+        # Total node tiers → warning only. Planner and QueryLoop enforce caps.
+        if total_nodes > self._max_tool_allow and not assessment.hard_block:
             assessment.warnings.append(
                 f"Large tool batch: {total_nodes} total nodes"
             )
-            # 填充 approval_nodes，走路径 A 立即返回
-            for node in dag.nodes:
-                if node.id not in assessment.approval_nodes:
-                    assessment.approval_nodes.append(node.id)
 
-        # NOTE: exec+external+credential combo triggers false-positives in production — P2-9
-            # exec + external + credential → approval
+        # exec + external + credential → warning only unless a concrete
+        # credential-access command was already hard-blocked above.
         if exec_count and external_count and cred_count and not assessment.hard_block:
             assessment.combo_reasons.append(
                 "exec + external + credential_access combo"
             )
             assessment.warnings.append(
-                "Combo: exec + external + credential — approval required"
+                "Combo: exec + external + credential context detected"
             )
-            assessment.requires_approval = True
-            if not assessment.approval_reason:
-                assessment.approval_reason = "exec_external_credential_combo"
-            # 填充 approval_nodes，走路径 A 立即返回
-            for node in dag.nodes:
-                if node.id not in assessment.approval_nodes:
-                    assessment.approval_nodes.append(node.id)
 
     def _compute_composite(self, dag: ExecutionDAG) -> str:
         max_risk = RiskLevel.LOW

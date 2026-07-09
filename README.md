@@ -1,6 +1,6 @@
 # Network Agent
 
-Network Agent 是一个面向网络运维场景的本地 AI Agent 工作台。当前架构只保留一套运行时、一套工具边界和一套业务能力目录：前端通过 Flask API 与 WebSocket/SSE 驱动对话，后端由 `AgentApp -> SSOTRuntimeEngine -> ToolRuntimeClient` 统一执行，工具统一收敛为 22 个 canonical tool。
+Network Agent 是一个面向网络运维场景的本地 AI Agent 工作台。当前架构只保留一套运行时、一套工具边界和一套业务能力目录：前端通过 Flask API 与 WebSocket/SSE 驱动对话，后端由 `AgentApp -> SSOTRuntimeEngine -> ToolRuntimeClient` 统一执行，工具统一收敛为 29 个 canonical tool。
 
 > **运行环境**：Python 3.12+ / Node.js 18+ / macOS 或 Linux。
 
@@ -47,7 +47,7 @@ flowchart LR
 | `agent/app/` | AgentApp 门面、SessionManager、AgentThread |
 | `agent/runtime/` | SSOT Runtime 适配、AgentResult 投影、持久化、hook |
 | `agent/modules/` | inspection（巡检）、browser（浏览器操控）、cmdb（资产）、knowledge（知识库）、remote（远程终端） |
-| `core/tools/` | 22 个 canonical tool、manifest、policy、executor、redaction |
+| `core/tools/` | 29 个 canonical tool、manifest、policy、executor、redaction |
 | `agent/capabilities/` | 12 个业务能力目录，只描述能力，不注册工具 |
 | `workspace/` | session/run/message/memory/workspace 数据边界 |
 | `artifacts/` | 制品生命周期与内容存储 |
@@ -77,9 +77,9 @@ flowchart LR
 - JSONL append-only + RLock 并发控制，软删除（tombstone 标记）
 - 密码损坏检测（`password_corrupted` 标记）在列表和单资产查询中生效
 
-## 22 个 Canonical Tools
+## 29 个 Canonical Tools
 
-`agent.manage`, `browser.manage`, `code.search`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `git.manage`, `inspection.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
+`agent.manage`, `browser.manage`, `code.search`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `git.manage`, `inspection.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `spawn_config_translate_agent`, `spawn_doc_agent`, `spawn_fix_agent`, `spawn_network_diag_agent`, `spawn_review_agent`, `spawn_security_agent`, `spawn_test_agent`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
 
 工具名、manifest 和 registry 必须三方一致。不要添加别名，不要恢复旧工具名，不要让 handler 绕过 `ToolRuntimeClient`。
 

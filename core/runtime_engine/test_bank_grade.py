@@ -196,6 +196,21 @@ class TestRiskPolicy:
         assert result.safe_to_run
         assert result.risk_level == "low"
 
+    def test_combo_escalation_tolerates_empty_dag(self, engine):
+        assessment = RiskAssessment()
+
+        engine._apply_combo_escalation(
+            assessment,
+            exec_count=0,
+            write_count=0,
+            external_count=0,
+            cred_count=0,
+            dag=None,
+        )
+
+        assert assessment.hard_block is False
+        assert assessment.requires_approval is False
+
     def test_exec_node_requires_approval(self, engine):
         # v3.17: exec.run is medium risk; non-destructive commands
         # (ls) no longer require approval. Use destructive command.
@@ -215,13 +230,15 @@ class TestRiskPolicy:
         ]
         dag = ExecutionDAG(nodes=nodes, total_nodes=3, max_depth=0)
         result = engine.assess(dag)
-        # v3.12: 3 writes → approval required (not hard block, not risk escalation)
-        assert result.requires_approval
+        # Quantity alone is not high-risk; only concrete destructive commands
+        # trigger approval. Batches are recorded as warnings for audit.
+        assert result.requires_approval is False
         assert result.hard_block is False
+        assert result.safe_to_run is True
         assert any("write" in w.lower() for w in result.warnings)
 
     def test_multiple_exec_approval(self, engine):
-        # v3.17: exec.run=medium, requires >5 exec nodes for combo escalation
+        # exec.run=medium. Multiple normal commands are warnings, not approval.
         nodes = [
             ExecutionNode(id=f"n{i}", tool="exec.run",
                           args={"command": chr(ord('a')+i)},
@@ -230,9 +247,10 @@ class TestRiskPolicy:
         ]
         dag = ExecutionDAG(nodes=nodes, total_nodes=6, max_depth=0)
         result = engine.assess(dag)
-        assert result.requires_approval
+        assert result.requires_approval is False
         assert result.hard_block is False
-        assert not result.safe_to_run
+        assert result.safe_to_run is True
+        assert any("command batch" in w.lower() for w in result.warnings)
 
 
 # ============================================================================
@@ -679,9 +697,9 @@ class TestBankGradePipeline:
         engine.register_tool("exec.run", handler)
         result = await engine.run("run 6 commands")
 
-        # 6 exec nodes → approval_required (NOT hard block).
+        # 6 normal exec nodes → warning only, not approval.
         assert result.success
-        assert result.metadata.get("approval_required") is True
+        assert result.metadata.get("approval_required") is False
         assert result.metadata.get("hard_block") is False
 
     @pytest.mark.asyncio
