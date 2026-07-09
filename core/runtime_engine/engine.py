@@ -204,6 +204,7 @@ class SSOTRuntimeEngine:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            await self._stop_heartbeat()
             errors.append(build_error(
                 "RUNTIME_EXCEPTION",
                 f"Engine exception: {str(exc)[:300]}",
@@ -251,269 +252,272 @@ class SSOTRuntimeEngine:
 
         request_span = self._trace.start_request(str(uuid.uuid4())[:8])
 
-        # P0: announce turn start so frontend logs the request.
-        self._emit_stage(TURN_STARTED, t_total,
-                         user_input_len=len(user_input or ""))
-        # P1: heartbeat the moment we enter — covers all stages.
-        self._start_heartbeat(t_total)
+        try:
+            # P0: announce turn start so frontend logs the request.
+            self._emit_stage(TURN_STARTED, t_total,
+                             user_input_len=len(user_input or ""))
+            # P1: heartbeat the moment we enter — covers all stages.
+            self._start_heartbeat(t_total)
 
-        # Stage 1 & 2: Context
-        ctx = StatelessContext(
-            workspace_id=workspace_id,
-            session_id=session_id or f"session_{uuid.uuid4().hex[:12]}",
-            request_id=request_span.span.metadata.get("request_id", "unknown"),
-            user_input=user_input,
-            cwd=cwd,
-            extras=dict(extras or {}),
-        )
+            # Stage 1 & 2: Context
+            ctx = StatelessContext(
+                workspace_id=workspace_id,
+                session_id=session_id or f"session_{uuid.uuid4().hex[:12]}",
+                request_id=request_span.span.metadata.get("request_id", "unknown"),
+                user_input=user_input,
+                cwd=cwd,
+                extras=dict(extras or {}),
+            )
 
-        diag_id = session_id or "none"
+            diag_id = session_id or "none"
 
-        # ── v10: contract boundary — engine_entry check ───────
-        from .runtime_contracts import ContractBoundary
-        ContractBoundary.validate_all(ctx)
+            # ── v10: contract boundary — engine_entry check ───────
+            from .runtime_contracts import ContractBoundary
+            ContractBoundary.validate_all(ctx)
 
-        # ── init result variables before contract validation ──
-        errors: list = errors
-        node_results: dict = node_results
-        final_response = ""
+            # ── init result variables before contract validation ──
+            errors: list = errors
+            node_results: dict = node_results
+            final_response = ""
 
-        # ── v4.2: self-healing contract validation ─────────
-        from .runtime_contracts import ContractValidator, ContractDegradation
-        c_validator = ContractValidator(ExecutionContract)
-        contract_report = c_validator.validate_all()
+            # ── v4.2: self-healing contract validation ─────────
+            from .runtime_contracts import ContractValidator, ContractDegradation
+            c_validator = ContractValidator(ExecutionContract)
+            contract_report = c_validator.validate_all()
 
-        if contract_report.has_critical_failure():
+            if contract_report.has_critical_failure():
+                errors.append(build_error(
+                    "CONTRACT_VIOLATION",
+                    f"Critical contract checks failed: "
+                    + "; ".join(
+                        c.name for c in contract_report.checks
+                        if c.level == ContractDegradation.HARD
+                    ),
+                    stage="engine",
+                    risk_level="high",
+                ))
+                await self._stop_heartbeat()
+                return self._build_result(
+                    ctx, None, node_results, final_response,
+                    errors, metrics, budget, t_total,
+                    risk_level="high", approval_required=False,
+                    extra={"contract_report": contract_report},
+                )
+            ctx.extras["contract_report"] = contract_report
+
+            dag = None
+            risk_level = "low"
+            approval_required = False
+            rollback_plan = None
+
+            # ── v3.11: Fast-path classifier ───────────────────────────────
+            # Simple greetings / definition questions skip the planner
+            # and go to a direct-answer LLM call.  This cuts
+            # first_answer_token_ms dramatically and avoids burning
+            # an LLM call just to say "I don't need any tools."
+            #
+            # v3.13+: conversation-ref queries ("我上句话说了什么") and
+            # comprehension followups ("什么意思") inject session.history into
+            # the direct-answer prompt.  They are conversation-scoped, not new
+            # tool tasks, so the query loop would waste calls and can even
+            # re-run tools unnecessarily.
+            from .fast_path import (
+                classify_direct_answer,
+                is_conversation_ref,
+                is_conversation_comprehension_ref,
+                FastPathDecision,
+            )
+
+            fast = classify_direct_answer(user_input)
+            conv_history_block = ctx.extras.get("conversation_history_block") or ""
+            is_conv_ref = bool(is_conversation_ref(user_input) and conv_history_block)
+            is_conv_comprehension = bool(
+                is_conversation_comprehension_ref(user_input) and conv_history_block
+            )
+
+            # ── v3.14: task-intent override for fast path ────────────
+            # If the input has task-intent verbs but the narrow classifier
+            # still matched (e.g. "分析这个是什么问题" matches "是什么"),
+            # force full SSOT Runtime so the planner can produce tool nodes.
+            task_intent = detect_task_intent(user_input)
+            if task_intent.is_task and task_intent.requires_tool_likely and fast.enabled:
+                fast = FastPathDecision(
+                    enabled=False, route="",
+                    reason=f"task_intent_override: {task_intent.intent_type}",
+                )
+
+            # v3.13: conversation-ref with history → force fast-path.
+            # These queries ("我上句话说了什么", "我说了什么") are clearly
+            # not tool requests and the planner would waste a call.  We
+            # route them through direct-answer with history injected.
+            if is_conv_ref and not fast.enabled:
+                fast = FastPathDecision(
+                    enabled=True, route="conversation_ref",
+                    reason="conversation-ref with history available",
+                )
+
+            if is_conv_comprehension and not fast.enabled:
+                fast = FastPathDecision(
+                    enabled=True, route="conversation_explain",
+                    reason="conversation-comprehension with history available",
+                )
+
+            if fast.enabled:
+                self._emit_stage(FINALIZING_STARTED, t_total)
+                direct_latency_start = time.monotonic()
+
+                try:
+                    direct_resp = await self._generate_direct_answer(
+                        ctx, budget,
+                        conversation_context=(
+                            conv_history_block
+                            if (is_conv_ref or is_conv_comprehension)
+                            else None
+                        ),
+                    )
+                    final_response = (direct_resp or "").strip()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    final_response = "暂时无法生成回复，模型服务调用失败。请稍后重试或检查 LLM 配置。"
+                    errors.append(build_error(
+                        "FAST_PATH_FAILURE",
+                        f"direct_answer failed: {str(exc)[:300]}",
+                        stage="engine",
+                        risk_level="low",
+                    ))
+                direct_answer_latency_ms = (
+                    time.monotonic() - direct_latency_start
+                ) * 1000
+
+                self._emit_stage(FINALIZING_COMPLETED, t_total)
+                self._emit_stage(TURN_COMPLETED, t_total)
+
+                metrics.capture_finalizer(direct_answer_latency_ms)
+                metrics.set_llm_calls(budget.llm_calls or 1)
+
+                await self._stop_heartbeat()
+                return self._build_result(
+                    ctx, None, node_results, final_response,
+                    errors, metrics, budget, t_total, "low", False,
+                    extra={
+                        "fast_path": True,
+                        "route": fast.route,
+                        "planner_skipped": True,
+                        "used_tools": False,
+                        "direct_answer_latency_ms": direct_answer_latency_ms,
+                        "skip_reason": fast.reason,
+                        "conversation_ref": is_conv_ref,
+                        "conversation_comprehension": is_conv_comprehension,
+                        "conversation_history_used": bool(is_conv_ref or is_conv_comprehension),
+                    },
+                )
+
+            clarification = build_operational_clarification(ctx.user_input, task_intent)
+            if clarification:
+                self._emit_stage(FINALIZING_STARTED, t_total)
+                self._emit_stage(FINALIZING_COMPLETED, t_total)
+                self._emit_stage(TURN_COMPLETED, t_total)
+                metrics.capture_finalizer(0.0)
+                await self._stop_heartbeat()
+                return self._build_result(
+                    ctx, None, node_results, clarification["response"],
+                    errors, metrics, budget, t_total, "low", False,
+                    extra={
+                        "planner_skipped": True,
+                        "used_tools": False,
+                        "requires_clarification": True,
+                        "clarification_fields": clarification["missing"],
+                        "skip_reason": "ambiguous_operational_request",
+                        "task_intent": task_intent.intent_type,
+                    },
+                )
+
+            # ── QueryLoop: the only tool-capable execution path ──────────────
+            # The loop owns planner LLM calls, tool execution, bounded tracking,
+            # retry metadata, and final synthesis. This keeps active runtime
+            # state in one place instead of splitting it across parallel planners.
+            if getattr(self._config, "use_query_loop", True):
+                self._emit_stage(PLANNER_STARTED, t_total)
+
+                query_loop = QueryLoop(
+                    self._config, self._tool_registry,
+                    self._tool_runtime,
+                    llm_invoke=self._llm_invoke,
+                    emitter=self._emitter,
+                )
+                loop_result = await query_loop.run(ctx, budget, metrics)
+
+                self._emit_stage(PLANNER_COMPLETED, t_total,
+                                 plan_nodes=loop_result.iterations)
+                self._emit_stage(EXECUTION_COMPLETED, t_total,
+                                 tool_calls=loop_result.total_tool_calls)
+
+                # Build tool_results in the format the engine expects
+                for r in loop_result.tool_results:
+                    node_results[r.call_id] = ToolResult(
+                        node_id=r.call_id,
+                        tool=r.tool_name,
+                        success=r.ok,
+                        data=r.output,
+                        error=r.error,
+                    )
+
+                final_response = loop_result.final_response
+                dag = None
+                risk_level = loop_result.risk_level or "low"
+                approval_required = bool(loop_result.approval_required)
+                if loop_result.error and loop_result.error not in {
+                    "approval_required",
+                    "duplicate_successful_tool_call",
+                    "duplicate_tool_call",
+                }:
+                    first_loop_error = loop_result.errors[0] if loop_result.errors else loop_result.error
+                    loop_error_code = self._resolve_loop_error_code(
+                        loop_result.error, first_loop_error, loop_result.hard_block
+                    )
+                    errors.append(build_error(
+                        loop_error_code,
+                        first_loop_error,
+                        stage="query_loop",
+                        risk_level=risk_level,
+                    ))
+                metrics.set_llm_calls(loop_result.llm_calls)
+                await self._stop_heartbeat()
+
+                return self._build_result(
+                    ctx, dag, node_results, final_response,
+                    errors, metrics, budget, t_total,
+                    risk_level, approval_required,
+                    extra={
+                        "query_loop": True,
+                        "iterations": loop_result.iterations,
+                        "tool_calls": loop_result.total_tool_calls,
+                        "llm_calls": loop_result.llm_calls,
+                        "used_tools": loop_result.total_tool_calls > 0,
+                        "approval_required": approval_required,
+                        "approval_nodes": loop_result.approval_nodes,
+                        "approval_details": loop_result.approval_details,
+                        "hard_block": bool(loop_result.hard_block),
+                        **loop_result.metrics,
+                    },
+                )
+
+            # QueryLoop is mandatory. If config disables it, fail closed.
             errors.append(build_error(
-                "CONTRACT_VIOLATION",
-                f"Critical contract checks failed: "
-                + "; ".join(
-                    c.name for c in contract_report.checks
-                    if c.level == ContractDegradation.HARD
-                ),
-                stage="engine",
-                risk_level="high",
+                SSOTRuntimeErrorCode.ENGINE_UNREACHABLE,
+                "QueryLoop is disabled. QueryLoop is the only supported engine.",
+                stage="engine", risk_level="high",
             ))
             await self._stop_heartbeat()
             return self._build_result(
-                ctx, None, node_results, final_response,
+                ctx, None, node_results,
+                "抱歉，QueryLoop 引擎已禁用，无法处理您的请求。",
                 errors, metrics, budget, t_total,
                 risk_level="high", approval_required=False,
-                extra={"contract_report": contract_report},
             )
-        ctx.extras["contract_report"] = contract_report
-
-        dag = None
-        risk_level = "low"
-        approval_required = False
-        rollback_plan = None
-
-        # ── v3.11: Fast-path classifier ───────────────────────────────
-        # Simple greetings / definition questions skip the planner
-        # and go to a direct-answer LLM call.  This cuts
-        # first_answer_token_ms dramatically and avoids burning
-        # an LLM call just to say "I don't need any tools."
-        #
-        # v3.13+: conversation-ref queries ("我上句话说了什么") and
-        # comprehension followups ("什么意思") inject session.history into
-        # the direct-answer prompt.  They are conversation-scoped, not new
-        # tool tasks, so the query loop would waste calls and can even
-        # re-run tools unnecessarily.
-        from .fast_path import (
-            classify_direct_answer,
-            is_conversation_ref,
-            is_conversation_comprehension_ref,
-            FastPathDecision,
-        )
-
-        fast = classify_direct_answer(user_input)
-        conv_history_block = ctx.extras.get("conversation_history_block") or ""
-        is_conv_ref = bool(is_conversation_ref(user_input) and conv_history_block)
-        is_conv_comprehension = bool(
-            is_conversation_comprehension_ref(user_input) and conv_history_block
-        )
-
-        # ── v3.14: task-intent override for fast path ────────────
-        # If the input has task-intent verbs but the narrow classifier
-        # still matched (e.g. "分析这个是什么问题" matches "是什么"),
-        # force full SSOT Runtime so the planner can produce tool nodes.
-        task_intent = detect_task_intent(user_input)
-        if task_intent.is_task and task_intent.requires_tool_likely and fast.enabled:
-            fast = FastPathDecision(
-                enabled=False, route="",
-                reason=f"task_intent_override: {task_intent.intent_type}",
-            )
-
-        # v3.13: conversation-ref with history → force fast-path.
-        # These queries ("我上句话说了什么", "我说了什么") are clearly
-        # not tool requests and the planner would waste a call.  We
-        # route them through direct-answer with history injected.
-        if is_conv_ref and not fast.enabled:
-            fast = FastPathDecision(
-                enabled=True, route="conversation_ref",
-                reason="conversation-ref with history available",
-            )
-
-        if is_conv_comprehension and not fast.enabled:
-            fast = FastPathDecision(
-                enabled=True, route="conversation_explain",
-                reason="conversation-comprehension with history available",
-            )
-
-        if fast.enabled:
-            self._emit_stage(FINALIZING_STARTED, t_total)
-            direct_latency_start = time.monotonic()
-
-            try:
-                direct_resp = await self._generate_direct_answer(
-                    ctx, budget,
-                    conversation_context=(
-                        conv_history_block
-                        if (is_conv_ref or is_conv_comprehension)
-                        else None
-                    ),
-                )
-                final_response = (direct_resp or "").strip()
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                final_response = "暂时无法生成回复，模型服务调用失败。请稍后重试或检查 LLM 配置。"
-                errors.append(build_error(
-                    "FAST_PATH_FAILURE",
-                    f"direct_answer failed: {str(exc)[:300]}",
-                    stage="engine",
-                    risk_level="low",
-                ))
-            direct_answer_latency_ms = (
-                time.monotonic() - direct_latency_start
-            ) * 1000
-
-            self._emit_stage(FINALIZING_COMPLETED, t_total)
-            self._emit_stage(TURN_COMPLETED, t_total)
-
-            metrics.capture_finalizer(direct_answer_latency_ms)
-            metrics.set_llm_calls(budget.llm_calls or 1)
-
-            await self._stop_heartbeat()
-            return self._build_result(
-                ctx, None, node_results, final_response,
-                errors, metrics, budget, t_total, "low", False,
-                extra={
-                    "fast_path": True,
-                    "route": fast.route,
-                    "planner_skipped": True,
-                    "used_tools": False,
-                    "direct_answer_latency_ms": direct_answer_latency_ms,
-                    "skip_reason": fast.reason,
-                    "conversation_ref": is_conv_ref,
-                    "conversation_comprehension": is_conv_comprehension,
-                    "conversation_history_used": bool(is_conv_ref or is_conv_comprehension),
-                },
-            )
-
-        clarification = build_operational_clarification(ctx.user_input, task_intent)
-        if clarification:
-            self._emit_stage(FINALIZING_STARTED, t_total)
-            self._emit_stage(FINALIZING_COMPLETED, t_total)
-            self._emit_stage(TURN_COMPLETED, t_total)
-            metrics.capture_finalizer(0.0)
-            await self._stop_heartbeat()
-            return self._build_result(
-                ctx, None, node_results, clarification["response"],
-                errors, metrics, budget, t_total, "low", False,
-                extra={
-                    "planner_skipped": True,
-                    "used_tools": False,
-                    "requires_clarification": True,
-                    "clarification_fields": clarification["missing"],
-                    "skip_reason": "ambiguous_operational_request",
-                    "task_intent": task_intent.intent_type,
-                },
-            )
-
-        # ── QueryLoop: the only tool-capable execution path ──────────────
-        # The loop owns planner LLM calls, tool execution, bounded tracking,
-        # retry metadata, and final synthesis. This keeps active runtime
-        # state in one place instead of splitting it across parallel planners.
-        if getattr(self._config, "use_query_loop", True):
-            self._emit_stage(PLANNER_STARTED, t_total)
-
-            query_loop = QueryLoop(
-                self._config, self._tool_registry,
-                self._tool_runtime,
-                llm_invoke=self._llm_invoke,
-                emitter=self._emitter,
-            )
-            loop_result = await query_loop.run(ctx, budget, metrics)
-
-            self._emit_stage(PLANNER_COMPLETED, t_total,
-                             plan_nodes=loop_result.iterations)
-            self._emit_stage(EXECUTION_COMPLETED, t_total,
-                             tool_calls=loop_result.total_tool_calls)
-
-            # Build tool_results in the format the engine expects
-            for r in loop_result.tool_results:
-                node_results[r.call_id] = ToolResult(
-                    node_id=r.call_id,
-                    tool=r.tool_name,
-                    success=r.ok,
-                    data=r.output,
-                    error=r.error,
-                )
-
-            final_response = loop_result.final_response
-            dag = None
-            risk_level = loop_result.risk_level or "low"
-            approval_required = bool(loop_result.approval_required)
-            if loop_result.error and loop_result.error not in {
-                "approval_required",
-                "duplicate_successful_tool_call",
-                "duplicate_tool_call",
-            }:
-                first_loop_error = loop_result.errors[0] if loop_result.errors else loop_result.error
-                loop_error_code = self._resolve_loop_error_code(
-                    loop_result.error, first_loop_error, loop_result.hard_block
-                )
-                errors.append(build_error(
-                    loop_error_code,
-                    first_loop_error,
-                    stage="query_loop",
-                    risk_level=risk_level,
-                ))
-            metrics.set_llm_calls(loop_result.llm_calls)
-            await self._stop_heartbeat()
-
-            return self._build_result(
-                ctx, dag, node_results, final_response,
-                errors, metrics, budget, t_total,
-                risk_level, approval_required,
-                extra={
-                    "query_loop": True,
-                    "iterations": loop_result.iterations,
-                    "tool_calls": loop_result.total_tool_calls,
-                    "llm_calls": loop_result.llm_calls,
-                    "used_tools": loop_result.total_tool_calls > 0,
-                    "approval_required": approval_required,
-                    "approval_nodes": loop_result.approval_nodes,
-                    "approval_details": loop_result.approval_details,
-                    "hard_block": bool(loop_result.hard_block),
-                    **loop_result.metrics,
-                },
-            )
-
-        # QueryLoop is mandatory. If config disables it, fail closed.
-        errors.append(build_error(
-            SSOTRuntimeErrorCode.ENGINE_UNREACHABLE,
-            "QueryLoop is disabled. QueryLoop is the only supported engine.",
-            stage="engine", risk_level="high",
-        ))
-        await self._stop_heartbeat()
-        return self._build_result(
-            ctx, None, node_results,
-            "抱歉，QueryLoop 引擎已禁用，无法处理您的请求。",
-            errors, metrics, budget, t_total,
-            risk_level="high", approval_required=False,
-        )
+        finally:
+            request_span.stop()
 
 
     # ========================================================================
@@ -543,7 +547,8 @@ class SSOTRuntimeEngine:
             system_msg += (
                 "如果用户问的是关于之前对话的问题，请基于上述对话历史回答。"
             )
-        result = self._llm_invoke(
+        result = await asyncio.to_thread(
+            self._llm_invoke,
             system=system_msg,
             user=ctx.user_input,
             workspace_id=ctx.workspace_id,

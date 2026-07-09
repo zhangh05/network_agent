@@ -954,33 +954,31 @@ class QueryLoop:
     ) -> Optional[LLMResponse]:
         """Call LLM with tools and streaming support.
 
-        v3.17: Removed asyncio.to_thread because it runs the LLM call on a
-        different thread, which loses the StreamEmitter TLS (threading.local)
-        callback.  Without the callback, ``_push_stream_token`` is a no-op
-        and the frontend never sees streaming tokens.
-        
-        We now call directly on the event-loop thread so the TLS callback
-        is preserved.  The minor event-loop blocking (LLM latency) is
-        acceptable for the single-user development loop.
+        Wraps the synchronous LLM call with asyncio.wait_for + asyncio.to_thread
+        to guarantee a hard timeout and prevent event-loop blocking.
         """
         try:
             system_prompt, stream_scope, stream_to_user = self._llm_call_mode(messages)
             if self._llm_invoke is not None:
-                raw = self._llm_invoke(
-                    system=system_prompt,
-                    user=self._messages_to_user_text(messages),
-                    temperature=0.2,
+                raw = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._llm_invoke,
+                        system=system_prompt,
+                        user=self._messages_to_user_text(messages),
+                        temperature=0.2,
+                        timeout=120,
+                        tools=self._cached_tools,
+                        workspace_id=ctx.workspace_id,
+                        session_id=ctx.session_id,
+                        extra={
+                            "runtime_engine": "ssot_runtime",
+                            "stream_scope": stream_scope,
+                            "stream_to_user": stream_to_user,
+                            "workspace_id": ctx.workspace_id,
+                            "session_id": ctx.session_id,
+                        },
+                    ),
                     timeout=120,
-                    tools=self._cached_tools,
-                    workspace_id=ctx.workspace_id,
-                    session_id=ctx.session_id,
-                    extra={
-                        "runtime_engine": "ssot_runtime",
-                        "stream_scope": stream_scope,
-                        "stream_to_user": stream_to_user,
-                        "workspace_id": ctx.workspace_id,
-                        "session_id": ctx.session_id,
-                    },
                 )
                 return self._coerce_llm_response(raw)
 
@@ -989,18 +987,25 @@ class QueryLoop:
                 LLMMessage(role="system", content=system_prompt),
                 *messages[1:],
             ] if messages else [LLMMessage(role="system", content=system_prompt)]
-            
-            response = invoke_llm(
-                task="query_loop",
-                messages=call_messages,
-                tools=self._cached_tools,
-                config_override={
-                    "temperature": 0.2,
-                    "max_tokens": 4096,
-                    "timeout": 120,
-                },
+
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    invoke_llm,
+                    task="query_loop",
+                    messages=call_messages,
+                    tools=self._cached_tools,
+                    config_override={
+                        "temperature": 0.2,
+                        "max_tokens": 4096,
+                        "timeout": 120,
+                    },
+                ),
+                timeout=120,
             )
             return response
+        except asyncio.TimeoutError:
+            self._llm_call_count += 1
+            return LLMResponse(error="llm_call_timeout")
         except Exception as e:
             self._llm_call_count += 1  # P1-7: count against budget even on error
             return LLMResponse(error=str(e))
