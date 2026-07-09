@@ -73,8 +73,8 @@ export function DecisionReportPanel({ report, loading = false, error = "" }: Pro
         <CompactRow label="检索">
           <div className="row-flex" style={{ gap: 4, flexWrap: "wrap" }}>
             {Object.entries(retrieval).map(([name, value]) => (
-              <Badge key={name} kind={retrievalKind(String((value as any)?.status || ""))}>
-                {retrievalLabel(name)}：{statusLabel(String((value as any)?.status || "unknown"))}
+              <Badge key={name} kind={retrievalKind(String(value.status || ""))}>
+                {retrievalLabel(name)}：{statusLabel(String(value.status || "unknown"))}
               </Badge>
             ))}
           </div>

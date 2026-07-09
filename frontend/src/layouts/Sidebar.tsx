@@ -5,12 +5,34 @@ import { isInternalSessionId, useSessionStore, useUIStore } from "../stores/sess
 import { useWorkbenchStore } from "../stores/workbench";
 import { useToastStore } from "../stores/toast";
 import { isApiError, AgentResult } from "../types";
+import type { ToolCallResult, RuntimeEvent } from "../types";
 import type { Session } from "../types";
 import { IconArchive, IconBolt, IconChat, IconEdit, IconPlus, IconTrash, IconWorkspace } from "../components/Icon";
 import { APP_EVENTS } from "../utils/appEvents";
 import { formatDate } from "../utils/format";
 
 const SESSION_PREVIEW_LIMIT = 12;
+
+interface AgentRunDetail {
+  status?: string;
+  final_response?: string;
+  events?: RuntimeEvent[];
+  trace_id?: string;
+  session_id?: string;
+  tool_calls?: ToolCallResult[];
+  warnings?: string[];
+  error?: unknown;
+  tool_decision?: unknown;
+  no_tool_reason?: string;
+  selected_capabilities?: string[];
+  selected_skills?: string[];
+  visible_tools?: string[];
+  tool_scene?: unknown;
+}
+
+interface AgentRunResponse {
+  run?: AgentRunDetail;
+}
 
 interface RecentRunSummary {
   run_id?: string;
@@ -72,8 +94,8 @@ export function Sidebar() {
       .some((m) => m.run_id === rid && m.role === "assistant" && m.result);
     if (already) return;
     try {
-      const raw = await runtimeAuditApi.run(currentWorkspaceId, rid);
-      const runData = (raw as any)?.run || raw as any;
+      const raw = (await runtimeAuditApi.run(currentWorkspaceId, rid)) as AgentRunResponse;
+      const runData: AgentRunDetail = raw.run ?? (raw as unknown as AgentRunDetail);
       const result: AgentResult = {
         ok: /ok|completed|success/i.test(runData.status || r.status || ""),
         final_response: runData.final_response || "",
@@ -81,10 +103,10 @@ export function Sidebar() {
         trace_id: runData.trace_id || "",
         session_id: runData.session_id || r.session_id || "",
         turn_id: rid,
-        tool_calls: (runData.tool_calls || []) as any[],
+        tool_calls: (runData.tool_calls || []) as ToolCallResult[],
         warnings: runData.warnings || [],
         errors: runData.error ? [String(runData.error)] : [],
-        tool_decision: runData.tool_decision,
+        tool_decision: runData.tool_decision as AgentResult["tool_decision"],
         no_tool_reason: runData.no_tool_reason,
         metadata: {
           selected_capabilities: runData.selected_capabilities || runData.selected_skills || [],
@@ -92,7 +114,7 @@ export function Sidebar() {
           visible_tools: runData.visible_tools || [],
           source_count: 0,
           workspace_id: currentWorkspaceId,
-          tool_scene: runData.tool_scene,
+          tool_scene: runData.tool_scene as AgentResult["metadata"]["tool_scene"],
         },
       };
       useWorkbenchStore.getState().setLatestResult(result, sid);

@@ -115,7 +115,7 @@ export function Diagnostics() {
     if (rh.status === "fulfilled") { newHealth = rh.value; setHealth(rh.value); }
     if (sc.status === "fulfilled") { newSelfcheck = sc.value; setSelfcheck(sc.value); }
     if (us.status === "fulfilled") {
-      const raw = us.value as any;
+      const raw = us.value;
       newUsage = {
         call_count: raw.call_count ?? 0, total_tokens: raw.total_tokens ?? 0,
         input_tokens: raw.input_tokens ?? 0, output_tokens: raw.output_tokens ?? 0,
@@ -124,10 +124,10 @@ export function Diagnostics() {
       setUsage(newUsage);
     }
     if (cs.status === "fulfilled") {
-      newContextOk = (cs.value as any).context_runtime_enabled;
+      newContextOk = (cs.value).context_runtime_enabled;
       setContextOk(newContextOk);
     }
-    if (pr.status === "fulfilled") { newPrompts = (pr.value as any).prompts ?? []; setPrompts(newPrompts); }
+    if (pr.status === "fulfilled") { newPrompts = (pr.value).prompts ?? []; setPrompts(newPrompts); }
     if (rp.status === "fulfilled") { newRetention = rp.value; setRetention(rp.value); }
     if (ap.status === "fulfilled") { newArchive = ap.value; setArchive(ap.value); }
 

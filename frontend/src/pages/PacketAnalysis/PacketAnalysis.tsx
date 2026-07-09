@@ -103,7 +103,7 @@ export function PacketAnalysis() {
       formData.append("workspace_id", wsId);
       const res = await apiRequest<{ ok: boolean; session_id?: string; filename?: string; total_packets?: number; protocol_counts?: ProtocolCounts; connections?: ConnectionGroup[]; error?: string }>({
         method: "POST", url: "/pcap/parse", data: formData,
-      } as any);
+      });
       if (!res.ok) { setError(res.error || "上传失败"); return; }
       setSessionId(res.session_id || "");
       setFilename(res.filename || file.name);
@@ -266,7 +266,7 @@ export function PacketAnalysis() {
                   tags: ["tcp", "analysis"],
                   metadata: { session_id: sessionId, conn: result.conn },
                   source: "agent",
-                }).catch(() => ({ ok: false, artifact: null } as any));
+                }).catch(() => ({ ok: false, artifact: null } as { ok: boolean; artifact: null }));
 
                 // Build prompt: give LLM context to find and read the artifact itself
                 const artifactTitle = saveRes.ok && saveRes.artifact
@@ -317,10 +317,10 @@ export function PacketAnalysis() {
                         onClick={async () => {
                           setError(""); setLoading(true);
                           try {
-                            const res = await apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; protocol_counts?: ProtocolCounts; connections: ConnectionGroup[] }>({
+                            const res = await apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; protocol_counts?: ProtocolCounts; connections: ConnectionGroup[]; error?: string }>({
                               method: "GET", url: `/pcap/session/${s.session_id}`, params: { workspace_id: wsId },
                             });
-                            if (!res.ok) { setError(res.ok === false ? "加载失败：" + (res as any).error || "session not found" : "加载失败"); setLoading(false); return; }
+                            if (!res.ok) { setError(res.ok === false ? "加载失败：" + (res.error || "session not found") : "加载失败"); setLoading(false); return; }
                             setSessionId(res.session_id);
                             setFilename(res.filename);
                             setTotalPackets(res.total_packets);

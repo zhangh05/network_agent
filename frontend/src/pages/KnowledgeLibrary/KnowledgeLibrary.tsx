@@ -13,6 +13,20 @@ import { formatDate } from "../../utils/format";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { KnowledgeSource } from "../../types";
+
+interface KnowledgeChunkDetail {
+  chunk_id?: string;
+  token_count?: number;
+  size?: number;
+  safe_text?: string;
+  text?: string;
+  content?: string;
+  safe_excerpt?: string;
+}
+
+interface KnowledgeSourceDetail extends KnowledgeSource {
+  chunks?: KnowledgeChunkDetail[];
+}
 import { IconBook, IconDocument, IconPlus, IconRefresh, IconSearch } from "../../components/Icon";
 import { shortId } from "../../utils/displayText";
 
@@ -30,7 +44,7 @@ export function KnowledgeLibrary() {
   const [uploadInputKey, setUploadInputKey] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
-  const [detailSource, setDetailSource] = useState<KnowledgeSource | null>(null);
+  const [detailSource, setDetailSource] = useState<KnowledgeSourceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
   const sources = useAsync<{ sources: KnowledgeSource[]; counts?: Record<string, number> }>(
@@ -534,10 +548,10 @@ export function KnowledgeLibrary() {
                   <div className="text-sm" style={{ whiteSpace: "pre-wrap", color: "var(--ink-soft)", background: "var(--bg-soft)", padding: 10, borderRadius: "var(--r)" }}>{detailSource.summary}</div>
                 </div>
               )}
-              {(detailSource as any).chunks && (detailSource as any).chunks.length > 0 && (
+              {detailSource.chunks && detailSource.chunks.length > 0 && (
                 <div className="mt-3">
-                  <div className="text-sm" style={{ fontWeight: 500, marginBottom: 8 }}>知识片段 ({(detailSource as any).chunks.length})</div>
-                  {(detailSource as any).chunks.map((c: any, i: number) => (
+                  <div className="text-sm" style={{ fontWeight: 500, marginBottom: 8 }}>知识片段 ({detailSource.chunks.length})</div>
+                  {detailSource.chunks.map((c: KnowledgeChunkDetail, i: number) => (
                     <div key={c.chunk_id || i} className="card" style={{ padding: 10, marginBottom: 6, boxShadow: "none" }}>
                       <div className="row-flex" style={{ justifyContent: "space-between", marginBottom: 4 }}>
                         <InlineCode>{c.chunk_id || `#${i + 1}`}</InlineCode>

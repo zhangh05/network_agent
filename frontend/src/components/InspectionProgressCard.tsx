@@ -18,6 +18,23 @@ import { inspectionApi } from "../api";
 const FADE_AFTER_MS = 8000;
 const DEFAULT_POLL_MS = 5000;
 
+interface InspectionTaskSnapshot {
+  status?: string;
+  total_assets?: number;
+  succeeded?: number;
+  failed?: number;
+  skipped?: number;
+  partial?: number;
+  criticals?: number;
+  warnings?: number;
+  infos?: number;
+  duration_ms?: number;
+  started_at?: string;
+  finished_at?: string;
+  cancel_requested_at?: string;
+  error?: string;
+}
+
 interface Props {
   taskId: string;
   pollSeconds?: number;
@@ -74,7 +91,8 @@ export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props
         setSnap((s) => s || null);
         return;
       }
-      const t: any = (res as any).task || {};
+      const task = "task" in res ? res.task : undefined;
+      const t: InspectionTaskSnapshot = task ?? {};
       const next: Snapshot = {
         status: t.status || "pending",
         total_assets: t.total_assets || 0,
@@ -148,8 +166,8 @@ export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props
     setCancelError("");
     try {
       const res = await inspectionApi.cancelTask(currentWorkspaceId, taskId);
-      if (!(res as any).ok) {
-        setCancelError((res as any).error || "cancel_failed");
+      if (!res.ok) {
+        setCancelError(res.error || "cancel_failed");
       } else {
         window.setTimeout(() => refresh(), 600);
       }

@@ -5,7 +5,7 @@ import { useSessionStore } from "../../stores/session";
 import { useWorkbenchStore } from "../../stores/workbench";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
-import type { AgentResult, ToolCallResult, InlineToolCall } from "../../types";
+import type { AgentResult, ToolCallResult, InlineToolCall, SourceSummary } from "../../types";
 import { sanitizeAssistantText, renderAssistantHtml, toolLabel, filterStreamingThink } from "../../utils/displayText";
 import { beginModelStep, discardToolCallDraft, finalizeStreamText } from "../../utils/agentStream";
 import "./WorkbenchHighlight";
@@ -85,9 +85,24 @@ function retryStats(result?: AgentResult) {
   };
 }
 
+type TrackingSummary = NonNullable<AgentResult["metadata"]["tracking_summary"]>;
+type TrackingEvent = NonNullable<AgentResult["metadata"]["tracking_events"]>[number];
+
+interface InspectionDevice {
+  status?: string;
+  asset_name?: string;
+  asset_id?: string;
+  host?: string;
+  command_results?: InspectionCommandResult[];
+}
+
+interface InspectionCommandResult {
+  artifact_id?: string;
+}
+
 function trackingStats(result?: AgentResult) {
-  const summary = (result?.metadata?.tracking_summary || {}) as Record<string, any>;
-  const events = (result?.metadata?.tracking_events || []) as any[];
+  const summary: TrackingSummary = result?.metadata?.tracking_summary ?? ({} as TrackingSummary);
+  const events: TrackingEvent[] = result?.metadata?.tracking_events ?? [];
   return {
     summary,
     events,
@@ -97,8 +112,8 @@ function trackingStats(result?: AgentResult) {
     mode: String(summary.mode || ""),
     nextPollSeconds: Number(summary.next_poll_seconds || 0),
     suggestedNextAction: String(summary.suggested_next_action || ""),
-    progress: (summary.progress || {}) as Record<string, any>,
-    taskSummary: (summary.summary || {}) as Record<string, any>,
+    progress: summary.progress || ({} as Record<string, unknown>),
+    taskSummary: summary.summary || ({} as Record<string, unknown>),
     stallRisk: Boolean(summary.stall_risk),
   };
 }
@@ -366,17 +381,17 @@ export function TaskWorkbench() {
       try {
         const resp = await inspectionApi.getTask(currentWorkspaceId, task_id);
         if ("ok" in resp && resp.ok && "task" in resp && resp.task) {
-          const task = resp.task as any;
-          const devices = (Object.values(task.devices || {}) as any[])
-            .filter((d: any) => d.status === "succeeded");
-          deviceList = devices.map((d: any) => `- ${d.asset_name || d.asset_id} (${d.host || ""})`).join("\n");
+          const task = resp.task;
+          const devices = (Object.values(task.devices || {}) as InspectionDevice[])
+            .filter((d: InspectionDevice) => d.status === "succeeded");
+          deviceList = devices.map((d: InspectionDevice) => `- ${d.asset_name || d.asset_id} (${d.host || ""})`).join("\n");
           for (const d of devices) {
-            for (const cr of (d.command_results || []) as any[]) {
+            for (const cr of (d.command_results || []) as InspectionCommandResult[]) {
               const artId = cr?.artifact_id;
               if (!artId) continue;
               try {
                 const artResp = await artifactsApi.get(currentWorkspaceId, artId);
-                const art = (artResp as any).artifact;
+                const art = artResp.artifact;
                 if (art) {
                   const title = art.title || art.artifact_id || artId;
                   const path = art.relative_path || art.file_id || "";
@@ -414,7 +429,7 @@ export function TaskWorkbench() {
         const resp = await inspectionApi.getTask(currentWorkspaceId, task_id);
         if (done) return;
         if ("ok" in resp && resp.ok && "task" in resp && resp.task) {
-          const t = resp.task as any;
+          const t = resp.task;
           setInspectionTaskId(task_id);
           setInspectionStatus(t.status);
           if (t.status === "succeeded" || t.status === "partial") {
@@ -684,17 +699,17 @@ export function TaskWorkbench() {
                     // Update live tool calls directly on the streaming message
                     const store = useWorkbenchStore.getState();
                     const curr = store.bySession[scratch]?.find((m) => m.id === streamingMsgId);
-                    const prevCalls = (curr?.toolCalls || []) as any[];
+                    const prevCalls = (curr?.toolCalls || []) as InlineToolCall[];
                     if (stageName === "tool_result") {
                       const ok = msg.data?.ok ?? msg.data?.status === "ok";
-                      const nextCalls = prevCalls.map((t: any) =>
+                      const nextCalls = prevCalls.map((t: InlineToolCall) =>
                         t.tool_id === tid ? { ...t, status: ok ? "done" : "fail", ok, summary: msg.data?.summary } : t
                       );
                       store.updateAssistant(streamingMsgId, { toolCalls: nextCalls }, scratch);
                     } else {
-                      if (!prevCalls.find((t: any) => t.tool_id === tid)) {
+                      if (!prevCalls.find((t: InlineToolCall) => t.tool_id === tid)) {
                         store.updateAssistant(streamingMsgId, {
-                          toolCalls: [...prevCalls, { tool_id: tid, tool_name: toolLabel(tid), status: "running" }],
+                          toolCalls: [...prevCalls, { tool_id: tid, tool_name: toolLabel(tid), ok: false, status: "running" }],
                         }, scratch);
                       }
                     }
@@ -836,7 +851,7 @@ export function TaskWorkbench() {
         const tcArray = (res.tool_calls ?? []).map((tc: ToolCallResult) => ({
           tool_id: tc.tool_id, tool_name: toolLabel(tc.tool_id), ok: tc.ok,
           summary: tc.summary, duration_ms: tc.duration_ms ?? undefined,
-          errors: tc.errors, artifacts: tc.artifacts as any,
+          errors: tc.errors, artifacts: tc.artifacts,
         }));
         updateAssistant(streamingMsgId, {
           status: res.ok ? "ready" : "error",
@@ -894,7 +909,7 @@ export function TaskWorkbench() {
 
   function addFiles(files: FileList | File[]) {
     const list = Array.from(files).filter((f) => f.size < 50 * 1024 * 1024);
-    if (list.length < (files as any).length) toast({ kind: "warning", title: "部分文件跳过", body: "单文件不能超过 50 MB" });
+    if (list.length < files.length) toast({ kind: "warning", title: "部分文件跳过", body: "单文件不能超过 50 MB" });
     setAttachments((prev) => [
       ...prev,
       ...list.map((f) => ({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: f.name, size: formatFileSize(f.size), file: f })),
@@ -1369,7 +1384,7 @@ const ResultInline = React.memo(function ResultInline({
   const { currentWorkspaceId } = useSessionStore();
   const toast = useToastStore((s) => s.show);
   const [saving, setSaving] = useState<"" | "memory" | "knowledge">("");
-  const summaries = ((result?.metadata as any)?.context_sources || (result?.metadata as any)?.source_summary || []) as any[];
+  const summaries: SourceSummary[] = (result?.metadata?.context_sources ?? result?.metadata?.source_summary ?? []);
   const isFailed = !result?.ok;
   const hasFailedTool = ((result?.tool_calls) ?? []).some((tc) => !tc.ok);
   const finalText = (result?.final_response || fallbackText || "").trim();
@@ -1527,8 +1542,8 @@ const ResultInline = React.memo(function ResultInline({
               )}
               {tracking.done && (
                 <div style={{ marginTop: 6 }}>
-                  设备 {tracking.taskSummary.succeeded_devices || 0} 成功 / {tracking.taskSummary.failed_devices || 0} 失败 / {tracking.taskSummary.skipped_devices || 0} 跳过；
-                  发现 {tracking.taskSummary.findings_critical || 0} critical · {tracking.taskSummary.findings_warning || 0} warning · {tracking.taskSummary.findings_info || 0} info。
+                  设备 {String(tracking.taskSummary.succeeded_devices ?? 0)} 成功 / {String(tracking.taskSummary.failed_devices ?? 0)} 失败 / {String(tracking.taskSummary.skipped_devices ?? 0)} 跳过；
+                  发现 {String(tracking.taskSummary.findings_critical ?? 0)} critical · {String(tracking.taskSummary.findings_warning ?? 0)} warning · {String(tracking.taskSummary.findings_info ?? 0)} info。
                   {tracking.suggestedNextAction === "fetch_report" ? " 下一步：获取 HTML 报告。" : ""}
                 </div>
               )}
@@ -1541,7 +1556,7 @@ const ResultInline = React.memo(function ResultInline({
         <div className="chat-source-summary" data-testid="inline-source-summary">
           <b>参考来源 · {summaries.length} 个</b>
           <div className="chat-source-list">
-            {summaries.slice(0, 6).map((s: any, i: number) => (
+            {summaries.slice(0, 6).map((s: SourceSummary, i: number) => (
               <span className="chat-source-chip" key={s.citation_id || s.chunk_id || s.source_id || i}>
                 {s.citation_id ? `${s.citation_id} · ` : ""}
                 {s.evidence_type === "memory" ? "记忆" : "知识"} · {s.title || s.source_id}

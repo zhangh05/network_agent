@@ -207,7 +207,7 @@ export function OperationsPage() {
   ]);
   const hasTransientJob = useMemo(
     () => jobs.some((j) =>
-      TRANSIENT_JOB_STATUS.has(String((j as any).status || "").toLowerCase())),
+      TRANSIENT_JOB_STATUS.has(String(j.status || "").toLowerCase())),
     [jobs],
   );
   useEffect(() => {

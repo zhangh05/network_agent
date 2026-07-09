@@ -63,7 +63,7 @@ export function FileManager() {
     setLoading(true);
     try {
       const res = await artifactsApi.list(ws);
-      const items: FileItem[] = (res as any).artifacts || [];
+      const items: FileItem[] = res.artifacts || [];
       setAllFiles(items);
     } catch (e: unknown) {
       toast({ kind: "error", title: "文件列表加载失败", body: isApiError(e) ? e.message : String(e) });
