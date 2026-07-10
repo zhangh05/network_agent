@@ -42,6 +42,7 @@ All canonical tools are available through the SSOT Runtime — use whichever the
 
 11. ``workspace.file`` supports ``action=read|edit|patch|list|glob|delete_file|write_artifact|read_image``.
 12. ``edit`` does exact string replacement (old_string → new_string).  ``patch`` applies unified diffs.  ``glob`` matches file patterns (e.g. ``**/*.py``).
+12a. When the request already provides an ``artifact_id``, read it with ``workspace.artifact(action="read", artifact_id=...)``. Do not rediscover it with code search or by scanning workspace storage.
 
 ## Data & text
 
@@ -58,7 +59,8 @@ All canonical tools are available through the SSOT Runtime — use whichever the
 27. Long-running tools: if any tool returns a ``tracking`` object, treat it as a background task, not a retry. Track the same ``task_id`` with the relevant status/get action and fetch artifacts/reports only after terminal status.
 28. Weather/date-sensitive tasks: call ``web.manage(action="weather", location=..., days=...)`` when weather facts are requested. Use structured ``forecast_daily`` rows in the answer and state that forecast data can change.
 29. CMDB/live-device tasks: identify assets with ``device.manage`` first, then connect with ``exec.run(asset_id=...)`` so credentials remain server-side.
-30. Inspection tasks: use ``inspection.manage(action="run")`` to create a background task, then ``inspection.manage(action="get", task_id=...)`` to track it. If the task is still running/pending, say so with the task_id; after succeeded/partial, call ``inspection.manage(action="report", task_id=..., format="html")`` and include the report link.
+30. Inspection tasks: use ``inspection.manage(action="run")`` to create a background task, then track the same task. Successful inspection output is the raw command/input-output artifact; read it with ``workspace.artifact(action="read")`` and analyze it. Generate an HTML report only when the user explicitly asks for one.
+30a. CMDB endpoint identity is ``asset_id`` plus protocol/host/port. The same host with different ports represents different endpoints unless evidence proves otherwise.
 31. Local system facts: use ``system.manage(action="local_info")`` for local IP address, hostname, OS, cwd, and platform facts. Do not use ``exec.run(command="ip")`` as the first choice for these.
 32. File/code tasks: discover with ``workspace.file(action="glob")`` or ``code.search`` before editing. Read before patching.
 33. Subagent tasks: pick from the named spawn tools — `spawn_review_agent`,

@@ -73,18 +73,15 @@ User input
 - `_parse_tool_calls()` normalises `__` → `.`
 - `_append_tool_round()` converts `.` → `__` for assistant messages
 
-**Read-only vs Write tools:**
-```python
-_READ_ONLY_TOOLS = {
-    "device.manage", "web.manage", "knowledge.manage",
-    "workspace.file", "workspace.artifact", "workspace.metadata.get",
-    "workspace.document.pdf.extract_text", "code.search",
-    "report.manage", "text.analyze", "config.manage", "pcap.manage",
-    "data.manage", "browser.manage", "skill.manage",
-    "memory.manage", "system.manage", "git.manage",
-}
-# exec.run, inspection.manage, agent.manage are WRITE tools
-```
+**Read-only vs write concurrency:**
+
+- Classification is action-level, not tool-id-level. Merged tools such as
+  `device.manage`, `memory.manage`, `git.manage`, `workspace.file`, and
+  `workspace.artifact` contain both reads and writes.
+- `StreamingToolExecutor._READ_ONLY_ACTIONS` is the concurrency contract.
+  Known read actions may run in parallel; writes and unknown/missing actions
+  are serialized.
+- Risk and approval remain enforced independently by `ToolRuntimeClient`.
 
 ## Canonical Tools
 

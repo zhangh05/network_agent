@@ -35,6 +35,7 @@ from .models import (
 from .tracking import extract_tracking_payload, normalize_tracking_payload
 from agent.llm.schemas import LLMMessage, LLMResponse, LLMToolCall
 from agent.llm.tool_adapter import tool_spec_to_openai_function
+from agent.runtime.prompt_architecture.policies import SYSTEM_CONTRACT
 
 
 # ── Prompt Cache ────────────────────────────────────────────────────────────
@@ -42,28 +43,24 @@ from agent.llm.tool_adapter import tool_spec_to_openai_function
 # Static prefix that never changes between turns — cached by the LLM API.
 # Keep this concise: the full tool catalog is already supplied through the
 # function-calling tools field on every planner call.
-QUERY_LOOP_SYSTEM_PROMPT = """You are a network operations AI agent.
+QUERY_LOOP_SYSTEM_PROMPT = SYSTEM_CONTRACT + """
 
-All callable capabilities are provided in the function list. Use the exact
-provided function names and action enums; never invent aliases.
+## QueryLoop protocol
 
-Work step by step: gather facts with tools, reason from returned data, then
-answer directly. Do not fabricate device state, weather, files, memory, reports,
-or command output.
-
-Operational rules:
-1. SSH/Telnet access must use exec__run(action="shell", target="ssh|telnet",
-   asset_id=...) when a CMDB asset exists. Do not expose or ask for passwords.
-2. Weather uses web__manage(action="weather", location=..., days=...).
-   明天=2, 后天=3, 一周=7, 未来十天=10.
-3. CMDB inspection starts with inspection__manage(action="run"). Track the same
-   task with action="get"; request action="report", format="html" only after
-   status is succeeded or partial.
-4. Never repeat an identical failing tool call more than twice. If a required
-   fact is missing, try a safer alternative or explain the missing input.
-5. Only destructive commands such as rm -f, delete, wipe, format, or forced
-   removal are high risk. Read-only commands, pipes, redirects, inspection,
-   search, and connection attempts are normal tool use."""
+- Function definitions are the authoritative callable surface. Use their exact
+  names and action enums; never invent aliases.
+- Feed tool results back into the next decision and stop once the user's request
+  is answered. Never repeat an identical successful call.
+- When an artifact_id is provided, read it with
+  workspace__artifact(action="read", artifact_id=...). Do not search source code
+  or scan CMDB storage to rediscover an explicitly referenced artifact.
+- A completed inspection produces raw command/input-output artifacts. Read and
+  analyze those artifacts. Generate an HTML report only when the user explicitly
+  requests a report; report generation is not part of inspection completion.
+- CMDB endpoint identity is asset_id plus protocol/host/port. Devices sharing a
+  host but using different ports are distinct endpoints unless evidence proves
+  otherwise.
+"""
 
 
 QUERY_LOOP_FINALIZER_PROMPT = """You are the final response writer for Network Agent.
@@ -342,6 +339,7 @@ class StreamingToolResult:
     output: dict
     ok: bool
     error: Optional[str] = None
+    latency_ms: float = 0.0
 
 
 class StreamingToolExecutor:
@@ -350,24 +348,47 @@ class StreamingToolExecutor:
     Read-only tools run in parallel; write tools serialised.
     """
 
-    _READ_ONLY_TOOLS = {
-        "device.manage", "web.manage", "knowledge.manage",
-        "workspace.file", "workspace.artifact", "workspace.metadata.get",
-        "workspace.document.pdf.extract_text", "code.search",
-        "report.manage", "text.analyze", "config.manage", "pcap.manage",
-        "data.manage", "browser.manage", "skill.manage",
-        "memory.manage", "system.manage", "git.manage",
+    _ALWAYS_READ_ONLY_TOOLS = {
+        "code.search",
+        "text.analyze",
+        "skill.manage",
+        "workspace.metadata.get",
+        "workspace.document.pdf.extract_text",
+        "web.manage",
+    }
+    _READ_ONLY_ACTIONS = {
+        "agent.manage": {"list", "get", "status"},
+        "device.manage": {"list", "get", "export"},
+        "git.manage": {"status", "log", "diff"},
+        "inspection.manage": {"list", "get", "task_get", "profiles"},
+        "knowledge.manage": {"search", "read", "list", "chunk"},
+        "memory.manage": {"search", "review", "profile_get"},
+        "system.manage": {
+            "diagnostics", "health", "selfcheck", "local_info", "tasks",
+            "audit_log", "run_get", "session_get", "session_snapshot",
+            "review_list",
+        },
+        "workspace.artifact": {"list", "read"},
+        "workspace.file": {"list", "read", "read_image", "glob"},
     }
 
     def __init__(self, tool_runtime, config: SSOTRuntimeConfig | None = None, emitter=None):
         self._runtime = tool_runtime
         self._config = config or SSOTRuntimeConfig()
         self._emitter = emitter
+        self.max_parallel_width = 0
 
-    def _is_read_only(self, tool_id: str) -> bool:
-        # LLM emits double-underscore names (device__manage); normalize to dots
-        normalized = tool_id.replace("__", ".")
-        return normalized in self._READ_ONLY_TOOLS
+    def _is_read_only_call(self, tool_call: LLMToolCall) -> bool:
+        """Classify concurrency from the canonical tool action.
+
+        Merged tools contain both read and write actions, so tool-id-only
+        classification is unsafe. Unknown or missing actions are serialized.
+        """
+        normalized = tool_call.name.replace("__", ".")
+        if normalized in self._ALWAYS_READ_ONLY_TOOLS:
+            return True
+        action = str((tool_call.arguments or {}).get("action") or "").lower()
+        return action in self._READ_ONLY_ACTIONS.get(normalized, set())
 
     async def execute(
         self,
@@ -385,7 +406,11 @@ class StreamingToolExecutor:
         result_by_id: dict[str, StreamingToolResult] = {}
 
         # --- Parallel read-only ---
-        read_only = [tc for tc in tool_calls if self._is_read_only(tc.name)]
+        read_only = [tc for tc in tool_calls if self._is_read_only_call(tc)]
+        self.max_parallel_width = max(
+            self.max_parallel_width,
+            len(read_only) if read_only else (1 if tool_calls else 0),
+        )
         if read_only:
             tasks = [self._execute_one(tc, ctx=ctx, budget=budget) for tc in read_only]
             # return_exceptions=True: collect every result, even if some fail
@@ -403,7 +428,7 @@ class StreamingToolExecutor:
                     result_by_id[tc.id] = r
 
         # --- Serial writes ---
-        for tc in (tc for tc in tool_calls if not self._is_read_only(tc.name)):
+        for tc in (tc for tc in tool_calls if not self._is_read_only_call(tc)):
             result_by_id[tc.id] = await self._execute_one(tc, ctx=ctx, budget=budget)
 
         # Return in original order
@@ -564,6 +589,7 @@ class StreamingToolExecutor:
             output=output or {},
             ok=bool(result.success),
             error=result.error,
+            latency_ms=float(result.latency_ms or 0.0),
         )
 
 
@@ -625,12 +651,34 @@ class QueryLoop:
         # Doom-loop detection: key=(tool, args_hash) → consecutive_failures
         failure_counts: Dict[str, int] = {}
         successful_call_keys: set[str] = set()
-        empty_streak = 0  # Local counter for consecutive empty LLM responses
+        used_call_ids: set[str] = set()
+        execution_duration_ms = 0.0
 
         # Build initial messages (cacheable prefix)
         messages = self._build_initial(ctx)
 
         max_iterations = getattr(self._config, "max_query_loop_iterations", 20)
+
+        def finish(**values) -> QueryLoopResult:
+            """Build every exit projection with the same runtime metrics."""
+            projected_metrics = {
+                "elapsed_ms": (time.monotonic() - t_start) * 1000,
+                "iterations": iterations,
+                "tool_calls": len(all_results),
+                "llm_calls": values.get("llm_calls", llm_calls),
+                "context_estimated_chars": _estimate_chars(messages),
+                "context_compacted": (
+                    metrics.snapshot().context_compacted if metrics else False
+                ),
+                "execution_duration_ms": execution_duration_ms,
+                "max_parallel_width": self._executor.max_parallel_width,
+            }
+            projected_metrics.update(dict(values.pop("metrics", {}) or {}))
+            values.setdefault("tool_results", all_results)
+            values.setdefault("iterations", iterations)
+            values.setdefault("total_tool_calls", len(all_results))
+            values.setdefault("llm_calls", llm_calls)
+            return QueryLoopResult(metrics=projected_metrics, **values)
 
         while iterations < max_iterations:
             iterations += 1
@@ -639,7 +687,7 @@ class QueryLoop:
             # local llm_calls mirrors it for QueryLoopResult only.
             budget_status = budget.check_llm_call()
             if not budget_status.ok:
-                return QueryLoopResult(
+                return finish(
                     final_response=(
                         "已达到 LLM 调用上限，请简化请求。"
                         if not all_results
@@ -674,7 +722,7 @@ class QueryLoop:
                     final_resp = "LLM 调用失败"
                 else:
                     final_resp = "LLM 调用失败"
-                return QueryLoopResult(
+                return finish(
                     final_response=final_resp,
                     tool_results=all_results,
                     iterations=iterations,
@@ -689,13 +737,14 @@ class QueryLoop:
             if response.tool_calls:
                 # Convert to LLMToolCall objects
                 tool_calls = self._parse_tool_calls(response.tool_calls)
+                tool_calls = self._unique_call_ids(tool_calls, iterations, used_call_ids)
 
                 duplicate_successes = [
                     tc for tc in tool_calls
                     if self._tool_call_key(tc) in successful_call_keys
                 ]
                 if duplicate_successes and len(duplicate_successes) == len(tool_calls):
-                    return QueryLoopResult(
+                    return finish(
                         final_response=self._build_tool_result_fallback(ctx, all_results),
                         tool_results=all_results,
                         iterations=iterations,
@@ -708,7 +757,7 @@ class QueryLoop:
                     if self._tool_call_key(tc) not in successful_call_keys
                 ]
                 if not tool_calls:
-                    return QueryLoopResult(
+                    return finish(
                         final_response=self._build_tool_result_fallback(ctx, all_results),
                         tool_results=all_results,
                         iterations=iterations,
@@ -720,7 +769,7 @@ class QueryLoop:
                 gate = self._prepare_tool_calls(ctx, tool_calls)
                 if not gate["ok"]:
                     if gate.get("hard_block") or gate.get("approval_nodes") or gate.get("approval_required"):
-                        return QueryLoopResult(
+                        return finish(
                             final_response=gate["message"],
                             tool_results=all_results,
                             iterations=iterations,
@@ -758,6 +807,7 @@ class QueryLoop:
                 tool_calls = gate["tool_calls"]
 
                 # Execute tools (parallel read-only, serial writes)
+                execution_started = time.monotonic()
                 results = await self._executor.execute(tool_calls, ctx=ctx, budget=budget)
                 all_results.extend(results)
                 for r, tc in zip(results, tool_calls):
@@ -766,6 +816,7 @@ class QueryLoop:
 
                 # ── Tracking: auto-poll long tasks (e.g. inspection) ──
                 polled_results = await self._settle_tracking(ctx, results, budget=budget)
+                execution_duration_ms += (time.monotonic() - execution_started) * 1000
                 if polled_results:
                     all_results.extend(polled_results)
                     results = results + polled_results
@@ -782,7 +833,7 @@ class QueryLoop:
                             key = f"not_found:{r.tool_name}"
                             failure_counts[key] = failure_counts.get(key, 0) + 1
                             if failure_counts[key] >= 3:
-                                return QueryLoopResult(
+                                return finish(
                                     final_response=f"工具 {r.tool_name} 不存在，已尝试 {failure_counts[key]} 次。请检查工具名称是否正确。",
                                     tool_results=all_results,
                                     iterations=iterations,
@@ -795,7 +846,7 @@ class QueryLoop:
                             key = f"ssh_auth:{r.tool_name}"
                             failure_counts[key] = failure_counts.get(key, 0) + 1
                             if failure_counts[key] >= 2:
-                                return QueryLoopResult(
+                                return finish(
                                     final_response=(
                                         f"SSH 认证已连续失败 {failure_counts[key]} 次。"
                                         "可能原因：1) 资产未配置密码或密码错误；"
@@ -810,7 +861,7 @@ class QueryLoop:
                                 )
                         # Budget exhaustion — stop immediately
                         if "budget" in err_lower or "exceeded" in err_lower:
-                            return QueryLoopResult(
+                            return finish(
                                 final_response="已达到 LLM 调用或工具执行预算上限。请简化请求或稍后再试。",
                                 tool_results=all_results,
                                 iterations=iterations,
@@ -823,7 +874,7 @@ class QueryLoop:
                             key = f"timeout:{r.tool_name}:{_json_compact(r.output, max_chars=600)}"
                             failure_counts[key] = failure_counts.get(key, 0) + 1
                             if failure_counts[key] >= 3:
-                                return QueryLoopResult(
+                                return finish(
                                     final_response=f"工具 {r.tool_name} 连续超时 {failure_counts[key]} 次。请检查网络连接或设备可达性。",
                                     tool_results=all_results,
                                     iterations=iterations,
@@ -833,7 +884,7 @@ class QueryLoop:
                                 )
 
                 if not getattr(self._config, "enable_finalizer", True):
-                    return QueryLoopResult(
+                    return finish(
                         final_response=self._build_tool_result_fallback(ctx, all_results),
                         tool_results=all_results,
                         iterations=iterations,
@@ -858,18 +909,18 @@ class QueryLoop:
                         "Now answer the user's original question in natural language. "
                         "Do NOT call any more tools — produce the final response directly."
                     )
+                    messages.append(LLMMessage(role="user", content=reminder))
+                    continue
                 elif all_results:
                     # iterations >= max_iterations or nudge already tried enough
                     final_text = self._build_tool_result_fallback(ctx, all_results)
                 else:
                     final_text = "抱歉，我无法生成回复。请重新描述您的问题后再试。"
             else:
-                # Reset counter on successful text
-                if hasattr(self, "_empty_streak"):
-                    self._empty_streak = 0
+                final_text = final_text.strip()
             elapsed = (time.monotonic() - t_start) * 1000
 
-            return QueryLoopResult(
+            return finish(
                 final_response=final_text,
                 tool_results=all_results,
                 iterations=iterations,
@@ -882,11 +933,13 @@ class QueryLoop:
                     "llm_calls": llm_calls,
                     "context_estimated_chars": _estimate_chars(messages),
                     "context_compacted": metrics.snapshot().context_compacted if metrics else False,
+                    "execution_duration_ms": execution_duration_ms,
+                    "max_parallel_width": self._executor.max_parallel_width,
                 },
             )
 
         # Max iterations exhausted
-        return QueryLoopResult(
+        return finish(
             final_response="已达到最大迭代次数，请检查结果。",
             tool_results=all_results,
             iterations=iterations,
@@ -901,34 +954,18 @@ class QueryLoop:
 
     @staticmethod
     def _should_poll_tracking(user_input: str, tracking: dict) -> bool:
-        """Check if user explicitly requested tracking (keywords like 跟踪/持续).
-
-        IMPORTANT: Only poll when BOTH conditions are true:
-        1. The task is marked as a long_task in the tracking payload
-        2. The user input contains explicit tracking keywords
-
-        v3.16: "巡检" is explicitly included because inspection tasks are
-        inherently long-running and users expect completion reports.
-        """
+        """Track every producer-declared long task within runtime budgets."""
         if tracking.get("done"):
             return False
         action = str(tracking.get("suggested_next_action") or "").lower()
         if action and action != "poll_get":
             return False
-        # Must be a long task to be eligible for polling
-        if str(tracking.get("kind") or "") != "long_task":
-            return False
-        text = str(user_input or "").lower()
-        explicit = any(w in text for w in (
-            "巡检", "跟踪", "追踪", "等待", "持续",
-            "完成后", "完成后请", "汇总", "报告",
-            "track", "follow", "wait", "until complete",
-        ))
-        return explicit
+        return str(tracking.get("kind") or "") == "long_task"
 
     def _build_initial(self, ctx: StatelessContext) -> List[LLMMessage]:
         """Build initial messages with cacheable prefix."""
         conversation_block = ctx.extras.get("conversation_history_block") or ""
+        retrieved_block = ctx.extras.get("retrieved_context_block") or ""
 
         user_content = (
             f"Workspace: {ctx.workspace_id}\n"
@@ -941,11 +978,36 @@ class QueryLoop:
                 f"Recent conversation:\n{conversation_block}\n\n"
                 f"{user_content}"
             )
+        if retrieved_block.strip():
+            user_content = f"Relevant governed context:\n{retrieved_block}\n\n{user_content}"
 
         return [
             LLMMessage(role="system", content=QUERY_LOOP_SYSTEM_PROMPT),
             LLMMessage(role="user", content=user_content),
         ]
+
+    @staticmethod
+    def _unique_call_ids(
+        tool_calls: List[LLMToolCall],
+        iteration: int,
+        used: set[str],
+    ) -> List[LLMToolCall]:
+        """Keep provider call ids unique across iterative LLM rounds."""
+        result: list[LLMToolCall] = []
+        for index, tc in enumerate(tool_calls):
+            base = str(tc.id or f"call_{index}")
+            candidate = base
+            suffix = 0
+            while candidate in used:
+                suffix += 1
+                candidate = f"{base}_i{iteration}_{suffix}"
+            used.add(candidate)
+            result.append(LLMToolCall(
+                id=candidate,
+                name=tc.name,
+                arguments=dict(tc.arguments or {}),
+            ))
+        return result
 
     async def _call_llm(
         self,
@@ -1440,9 +1502,8 @@ class QueryLoop:
     ) -> List[StreamingToolResult]:
         """After tool execution, auto-poll long tasks (e.g. inspection).
 
-        Polling is generic and bounded. It only runs when the user explicitly
-        requested tracking (关键词: 跟踪/持续/等待) or the tool marks the payload
-        as a long task.
+        Polling is generic and bounded. It runs only when the tool producer
+        declares a non-terminal ``long_task`` tracking payload.
         Uses the tool's canonical name for get calls.
         """
         polled: List[StreamingToolResult] = []
@@ -1467,7 +1528,7 @@ class QueryLoop:
             if tracking.get("done"):
                 continue
 
-            # Only poll if user explicitly asked for tracking
+            # Producer-declared tracking avoids keyword or intent guessing.
             if not self._should_poll_tracking(user_input, tracking):
                 continue
 

@@ -392,7 +392,20 @@ class UnifiedRetriever:
 
     def search_memory(self, query: str, top_k: int = 5, **kwargs) -> list[dict]:
         """Convenience: search memory_hit items only."""
-        return self.search(query, item_type="memory_hit", top_k=top_k, **kwargs)
+        # Retrieve extra candidates before enforcing the governance lifecycle.
+        # Pending, rejected, expired and conflict records are not prompt facts.
+        candidates = self.search(
+            query,
+            item_type="memory_hit",
+            top_k=max(top_k * 3, top_k),
+            **kwargs,
+        )
+        active = [
+            hit for hit in candidates
+            if str(hit.get("memory_status") or hit.get("status") or "").lower()
+            in {"active", "confirmed"}
+        ]
+        return active[:top_k]
 
     def search_knowledge(self, query: str, top_k: int = 5, **kwargs) -> list[dict]:
         """Convenience: search knowledge_chunk items only."""

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent.runtime.utils import now_iso, from_iso
+from agent.runtime.utils import now_iso, from_iso, to_iso
 
 from .models import InspectionTask
 
@@ -102,6 +102,12 @@ def record_poll(task: InspectionTask, *, source: str = "tool") -> dict[str, Any]
 
 
 def task_summary(task: InspectionTask) -> dict[str, Any]:
+    raw_artifact_ids = [
+        command.artifact_id
+        for device in (getattr(task, "devices", {}) or {}).values()
+        for command in (getattr(device, "command_results", []) or [])
+        if getattr(command, "artifact_id", "")
+    ]
     return {
         "task_id": getattr(task, "task_id", ""),
         "status": getattr(task, "status", ""),
@@ -117,6 +123,7 @@ def task_summary(task: InspectionTask) -> dict[str, Any]:
         "started_at": getattr(task, "started_at", ""),
         "finished_at": getattr(task, "finished_at", ""),
         "error": getattr(task, "error", ""),
+        "raw_artifact_ids": list(dict.fromkeys(raw_artifact_ids)),
     }
 
 
@@ -150,8 +157,7 @@ def _deadline_at(task: InspectionTask, deadline_seconds: int) -> str:
     if not started_at:
         return ""
     try:
-        from datetime import timedelta
-        return (from_iso(started_at) + timedelta(seconds=deadline_seconds)).isoformat()
+        return to_iso(from_iso(started_at) + deadline_seconds)
     except Exception:
         return ""
 
@@ -160,7 +166,7 @@ def _suggested_next_action(task: InspectionTask) -> str:
     status = str(getattr(task, "status", "") or "")
     if status in TERMINAL_STATUSES:
         if status in {"succeeded", "partial"}:
-            return "fetch_report"
+            return "analyze_artifacts"
         return "summarize_failure"
     if getattr(task, "cancel_requested_at", ""):
         return "wait_for_cancel_drain"

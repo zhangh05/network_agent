@@ -461,6 +461,7 @@ class SSOTRuntimeEngine:
                         success=r.ok,
                         data=r.output,
                         error=r.error,
+                        latency_ms=float(r.latency_ms or 0.0),
                     )
 
                 final_response = loop_result.final_response
@@ -483,6 +484,11 @@ class SSOTRuntimeEngine:
                         risk_level=risk_level,
                     ))
                 metrics.set_llm_calls(loop_result.llm_calls)
+                metrics.capture_query_loop_execution(
+                    loop_result.metrics.get("execution_duration_ms", 0.0),
+                    node_results,
+                    loop_result.metrics.get("max_parallel_width", 0),
+                )
                 await self._stop_heartbeat()
 
                 return self._build_result(

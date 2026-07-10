@@ -55,8 +55,9 @@ RULES (non-negotiable):
 8. Long-running tools are asynchronous. If a tool returns tracking/task_id, use
    the matching status action on follow-up turns; do NOT invent blocking actions.
 9. For CMDB inspection: use inspection.manage(action="run") to start, then
-   inspection.manage(action="get") to track an existing task, and
-   inspection.manage(action="report", format="html") only after terminal status.
+   inspection.manage(action="get") to track an existing task. After terminal
+   status, read and analyze the raw collection artifacts. Generate an HTML
+   report only when the user explicitly requests one.
 
 If NO tools are needed, respond with text only (no tool calls)."""
 

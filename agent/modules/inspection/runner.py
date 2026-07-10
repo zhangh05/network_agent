@@ -31,7 +31,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
-from agent.runtime.utils import now_iso, from_iso, duration_ms
+from agent.runtime.utils import now_iso, duration_ms
 from artifacts.store import save_artifact
 from artifacts.redaction import redact_artifact_content
 from core.tools.redaction import redact_string
@@ -196,8 +196,7 @@ def _save_task_unlocked(workspace_id: str, task: InspectionTask) -> None:
     ensure_tracking(task, source="runner")
     if task.started_at and task.finished_at:
         try:
-            task.duration_ms = int((from_iso(task.finished_at)
-                                    - from_iso(task.started_at)).total_seconds() * 1000)
+            task.duration_ms = duration_ms(task.started_at, task.finished_at)
         except Exception:
             task.duration_ms = 0
             logger.debug(
@@ -251,8 +250,7 @@ def _task_duration_ms(task: InspectionTask) -> int:
     if not task.started_at or not task.finished_at:
         return 0
     try:
-        return int((from_iso(task.finished_at)
-                     - from_iso(task.started_at)).total_seconds() * 1000)
+        return duration_ms(task.started_at, task.finished_at)
     except Exception:
         logger.debug(
             "inspection._task_duration_ms: bad timestamps "

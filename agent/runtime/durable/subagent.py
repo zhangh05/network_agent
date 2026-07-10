@@ -263,37 +263,20 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
                 timeout_seconds=profile.max_runtime_seconds,
             )
         except Exception as e:
-            result.status = "failed"
-            result.errors.append(f"LLM turn failed: {str(e)[:200]}")
-            result.summary = f"Subagent execution error: {str(e)[:100]}"
-            task.status = result.status
-            task.finished_at = _now()
-            _save_task(task)
-            return {"ok": False, "subtask_id": subtask_id, "status": "failed",
-                    "errors": result.errors}
+            raise RuntimeError(f"LLM turn failed: {str(e)[:200]}") from e
 
         elapsed = _time.time() - start
         final_resp = getattr(llm_result, 'final_response', '') or ''
         is_ok = getattr(llm_result, 'ok', False)
 
-        # Extract tool calls that were actually made
-        events = getattr(llm_result, 'events', []) or []
-        tool_events = [
-            e for e in events
-            if 'tool' in str(
-                getattr(e, 'event_type', '') or getattr(e, 'type', '') or ''
-            ).lower()
-        ]
-        
-        for te in tool_events:
-            te_get = te.get if isinstance(te, dict) else lambda _key, default=None: default
-            tool_id = getattr(te, 'tool_id', '') or str(te_get('tool_id', ''))
-            tools_ok = getattr(te, 'ok', None)
-            if tools_ok is None:
-                tools_ok = te_get('ok', True)
-            summary = getattr(te, 'summary', '') or str(te_get('summary', ''))[:200]
+        # AgentResult.tool_calls is the canonical one-row-per-action projection.
+        for te in (getattr(llm_result, "tool_calls", []) or []):
+            te_get = te.get if isinstance(te, dict) else lambda key, default=None: getattr(te, key, default)
+            tool_id = str(te_get("tool_id", "") or "")
+            tools_ok = bool(te_get("ok", False))
+            summary = str(te_get("summary", "") or "")[:200]
             result.tool_results.append({
-                "tool_id": tool_id, "ok": bool(tools_ok),
+                "tool_id": tool_id, "ok": tools_ok,
                 "summary": summary,
             })
 
@@ -465,4 +448,5 @@ def _emit_event(ws_id: str, parent_task_id: str, session_id: str, event_type: st
         ))
     except Exception as e:
         # best-effort: event emission failure is logged, not propagated
-        pass
+        import logging
+        logging.getLogger(__name__).debug("subagent event emission failed", exc_info=True)

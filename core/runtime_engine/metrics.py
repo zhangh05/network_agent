@@ -3,9 +3,9 @@ Metrics System for SSOT Runtime Engine.
 
 Every run must emit structured metrics:
   - Timing breakdown (planner, compile, validation, execution, finalizer)
-  - LLM call count (hard limit: 2)
+  - LLM call count (bounded by the QueryLoop runtime budget)
   - Tool call count (success/failure)
-  - DAG topology stats (depth, width)
+  - QueryLoop execution concurrency
   - Risk level
 
 Used for observability and latency benchmarking.
@@ -56,6 +56,20 @@ class MetricsCollector:
         self._snapshot.max_parallel_width = max(
             (len(layer) for layer in dag.layers.values()), default=0
         )
+
+    def capture_query_loop_execution(
+        self,
+        duration_ms: float,
+        node_results: dict[str, ToolResult],
+        max_parallel_width: int,
+    ) -> None:
+        """Capture execution facts for the iterative QueryLoop path."""
+        self._snapshot.execution_duration_ms = max(0.0, float(duration_ms or 0.0))
+        self._snapshot.tool_calls = len(node_results)
+        self._snapshot.tool_success = sum(1 for r in node_results.values() if r.success)
+        self._snapshot.tool_failed = sum(1 for r in node_results.values() if not r.success)
+        self._snapshot.max_parallel_width = max(0, int(max_parallel_width or 0))
+        self._snapshot.dag_depth = 0
 
     def capture_finalizer(self, duration_ms: float) -> None:
         self._snapshot.finalizer_duration_ms = duration_ms

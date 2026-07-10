@@ -1436,7 +1436,7 @@ class TestSSOTRuntimePipeline:
                     "done": done,
                     "terminal": done,
                     "next_poll_seconds": 0,
-                    "suggested_next_action": "fetch_report" if done else "poll_get",
+                    "suggested_next_action": "analyze_artifacts" if done else "poll_get",
                     "progress": {"done_devices": 1 if done else 0, "total_devices": 1, "percent": 100 if done else 0},
                     "summary": {"task_id": "ins_test", "status": status, "succeeded_devices": 1 if done else 0},
                 },

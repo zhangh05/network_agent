@@ -64,6 +64,12 @@ def run_ssot_turn(
     history_block = _build_history_block(session, user_input=user_input)
     if history_block:
         metadata_in["conversation_history_block"] = history_block
+    retrieved_context_block = _build_retrieved_context_block(
+        workspace_id=workspace_id,
+        user_input=user_input,
+    )
+    if retrieved_context_block:
+        metadata_in["retrieved_context_block"] = retrieved_context_block
 
     # Build tool registry once — used for both metadata and engine
     ssot_registry = _build_ssot_runtime_tool_registry(allowed_tool_ids)
@@ -942,6 +948,35 @@ _HISTORY_REFERENCE_PATTERNS = (
     "前面", "之前", "上次", "刚才", "继续", "还记得", "记得",
     "那个", "上一轮", "前一轮", "前面的", "之前的", "刚才的",
 )
+_RETRIEVED_CONTEXT_MAX_CHARS = 3200
+_RETRIEVED_ITEM_MAX_CHARS = 700
+
+
+def _build_retrieved_context_block(*, workspace_id: str, user_input: str) -> str:
+    """Retrieve concise governed memory and knowledge context for this turn."""
+    if not workspace_id or not user_input.strip():
+        return ""
+    try:
+        from core.context.unified_retriever import get_retriever
+
+        retrieved = get_retriever(workspace_id).retrieve_for_context(
+            user_input,
+            top_k_memory=3,
+            top_k_knowledge=2,
+        )
+        lines: list[str] = []
+        for hit in retrieved.get("memory_hits", [])[:3]:
+            content = str(hit.get("content") or hit.get("summary") or "").strip()
+            if content:
+                lines.append(f"[memory] {_truncate(content, _RETRIEVED_ITEM_MAX_CHARS)}")
+        for hit in retrieved.get("knowledge_hits", [])[:2]:
+            content = str(hit.get("content") or hit.get("summary") or "").strip()
+            if content:
+                lines.append(f"[knowledge] {_truncate(content, _RETRIEVED_ITEM_MAX_CHARS)}")
+        return _truncate("\n".join(lines), _RETRIEVED_CONTEXT_MAX_CHARS)
+    except Exception:
+        _LOG.debug("governed context retrieval failed", exc_info=True)
+        return ""
 
 
 def _build_history_block(session, *, user_input: str = "") -> str:
