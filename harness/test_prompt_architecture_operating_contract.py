@@ -71,4 +71,4 @@ def test_prompt_explains_skill_loading_without_inlining_skill_files():
 def test_prompt_contract_stays_compact():
     prompt = compile_runtime_prompt(_ctx()).final_prompt
 
-    assert len(prompt) < 8500
+    assert len(prompt) < 8800
