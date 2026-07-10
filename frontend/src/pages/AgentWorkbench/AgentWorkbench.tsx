@@ -395,7 +395,6 @@ export function TaskWorkbench() {
 
       const { inspectionApi, artifactsApi } = await import("../../api/index");
       let artifactRefs: string[] = [];
-      let reportRef = "";
       let deviceList = "";
       let finalStatus = String(completedTask?.status || inspectionStatus || "");
       try {
@@ -427,31 +426,18 @@ export function TaskWorkbench() {
         }
       } catch { /* best-effort */ }
 
-      try {
-        const report = await inspectionApi.getReport(currentWorkspaceId, task_id, "html");
-        if (report.ok) {
-          const parts = [
-            report.artifact_id ? `artifact_id=${report.artifact_id}` : "",
-            report.download_url ? `下载链接=${report.download_url}` : "",
-          ].filter(Boolean);
-          reportRef = parts.length ? parts.join("，") : "HTML 报告已生成";
-        }
-      } catch { /* report generation is best-effort; still ask LLM to summarize raw results */ }
-
       const rawOutputBlock = artifactRefs.length
-        ? `\n巡检原始数据已保存为以下制品：\n${artifactRefs.map(s => `- ${s}`).join("\n")}\n\n请先读取各制品内容，然后逐设备分析。`
+        ? `\n巡检原始采集制品（设备命令输入与回显输出）：\n${artifactRefs.map(s => `- ${s}`).join("\n")}\n\n请先读取这些原始制品内容，再逐设备分析。`
         : "\n暂无制品。";
       const deviceBlock = deviceList ? `\n设备清单：\n${deviceList}\n` : "";
-      const reportBlock = reportRef ? `\n巡检 HTML 报告：${reportRef}\n` : "";
 
       const prompt = [
         `${target}${vendor} ${typeLabel}任务已结束，状态：${finalStatus || "unknown"}，任务 ID：${task_id}。`,
-        reportBlock,
         deviceBlock,
         rawOutputBlock,
         ``,
         `分析维度：${analysisHints}。`,
-        `请输出用户可直接阅读的${typeLabel}结论：完成情况、异常/失败/跳过设备、关键风险、下一步建议，以及报告链接。`,
+        `请基于原始采集制品输出用户可直接阅读的${typeLabel}结论：完成情况、异常/失败/跳过设备、关键风险和下一步建议。`,
       ].join("\n");
       setInput(prompt);
       const nextMetadata = { ...metadata, inspection_task_id: task_id, inspection_status: finalStatus };

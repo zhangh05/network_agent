@@ -168,15 +168,6 @@ describe("CMDB inspection launch", () => {
         },
       },
     });
-    enqueue("/inspection/tasks/insp-task-1/report", {
-      status: 200,
-      data: {
-        ok: true,
-        format: "html",
-        artifact_id: "art-report-1",
-        download_url: "/api/inspection/tasks/insp-task-1/report.html?workspace_id=default",
-      },
-    });
     enqueue("/agent/message", { status: 200, data: resp });
     enqueue("/sessions/sess-cmdb/messages", { status: 200, data: { ok: true, messages: [], count: 0 } });
 
@@ -187,7 +178,7 @@ describe("CMDB inspection launch", () => {
     // analysis prompt — it no longer POSTs a new inspection task itself.
     const pollRequests = getRequests().filter((r) => (r.url ?? "").includes("/inspection/tasks/insp-task-1"));
     expect(pollRequests.length).toBeGreaterThanOrEqual(1);
-    expect(getRequests().some((r) => r.url === "/inspection/tasks/insp-task-1/report")).toBe(true);
+    expect(getRequests().some((r) => r.url === "/inspection/tasks/insp-task-1/report")).toBe(false);
     const request = getRequests().find((r) => r.url === "/agent/message");
     expect(request?.data).toMatchObject({
       workspace_id: "default",
@@ -203,8 +194,8 @@ describe("CMDB inspection launch", () => {
     expect(msg).toContain("测试一区");
     expect(msg).toContain("通用巡检任务已结束");
     expect(msg).toContain("状态：succeeded");
-    expect(msg).toContain("artifact_id=art-report-1");
     expect(msg).toContain("art-raw-1");
+    expect(msg).toContain("巡检原始采集制品");
     expect(msg).toContain("分析维度");
     expect(msg).not.toContain("device.manage");
     expect(localStorage.getItem("workbench_inspection")).toBeNull();
