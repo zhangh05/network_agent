@@ -188,6 +188,7 @@ describe("CMDB inspection launch", () => {
         region: "测试一区",
         source: "cmdb_region_button",
         inspection_task_id: "insp-task-1",
+        prefetch_artifact_ids: ["art-raw-1"],
       },
     });
     const msg = String(request?.data?.message || "");

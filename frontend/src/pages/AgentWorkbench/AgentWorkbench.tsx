@@ -395,6 +395,7 @@ export function TaskWorkbench() {
 
       const { inspectionApi, artifactsApi } = await import("../../api/index");
       let artifactRefs: string[] = [];
+      const artifactIds: string[] = [];
       let deviceList = "";
       let finalStatus = String(completedTask?.status || inspectionStatus || "");
       try {
@@ -412,6 +413,7 @@ export function TaskWorkbench() {
             for (const cr of (d.command_results || []) as InspectionCommandResult[]) {
               const artId = cr?.artifact_id;
               if (!artId) continue;
+              artifactIds.push(artId);
               try {
                 const artResp = await artifactsApi.get(currentWorkspaceId, artId);
                 const art = artResp.artifact;
@@ -440,7 +442,12 @@ export function TaskWorkbench() {
         `请基于原始采集制品输出用户可直接阅读的${typeLabel}结论：完成情况、异常/失败/跳过设备、关键风险和下一步建议。`,
       ].join("\n");
       setInput(prompt);
-      const nextMetadata = { ...metadata, inspection_task_id: task_id, inspection_status: finalStatus };
+      const nextMetadata = {
+        ...metadata,
+        inspection_task_id: task_id,
+        inspection_status: finalStatus,
+        prefetch_artifact_ids: [...new Set(artifactIds)],
+      };
       pendingAutoMetadataRef.current = nextMetadata;
       onSendRef.current(prompt, nextMetadata);
     };

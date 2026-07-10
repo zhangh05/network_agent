@@ -397,7 +397,7 @@ class UnifiedRetriever:
         candidates = self.search(
             query,
             item_type="memory_hit",
-            top_k=max(top_k * 3, top_k),
+            top_k=top_k * 3,
             **kwargs,
         )
         active = [

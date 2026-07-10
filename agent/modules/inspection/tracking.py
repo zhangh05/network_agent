@@ -102,12 +102,6 @@ def record_poll(task: InspectionTask, *, source: str = "tool") -> dict[str, Any]
 
 
 def task_summary(task: InspectionTask) -> dict[str, Any]:
-    raw_artifact_ids = [
-        command.artifact_id
-        for device in (getattr(task, "devices", {}) or {}).values()
-        for command in (getattr(device, "command_results", []) or [])
-        if getattr(command, "artifact_id", "")
-    ]
     return {
         "task_id": getattr(task, "task_id", ""),
         "status": getattr(task, "status", ""),
@@ -123,7 +117,6 @@ def task_summary(task: InspectionTask) -> dict[str, Any]:
         "started_at": getattr(task, "started_at", ""),
         "finished_at": getattr(task, "finished_at", ""),
         "error": getattr(task, "error", ""),
-        "raw_artifact_ids": list(dict.fromkeys(raw_artifact_ids)),
     }
 
 

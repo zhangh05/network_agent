@@ -64,7 +64,10 @@ def handle_artifact_read_content_safe(inv: ToolInvocation) -> dict:
         else:
             preview_len = 2000
         return _ok(inv, "", {
+            "artifact_id": art_id,
             "preview": _safe_preview(str(content), preview_len),
+            "content_chars": len(str(content)),
+            "content_complete": True,
             "title": getattr(art, "title", ""),
             "artifact_type": art_type,
             "sensitivity": sensitivity,

@@ -35,7 +35,7 @@ from .models import (
 from .tracking import extract_tracking_payload, normalize_tracking_payload
 from agent.llm.schemas import LLMMessage, LLMResponse, LLMToolCall
 from agent.llm.tool_adapter import tool_spec_to_openai_function
-from agent.runtime.prompt_architecture.policies import SYSTEM_CONTRACT
+from agent.runtime.prompt_architecture.policies import QUERY_LOOP_CONTRACT
 
 
 # ── Prompt Cache ────────────────────────────────────────────────────────────
@@ -43,24 +43,7 @@ from agent.runtime.prompt_architecture.policies import SYSTEM_CONTRACT
 # Static prefix that never changes between turns — cached by the LLM API.
 # Keep this concise: the full tool catalog is already supplied through the
 # function-calling tools field on every planner call.
-QUERY_LOOP_SYSTEM_PROMPT = SYSTEM_CONTRACT + """
-
-## QueryLoop protocol
-
-- Function definitions are the authoritative callable surface. Use their exact
-  names and action enums; never invent aliases.
-- Feed tool results back into the next decision and stop once the user's request
-  is answered. Never repeat an identical successful call.
-- When an artifact_id is provided, read it with
-  workspace__artifact(action="read", artifact_id=...). Do not search source code
-  or scan CMDB storage to rediscover an explicitly referenced artifact.
-- A completed inspection produces raw command/input-output artifacts. Read and
-  analyze those artifacts. Generate an HTML report only when the user explicitly
-  requests a report; report generation is not part of inspection completion.
-- CMDB endpoint identity is asset_id plus protocol/host/port. Devices sharing a
-  host but using different ports are distinct endpoints unless evidence proves
-  otherwise.
-"""
+QUERY_LOOP_SYSTEM_PROMPT = QUERY_LOOP_CONTRACT
 
 
 QUERY_LOOP_FINALIZER_PROMPT = """You are the final response writer for Network Agent.
@@ -76,6 +59,8 @@ language:
 5. Do not invent device states, command output, weather data, files, or memory.
 6. You may call another tool only when a required follow-up fact is missing.
 7. Never repeat a tool call whose successful result is already shown below."""
+
+FINAL_RESPONSE_ONLY_MARKER = "[FINAL_RESPONSE_ONLY]"
 
 
 _TOOL_DEFINITION_CACHE: dict[str, List[dict]] = {}
@@ -128,6 +113,7 @@ def _build_cached_tool_definitions(tool_registry: dict) -> List[dict]:
 
 
 TOOL_MESSAGE_MAX_CHARS = 6000     # Per-tool output cap fed to LLM; balances article coverage vs context pressure
+ARTIFACT_ANALYSIS_MAX_CHARS = 28_000
 FINALIZER_TOOL_MAX_CHARS = 3000
 FALLBACK_TOOL_MAX_CHARS = 1600
 MAX_INLINE_STRING_CHARS = 3000    # Per-string-value cap in compacted output
@@ -198,6 +184,28 @@ def _compact_tool_content(content: Any, *, max_chars: int = TOOL_MESSAGE_MAX_CHA
             parsed = content
         return _json_compact(parsed, max_chars=max_chars)
     return _json_compact(content, max_chars=max_chars)
+
+
+def _artifact_analysis_content(payload: dict[str, Any]) -> str:
+    """Preserve a bounded complete text artifact for one-pass analysis."""
+    preview = str(payload.get("preview") or "")
+    complete = bool(payload.get("content_complete", False))
+    if len(preview) > ARTIFACT_ANALYSIS_MAX_CHARS:
+        preview = preview[:ARTIFACT_ANALYSIS_MAX_CHARS]
+        complete = False
+    compacted = _compact_value_for_llm({
+        key: value for key, value in payload.items() if key != "preview"
+    })
+    compacted["preview"] = preview
+    compacted["content_complete"] = complete
+    compacted["content_returned_chars"] = len(preview)
+    return json.dumps(
+        compacted,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
 
 
 # ── Auto-Compact ────────────────────────────────────────────────────────────
@@ -457,15 +465,18 @@ class StreamingToolExecutor:
 
         try:
             # Map LLM name (dots → underscores) back to canonical tool_id
+            _t0 = time.monotonic()
             result = await asyncio.to_thread(
                 self._runtime.invoke_raw, tool_id, tc.arguments
             )
+            _latency = (time.monotonic() - _t0) * 1000
             return StreamingToolResult(
                 tool_name=tool_id,
                 call_id=tc.id,
                 output=result,
                 ok=result.get("ok", False),
                 error=result.get("error"),
+                latency_ms=float(_latency),
             )
         except Exception as e:
             return StreamingToolResult(
@@ -680,6 +691,46 @@ class QueryLoop:
             values.setdefault("llm_calls", llm_calls)
             return QueryLoopResult(metrics=projected_metrics, **values)
 
+        # Trusted UI workflows may hand off explicit artifact ids after a
+        # background task completes. Read those workspace-scoped artifacts
+        # through the canonical runtime before planning, then use one
+        # final-response-only LLM call when the content is complete.
+        prefetch_ids = list(dict.fromkeys(
+            str(value).strip()
+            for value in (ctx.extras.get("prefetch_artifact_ids") or [])
+            if str(value).strip()
+        ))[:8]
+        if prefetch_ids and self._tool_runtime.has_tool("workspace.artifact"):
+            prefetch_calls = [
+                LLMToolCall(
+                    id=f"prefetch_artifact_{index}",
+                    name="workspace.artifact",
+                    arguments={"action": "read", "artifact_id": artifact_id},
+                )
+                for index, artifact_id in enumerate(prefetch_ids)
+            ]
+            used_call_ids.update(call.id for call in prefetch_calls)
+            execution_started = time.monotonic()
+            prefetch_results = await self._executor.execute(
+                prefetch_calls,
+                ctx=ctx,
+                budget=budget,
+            )
+            execution_duration_ms += (time.monotonic() - execution_started) * 1000
+            all_results.extend(prefetch_results)
+            messages = self._append_tool_round(
+                messages,
+                prefetch_calls,
+                prefetch_results,
+            )
+            if self._has_complete_analysis_artifact(prefetch_results):
+                messages = self._append_turn_nudge(
+                    messages,
+                    FINAL_RESPONSE_ONLY_MARKER
+                    + " Complete artifacts were prefetched above. Analyze them and "
+                    "answer the original request now; do not call tools.",
+                )
+
         while iterations < max_iterations:
             iterations += 1
 
@@ -746,10 +797,6 @@ class QueryLoop:
                 if duplicate_successes and len(duplicate_successes) == len(tool_calls):
                     return finish(
                         final_response=self._build_tool_result_fallback(ctx, all_results),
-                        tool_results=all_results,
-                        iterations=iterations,
-                        total_tool_calls=len(all_results),
-                        llm_calls=llm_calls,
                         error="duplicate_successful_tool_call",
                     )
                 tool_calls = [
@@ -823,6 +870,13 @@ class QueryLoop:
 
                 # Append assistant message (with tool_calls) + tool results
                 messages = self._append_tool_round(messages, tool_calls, results)
+                if self._has_complete_analysis_artifact(results):
+                    messages = self._append_turn_nudge(
+                        messages,
+                        FINAL_RESPONSE_ONLY_MARKER
+                        + " The complete artifact content is included above. "
+                        "Analyze it and answer the original request now; do not read files or call tools.",
+                    )
 
                 # ── Doom-loop detection ──
                 for r in results:
@@ -905,7 +959,8 @@ class QueryLoop:
             if not final_text.strip():
                 if all_results and iterations < max_iterations:
                     reminder = (
-                        "You just received tool results. "
+                        FINAL_RESPONSE_ONLY_MARKER
+                        + " You just received tool results. "
                         "Now answer the user's original question in natural language. "
                         "Do NOT call any more tools — produce the final response directly."
                     )
@@ -1021,6 +1076,9 @@ class QueryLoop:
         """
         try:
             system_prompt, stream_scope, stream_to_user = self._llm_call_mode(messages)
+            tools_for_call = (
+                [] if self._is_final_response_only(messages) else self._cached_tools
+            )
             if self._llm_invoke is not None:
                 raw = await asyncio.wait_for(
                     asyncio.to_thread(
@@ -1029,7 +1087,7 @@ class QueryLoop:
                         user=self._messages_to_user_text(messages),
                         temperature=0.2,
                         timeout=120,
-                        tools=self._cached_tools,
+                        tools=tools_for_call,
                         workspace_id=ctx.workspace_id,
                         session_id=ctx.session_id,
                         extra={
@@ -1055,7 +1113,7 @@ class QueryLoop:
                     invoke_llm,
                     task="query_loop",
                     messages=call_messages,
-                    tools=self._cached_tools,
+                    tools=tools_for_call,
                     config_override={
                         "temperature": 0.2,
                         "max_tokens": 4096,
@@ -1083,6 +1141,28 @@ class QueryLoop:
             return QUERY_LOOP_FINALIZER_PROMPT, "finalizer", True
         return QUERY_LOOP_SYSTEM_PROMPT, "planner", False
 
+    @staticmethod
+    def _is_final_response_only(messages: List[LLMMessage]) -> bool:
+        return any(
+            message.role == "user"
+            and FINAL_RESPONSE_ONLY_MARKER in str(message.content or "")
+            for message in messages[-2:]
+        )
+
+    @staticmethod
+    def _has_complete_analysis_artifact(
+        results: List[StreamingToolResult],
+    ) -> bool:
+        return any(
+            result.ok
+            and result.tool_name.replace("__", ".") == "workspace.artifact"
+            and result.output.get("content_complete") is True
+            and result.output.get("artifact_type") in {
+                "inspection_raw", "translated_config", "output_config",
+            }
+            for result in results
+        )
+
     def _messages_to_user_text(self, messages: List[LLMMessage]) -> str:
         """Serialize loop messages for injected LLM adapters.
 
@@ -1091,19 +1171,18 @@ class QueryLoop:
         preserves the relevant context without bypassing the injected adapter.
         """
         parts: list[str] = []
+        final_response_only = self._is_final_response_only(messages)
         for m in messages:
             if m.role == "system":
                 continue
             label = m.role.upper()
             content = m.content
-            if m.tool_calls:
+            if m.tool_calls and not final_response_only:
                 parts.append(
                     f"{label} TOOL_CALLS: "
                     f"{json.dumps(m.tool_calls, ensure_ascii=False, default=str)}"
                 )
             if content:
-                if m.role == "tool":
-                    content = _compact_tool_content(content, max_chars=TOOL_MESSAGE_MAX_CHARS)
                 parts.append(f"{label}: {content}")
             if m.tool_call_id:
                 if parts:
@@ -1465,7 +1544,18 @@ class QueryLoop:
             if tool_payload.get("ok", True) and r.error:
                 tool_payload["ok"] = False
                 tool_payload["errors"] = [r.error]
-            output_str = _json_compact(tool_payload, max_chars=TOOL_MESSAGE_MAX_CHARS)
+            is_complete_text_artifact = (
+                r.tool_name.replace("__", ".") == "workspace.artifact"
+                and tool_payload.get("content_complete") is True
+                and tool_payload.get("artifact_type") in {
+                    "inspection_raw", "translated_config", "output_config",
+                }
+            )
+            output_str = (
+                _artifact_analysis_content(tool_payload)
+                if is_complete_text_artifact
+                else _json_compact(tool_payload, max_chars=TOOL_MESSAGE_MAX_CHARS)
+            )
             new_msgs.append(LLMMessage(
                 role="tool",
                 content=output_str,

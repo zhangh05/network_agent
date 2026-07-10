@@ -26,6 +26,10 @@ from agent.approval import get_approval_store
 from core.runtime_engine.runtime_contracts import ExecutionContract
 
 _LOG = logging.getLogger(__name__)
+_MEMORY_WRITE_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1,
+    thread_name_prefix="ssot-memory-write",
+)
 
 
 def run_ssot_turn(
@@ -332,9 +336,28 @@ def run_ssot_turn(
     persist_run_record(session, turn, result, context)
 
     # ── Memory writing ───────────────────────────────────────────────
-    # llm_first: LLM 总结对话生成记忆（质量更高，额外延迟 0.3-0.5s）
-    # rule_only: 纯规则，直接从 tool_calls/events 结构化提取，不调 LLM
-    gate_mode = "rule_only"  # default in case get_memory_gate_mode fails
+    # llm_first remains high quality but runs off the user-visible path;
+    # rule_only uses the same queue for consistent persistence ordering.
+    _schedule_turn_memory_write(
+        workspace_id=workspace_id,
+        session_id=session_id,
+        user_input=user_input,
+        assistant_response=result.final_response or "",
+        tool_calls=list(result.tool_calls or []),
+    )
+
+    return result
+
+
+def _write_turn_memories(
+    *,
+    workspace_id: str,
+    session_id: str,
+    user_input: str,
+    assistant_response: str,
+    tool_calls: list[dict[str, Any]],
+) -> None:
+    gate_mode = "rule_only"
     try:
         from workspace.memory_governance import MemoryRecord, MemoryWriteGate, get_memory_gate_mode
 
@@ -346,19 +369,19 @@ def run_ssot_turn(
 
             tool_summaries = [
                 f"{tc.get('tool_id', 'unknown')}: {tc.get('summary', '')[:200]}"
-                for tc in (result.tool_calls or [])
+                for tc in tool_calls
             ]
             items = generate_memories(
                 user_input=user_input,
-                assistant_response=result.final_response or "",
+                assistant_response=assistant_response,
                 tool_summaries=tool_summaries,
             )
         else:
             from agent.runtime.memory_write.rule_extract import extract_memories_rule_only
             items = extract_memories_rule_only(
                 user_input=user_input,
-                assistant_response=result.final_response or "",
-                tool_calls=result.tool_calls or [],
+                assistant_response=assistant_response,
+                tool_calls=tool_calls,
             )
 
         if items:
@@ -379,11 +402,21 @@ def run_ssot_turn(
                 )
                 gate.write(rec, gate_mode=gate_mode)
     except Exception as e:
-        logging.getLogger("ssot_runtime.memory").warning(
+        _LOG.warning(
             "memory write failed (gate_mode=%s): %s", gate_mode, e,
         )
 
-    return result
+
+def _schedule_turn_memory_write(**payload: Any) -> None:
+    future = _MEMORY_WRITE_EXECUTOR.submit(_write_turn_memories, **payload)
+
+    def _log_failure(done: concurrent.futures.Future) -> None:
+        try:
+            done.result()
+        except Exception:
+            _LOG.warning("background memory write failed", exc_info=True)
+
+    future.add_done_callback(_log_failure)
 
 
 def _build_engine(
@@ -498,17 +531,19 @@ def _make_tool_handler(
             args.setdefault("run_id", run_id)
             args.setdefault("workspace_id", workspace_id)
         result = await asyncio.to_thread(client.invoke, tool_id, args, context=ctx)
-        return {
-            "status": result.status,
-            "ok": result.status in ("succeeded", "dry_run"),
-            "summary": result.summary or "",
-            "output": result.output or {},
-            "artifact_ids": list(result.artifact_ids or []),
-            "warnings": list(result.warnings or []),
-            "errors": list(result.errors or []),
-            "duration_ms": result.duration_ms,
-            "redacted": bool(result.redacted),
-        }
+        # ToolExecutor already returns the canonical, redacted payload. Keep it
+        # flat so QueryLoop can consume control fields such as tracking and
+        # content_complete without a second lossy wrapper.
+        payload = dict(result.output or {})
+        payload.setdefault("status", result.status)
+        payload.setdefault("ok", result.status in ("succeeded", "dry_run"))
+        payload.setdefault("summary", result.summary or "")
+        payload.setdefault("artifact_ids", list(result.artifact_ids or []))
+        payload.setdefault("warnings", list(result.warnings or []))
+        payload.setdefault("errors", list(result.errors or []))
+        payload.setdefault("duration_ms", result.duration_ms)
+        payload.setdefault("redacted", bool(result.redacted))
+        return payload
 
     return _handler
 
@@ -521,7 +556,9 @@ def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
     user = str(kwargs.get("user") or "")
     is_planner = "execution planner" in system.lower()
     caller_extra = kwargs.get("extra") or {}
-    tools = kwargs.get("tools") or None
+    # Preserve an explicit empty list: QueryLoop uses it for final-response-only
+    # calls where the model must synthesize existing results without tools.
+    tools = kwargs.get("tools")
     session_id = str(kwargs.get("session_id") or caller_extra.get("session_id") or "").strip()
     workspace_id = str(kwargs.get("workspace_id") or caller_extra.get("workspace_id") or "").strip()
 
@@ -952,6 +989,12 @@ _RETRIEVED_CONTEXT_MAX_CHARS = 3200
 _RETRIEVED_ITEM_MAX_CHARS = 700
 
 
+def _truncate(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)] + "…"
+
+
 def _build_retrieved_context_block(*, workspace_id: str, user_input: str) -> str:
     """Retrieve concise governed memory and knowledge context for this turn."""
     if not workspace_id or not user_input.strip():
@@ -1100,12 +1143,6 @@ def _looks_context_important(text: str) -> bool:
         "报告", "资产", "故障", "异常", "配置", "记住", "总结", "结论",
     )
     return any(m in text for m in markers)
-
-
-def _truncate(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: max(0, limit - 1)] + "…"
 
 
 # ── Session history sync ──────────────────────────────────────
