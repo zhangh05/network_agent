@@ -25,11 +25,11 @@ process_belongs_to_project() {
 
     case "$role" in
         backend)
-            printf '%s' "$command_line" | grep -q 'backend/main.py' || return 1
+            printf '%s' "$command_line" | grep -qE 'python[0-9.]* .*/backend/main\.py' || return 1
             [ "$cwd" = "$ROOT" ]
             ;;
         frontend)
-            printf '%s' "$command_line" | grep -Eq 'vite|node.*/vite' || return 1
+            printf '%s' "$command_line" | grep -qE 'node .*/vite' || return 1
             [ "$cwd" = "$ROOT/frontend" ]
             ;;
         *) return 1 ;;

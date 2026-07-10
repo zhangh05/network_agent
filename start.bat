@@ -21,6 +21,8 @@ echo Network Agent
 
 call :find_python
 if errorlevel 1 exit /b 1
+call :find_pip
+if errorlevel 1 exit /b 1
 call :find_node
 if errorlevel 1 exit /b 1
 call :find_npm
@@ -129,8 +131,16 @@ if not defined NPM_BIN (
 )
 exit /b 0
 
+:find_pip
+"%PYTHON_BIN%" -c "import pip" >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Python pip is required. Install pip via ensurepip or your system package manager.
+    exit /b 1
+)
+exit /b 0
+
 :start_backend
-call :adopt backend %BACKEND_PORT% "%BACKEND_PID_FILE%" "backend[\\/]main.py"
+call :adopt backend %BACKEND_PORT% "%BACKEND_PID_FILE%" "backend"
 if errorlevel 2 exit /b 1
 if not errorlevel 1 goto :backend_wait
 
@@ -183,10 +193,13 @@ set "PATTERN=%~4"
 set "OWNER_PID="
 for /f %%P in ('powershell -NoProfile -Command "$c=Get-NetTCPConnection -LocalPort %PORT% -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; if($c){$c.OwningProcess}"') do set "OWNER_PID=%%P"
 if not defined OWNER_PID exit /b 1
-powershell -NoProfile -Command "$p=Get-CimInstance Win32_Process -Filter 'ProcessId=!OWNER_PID!' -ErrorAction SilentlyContinue; if($p -and $p.CommandLine -match '%PATTERN%'){exit 0}else{exit 1}"
+powershell -NoProfile -Command "$p=Get-CimInstance Win32_Process -Filter 'ProcessId=!OWNER_PID!' -ErrorAction SilentlyContinue; if($p -and $p.CommandLine -match '%PATTERN%'){exit 0}else{exit 1}" 2>nul
 if errorlevel 1 (
-    echo [ERROR] Port %PORT% is occupied by another process ^(PID !OWNER_PID!^).
-    exit /b 2
+    powershell -NoProfile -Command "$p=Get-Process -Id !OWNER_PID! -ErrorAction SilentlyContinue; if($p -and $p.Path -match '%PATTERN%'){exit 0}else{exit 1}" 2>nul
+    if errorlevel 1 (
+        echo [ERROR] Port %PORT% is occupied by another process ^(PID !OWNER_PID!^).
+        exit /b 2
+    )
 )
 > "%PID_FILE%" echo !OWNER_PID!
 echo [%ROLE%] Already running on port %PORT% ^(PID !OWNER_PID!^).

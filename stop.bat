@@ -11,7 +11,7 @@ set "STATUS=0"
 
 call :stop_service frontend %FRONTEND_PORT% "%FRONTEND_PID_FILE%" "vite"
 if errorlevel 1 set "STATUS=1"
-call :stop_service backend %BACKEND_PORT% "%BACKEND_PID_FILE%" "backend[\\/]main.py"
+call :stop_service backend %BACKEND_PORT% "%BACKEND_PID_FILE%" "backend"
 if errorlevel 1 set "STATUS=1"
 
 if /I not "%~1"=="--no-pause" pause
@@ -50,10 +50,14 @@ set "PID=%~2"
 set "PATTERN=%~3"
 if not defined PID exit /b 1
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$p=Get-CimInstance Win32_Process -Filter 'ProcessId=%PID%' -ErrorAction SilentlyContinue; if(-not $p -or $p.CommandLine -notmatch '%PATTERN%'){exit 2}; Stop-Process -Id %PID% -ErrorAction Stop; exit 0"
+  "$p=Get-CimInstance Win32_Process -Filter 'ProcessId=%PID%' -ErrorAction SilentlyContinue; if(-not $p -or $p.CommandLine -notmatch '%PATTERN%'){exit 2}; Stop-Process -Id %PID% -ErrorAction Stop; exit 0" 2>nul
 if errorlevel 2 (
-    echo [%ROLE%] Refusing to stop unverified process ^(PID %PID%^).
-    exit /b 1
+    powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+      "$p=Get-Process -Id %PID% -ErrorAction SilentlyContinue; if(-not $p -or $p.Path -notmatch '%PATTERN%'){exit 2}; Stop-Process -Id %PID% -ErrorAction Stop; exit 0" 2>nul
+    if errorlevel 2 (
+        echo [%ROLE%] Refusing to stop unverified process ^(PID %PID%^).
+        exit /b 1
+    )
 )
 if errorlevel 1 (
     echo [%ROLE%] Failed to stop PID %PID%.

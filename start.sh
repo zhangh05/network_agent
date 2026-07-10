@@ -50,11 +50,13 @@ process_belongs_to_project() {
 
     case "$role" in
         backend)
-            printf '%s' "$command_line" | grep -q 'backend/main.py' || return 1
+            # Match any reasonable Python invocation of backend/main.py
+            printf '%s' "$command_line" | grep -qE 'python[0-9.]* .*/backend/main\.py' || return 1
             [ "$cwd" = "$ROOT" ]
             ;;
         frontend)
-            printf '%s' "$command_line" | grep -Eq 'vite|node.*/vite' || return 1
+            # Match any node invocation of vite
+            printf '%s' "$command_line" | grep -qE 'node .*/vite' || return 1
             [ "$cwd" = "$ROOT/frontend" ]
             ;;
         *) return 1 ;;
@@ -161,12 +163,33 @@ check_version() {
     "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 12) else 1)' \
         || fail "Python 3.12+ is required; found $("$PYTHON_BIN" --version 2>&1)."
 
+    "$PYTHON_BIN" -c 'import pip' >/dev/null 2>&1 || fail "Python pip is required (ensure pip is installed)."
+
     [ -x "$NODE_BIN" ] || fail "Node.js 18+ is required."
     "$NODE_BIN" -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 18 ? 0 : 1)' \
         || fail "Node.js 18+ is required; found $("$NODE_BIN" --version 2>&1)."
     [ -x "$NPM_BIN" ] || fail "npm is required."
     command -v curl >/dev/null 2>&1 || fail "curl is required."
     command -v lsof >/dev/null 2>&1 || fail "lsof is required."
+}
+
+detect_venv() {
+    # Prefer project .venv over global Python.
+    local venv_python="$ROOT/.venv/bin/python3"
+    if [ -x "$venv_python" ]; then
+        local venv_ver
+        venv_ver="$("$venv_python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "")"
+        if [ -n "$venv_ver" ]; then
+            local major minor
+            major="$(echo "$venv_ver" | cut -d. -f1)"
+            minor="$(echo "$venv_ver" | cut -d. -f2)"
+            if [ "$major" -ge 3 ] && [ "$minor" -ge 12 ] 2>/dev/null; then
+                PYTHON_BIN="$venv_python"
+                return 0
+            fi
+        fi
+    fi
+    return 1
 }
 
 install_dependencies() {
@@ -177,13 +200,13 @@ install_dependencies() {
 
     log "[deps] Checking Python dependencies..."
     if ! "$PYTHON_BIN" -c 'import flask, flask_sock, yaml, bs4, pdfplumber, scapy' >/dev/null 2>&1; then
-        "$PYTHON_BIN" -m pip install -r "$ROOT/requirements.txt"
+        "$PYTHON_BIN" -m pip install -r "$ROOT/requirements.txt" || fail "Failed to install Python dependencies."
     fi
     "$PYTHON_BIN" -m pip check >/dev/null || fail "Python dependency check failed."
 
     log "[deps] Checking frontend dependencies..."
     if [ ! -x "$VITE_BIN" ]; then
-        (cd "$ROOT/frontend" && "$NPM_BIN" install)
+        (cd "$ROOT/frontend" && "$NPM_BIN" install) || fail "Failed to install frontend dependencies."
     fi
 }
 
@@ -266,6 +289,7 @@ print_summary() {
 main() {
     log "Network Agent"
     mkdir -p "$LOG_DIR"
+    detect_venv || true
     check_version
     install_dependencies
     start_backend
