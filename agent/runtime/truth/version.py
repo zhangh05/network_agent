@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 
-_FALLBACK_VERSION = "3.2.0"
+_FALLBACK_VERSION = "3.17.0"
 _CODENAME = "core-finalization"
 
 
