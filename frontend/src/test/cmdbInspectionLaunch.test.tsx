@@ -139,14 +139,42 @@ describe("CMDB inspection launch", () => {
           task_id: "insp-task-1",
           status: "succeeded",
           total_assets: 1,
-          succeeded: 0,
+          succeeded: 1,
           failed: 0,
           skipped: 0,
           partial: 0,
           criticals: 0,
           warnings: 0,
           infos: 0,
+          devices: {
+            "asset-1": {
+              asset_id: "asset-1",
+              asset_name: "测试服务器_1",
+              host: "192.168.32.72",
+              status: "succeeded",
+              command_results: [{ artifact_id: "art-raw-1" }],
+            },
+          },
         },
+      },
+    });
+    enqueue("/workspaces/default/artifacts/art-raw-1", {
+      status: 200,
+      data: {
+        artifact: {
+          artifact_id: "art-raw-1",
+          title: "测试服务器_1_raw.txt",
+          relative_path: "files/agent_output/raw.txt",
+        },
+      },
+    });
+    enqueue("/inspection/tasks/insp-task-1/report", {
+      status: 200,
+      data: {
+        ok: true,
+        format: "html",
+        artifact_id: "art-report-1",
+        download_url: "/api/inspection/tasks/insp-task-1/report.html?workspace_id=default",
       },
     });
     enqueue("/agent/message", { status: 200, data: resp });
@@ -159,6 +187,7 @@ describe("CMDB inspection launch", () => {
     // analysis prompt — it no longer POSTs a new inspection task itself.
     const pollRequests = getRequests().filter((r) => (r.url ?? "").includes("/inspection/tasks/insp-task-1"));
     expect(pollRequests.length).toBeGreaterThanOrEqual(1);
+    expect(getRequests().some((r) => r.url === "/inspection/tasks/insp-task-1/report")).toBe(true);
     const request = getRequests().find((r) => r.url === "/agent/message");
     expect(request?.data).toMatchObject({
       workspace_id: "default",
@@ -172,9 +201,29 @@ describe("CMDB inspection launch", () => {
     });
     const msg = String(request?.data?.message || "");
     expect(msg).toContain("测试一区");
-    expect(msg).toContain("通用巡检已完成");
+    expect(msg).toContain("通用巡检任务已结束");
+    expect(msg).toContain("状态：succeeded");
+    expect(msg).toContain("artifact_id=art-report-1");
+    expect(msg).toContain("art-raw-1");
     expect(msg).toContain("分析维度");
     expect(msg).not.toContain("device.manage");
     expect(localStorage.getItem("workbench_inspection")).toBeNull();
+  });
+
+  it("keeps inspection tracking if workspace hydration is late", async () => {
+    localStorage.setItem("workbench_inspection", JSON.stringify({
+      task_id: "insp-late-ws",
+      metadata: {
+        target: "CMDB 区域「测试一区」",
+        typeLabel: "通用巡检",
+      },
+    }));
+    useSessionStore.setState({ currentWorkspaceId: "", currentSessionId: "sess-cmdb" });
+
+    render(<TaskWorkbench />);
+
+    await waitFor(() => {
+      expect(localStorage.getItem("workbench_inspection")).toBeTruthy();
+    });
   });
 });

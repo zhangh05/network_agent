@@ -100,6 +100,14 @@ interface InspectionCommandResult {
   artifact_id?: string;
 }
 
+function terminalInspectionStatus(status: string): boolean {
+  return ["succeeded", "partial", "failed", "cancelled", "crashed"].includes(status);
+}
+
+function successfulInspectionStatus(status?: string): boolean {
+  return ["succeeded", "partial"].includes(String(status || ""));
+}
+
 function trackingStats(result?: AgentResult) {
   const summary: TrackingSummary = result?.metadata?.tracking_summary ?? ({} as TrackingSummary);
   const events: TrackingEvent[] = result?.metadata?.tracking_events ?? [];
@@ -363,10 +371,11 @@ export function TaskWorkbench() {
   // On terminal state, fetches artifacts and auto-sends analysis prompt.
   useEffect(() => {
     const raw = safeGetLocal("workbench_inspection");
-    if (!raw || !currentWorkspaceId) {
+    if (!raw) {
       safeRemoveLocal("workbench_inspection");
       return;
     }
+    if (!currentWorkspaceId) return;
     let payload: { task_id: string; metadata: Record<string, unknown> };
     try { payload = JSON.parse(raw); } catch { safeRemoveLocal("workbench_inspection"); return; }
 
@@ -379,20 +388,26 @@ export function TaskWorkbench() {
     let done = false;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const handleCompletion = async () => {
+    const handleCompletion = async (completedTask?: { status?: string; devices?: Record<string, unknown> }) => {
       done = true;
       setInspectionTaskId(null);
       safeRemoveLocal("workbench_inspection");
 
       const { inspectionApi, artifactsApi } = await import("../../api/index");
       let artifactRefs: string[] = [];
+      let reportRef = "";
       let deviceList = "";
+      let finalStatus = String(completedTask?.status || inspectionStatus || "");
       try {
-        const resp = await inspectionApi.getTask(currentWorkspaceId, task_id);
-        if ("ok" in resp && resp.ok && "task" in resp && resp.task) {
-          const task = resp.task;
+        let task = completedTask;
+        if (!task) {
+          const resp = await inspectionApi.getTask(currentWorkspaceId, task_id);
+          if ("ok" in resp && resp.ok && "task" in resp && resp.task) task = resp.task;
+        }
+        if (task) {
+          finalStatus = String(task.status || finalStatus);
           const devices = (Object.values(task.devices || {}) as InspectionDevice[])
-            .filter((d: InspectionDevice) => d.status === "succeeded");
+            .filter((d: InspectionDevice) => successfulInspectionStatus(d.status));
           deviceList = devices.map((d: InspectionDevice) => `- ${d.asset_name || d.asset_id} (${d.host || ""})`).join("\n");
           for (const d of devices) {
             for (const cr of (d.command_results || []) as InspectionCommandResult[]) {
@@ -404,7 +419,7 @@ export function TaskWorkbench() {
                 if (art) {
                   const title = art.title || art.artifact_id || artId;
                   const path = art.relative_path || art.file_id || "";
-                  if (path) artifactRefs.push(`制品 "${title}"，文件路径 "${path}"`);
+                  if (path) artifactRefs.push(`制品 "${title}"，artifact_id=${artId}，文件路径 "${path}"`);
                 }
               } catch { /* skip */ }
             }
@@ -412,23 +427,36 @@ export function TaskWorkbench() {
         }
       } catch { /* best-effort */ }
 
+      try {
+        const report = await inspectionApi.getReport(currentWorkspaceId, task_id, "html");
+        if (report.ok) {
+          const parts = [
+            report.artifact_id ? `artifact_id=${report.artifact_id}` : "",
+            report.download_url ? `下载链接=${report.download_url}` : "",
+          ].filter(Boolean);
+          reportRef = parts.length ? parts.join("，") : "HTML 报告已生成";
+        }
+      } catch { /* report generation is best-effort; still ask LLM to summarize raw results */ }
+
       const rawOutputBlock = artifactRefs.length
         ? `\n巡检原始数据已保存为以下制品：\n${artifactRefs.map(s => `- ${s}`).join("\n")}\n\n请先读取各制品内容，然后逐设备分析。`
         : "\n暂无制品。";
       const deviceBlock = deviceList ? `\n设备清单：\n${deviceList}\n` : "";
+      const reportBlock = reportRef ? `\n巡检 HTML 报告：${reportRef}\n` : "";
 
       const prompt = [
-        `${target}${vendor} ${typeLabel}已完成。`,
+        `${target}${vendor} ${typeLabel}任务已结束，状态：${finalStatus || "unknown"}，任务 ID：${task_id}。`,
+        reportBlock,
         deviceBlock,
         rawOutputBlock,
         ``,
         `分析维度：${analysisHints}。`,
-        `输出结构化${typeLabel}报告（概览表 + 逐设备要点）。`,
-        `不要输出任何中间确认或思考过程。直接开始分析。`,
+        `请输出用户可直接阅读的${typeLabel}结论：完成情况、异常/失败/跳过设备、关键风险、下一步建议，以及报告链接。`,
       ].join("\n");
       setInput(prompt);
-      pendingAutoMetadataRef.current = metadata;
-      onSendRef.current(prompt, metadata);
+      const nextMetadata = { ...metadata, inspection_task_id: task_id, inspection_status: finalStatus };
+      pendingAutoMetadataRef.current = nextMetadata;
+      onSendRef.current(prompt, nextMetadata);
     };
 
     const poll = async () => {
@@ -441,16 +469,9 @@ export function TaskWorkbench() {
           const t = resp.task;
           setInspectionTaskId(task_id);
           setInspectionStatus(t.status);
-          if (t.status === "succeeded" || t.status === "partial") {
-            handleCompletion();
-            return;
-          }
-          if (t.status === "failed" || t.status === "cancelled" || t.status === "crashed") {
+          if (terminalInspectionStatus(t.status)) {
             setInspectionStatus(t.status);
-            done = true;
-            // 异步拉取已完成制品并触发 LLM 分析（部分设备可能已成功）
-            handleCompletion();
-            safeRemoveLocal("workbench_inspection");
+            handleCompletion(t);
             return;
           }
           // Still running — poll again

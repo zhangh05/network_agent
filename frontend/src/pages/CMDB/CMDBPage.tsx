@@ -233,6 +233,7 @@ export function CMDBPage() {
             task_id: r.task_id,
             metadata: {
               intent: scope.type === "log" ? "cmdb_log_inspection" : (region ? "cmdb_region_inspection" : "cmdb_asset_inspection"),
+              inspection_task_id: r.task_id,
               target: targetText,
               vendor: vendorInfo.trim(),
               type: scope.type,
