@@ -676,6 +676,57 @@ def test_inspection_script_update_rejects_dict_commands(monkeypatch):
     assert resp.status_code == 400
     assert body["error"] == "commands_must_be_list"
 
+
+def test_inspection_script_update_rejects_blank_prepost(monkeypatch):
+    """Pre/post use explicit __ENTER__, never blank strings."""
+    from flask import Flask
+    from backend.api.inspection_routes import register_inspection_routes
+
+    app = Flask(__name__)
+    register_inspection_routes(app)
+    client = app.test_client()
+
+    def fail_save(*args, **kwargs):
+        raise AssertionError("save_vendor_commands must not run for blank pre/post")
+
+    monkeypatch.setattr("backend.api.inspection_routes.save_vendor_commands", fail_save)
+    resp = client.put("/api/inspection/scripts/h3c", json={
+        "workspace_id": "default",
+        "commands": ["display version"],
+        "pre_commands": [""],
+    })
+    assert resp.status_code == 400
+    assert resp.get_json()["error"] == "pre_post_commands_must_be_non_empty_strings"
+
+
+def test_inspection_script_update_accepts_explicit_enter(monkeypatch):
+    """Explicit __ENTER__ is the only persisted Enter action."""
+    from flask import Flask
+    from backend.api.inspection_routes import register_inspection_routes
+
+    app = Flask(__name__)
+    register_inspection_routes(app)
+    client = app.test_client()
+
+    saved = {}
+
+    def fake_save(*args, **kwargs):
+        saved["args"] = args
+        saved["kwargs"] = kwargs
+        return True
+
+    monkeypatch.setattr("backend.api.inspection_routes.save_vendor_commands", fake_save)
+    resp = client.put("/api/inspection/scripts/h3c", json={
+        "workspace_id": "default",
+        "commands": ["display version"],
+        "pre_commands": ["screen-length disable", "__ENTER__"],
+        "post_commands": ["undo screen-length disable"],
+    })
+    assert resp.status_code == 200
+    assert resp.get_json()["ok"] is True
+    assert saved["kwargs"]["pre_commands"] == ["screen-length disable", "__ENTER__"]
+
+
 def test_reconcile_all_workspaces_flips_phantom_running(tmp_path):
     """On startup the backend should sweep all workspaces and mark
     crashed any inspection still in 'running' from a previous
@@ -1011,13 +1062,38 @@ def test_get_asset_flags_password_corrupted(tmp_path):
         spaths.workspace_root = orig_root
 
 
-def test_inspection_profiles_drop_blank_session_sentinels():
-    """Blank script rows must never become remote session operations."""
+def test_inspection_profiles_drop_blank_rows_and_keep_explicit_enter():
+    """Blank rows are dropped; Enter must be an explicit action."""
     from agent.modules.inspection import profiles
 
     assert profiles._clean_commands(["", " display version ", "  "]) == ["display version"]
     assert profiles._clean_commands(["", " screen-length disable ", ""]) == ["screen-length disable"]
     assert profiles._clean_commands(["undo screen-length disable", ""]) == ["undo screen-length disable"]
+    assert profiles._clean_commands(["", "__ENTER__", " display logbuffer "]) == ["__ENTER__", "display logbuffer"]
+    assert profiles._clean_commands(["回车", "display version"]) == ["__ENTER__", "display version"]
+
+
+def test_uploaded_log_script_keeps_vendor_paging_guards(monkeypatch, tmp_path):
+    """Uploaded log scripts must inherit vendor pre/post paging guards."""
+    from agent.modules.inspection import profiles
+    import workspace.run_store as run_store
+
+    original_root = run_store.WS_ROOT
+    run_store.WS_ROOT = tmp_path
+    try:
+        ok = profiles.upload_vendor_script_file(
+            "ws_paging_upload",
+            "h3c",
+            "display logbuffer\n",
+            script_type="log",
+        )
+        assert ok is True
+        profile = profiles.load_command_profile("ws_paging_upload", "h3c", "", script_type="log")
+        assert profile.commands == ["display logbuffer"]
+        assert profile.pre_commands == ["screen-length disable"]
+        assert profile.post_commands == ["undo screen-length disable"]
+    finally:
+        run_store.WS_ROOT = original_root
 
 
 def test_telnet_session_requires_explicit_close(monkeypatch):
@@ -1048,3 +1124,68 @@ def test_telnet_session_requires_explicit_close(monkeypatch):
     ))
     assert closed_result["ok"] is True
     assert closed == ["telnet_1"]
+
+
+def test_telnet_batch_advances_paging(monkeypatch):
+    """Batch Telnet execution must continue through device pager prompts."""
+    from core.tools.canonical_registry import _handler_network_telnet
+    from core.tools.schemas import ToolInvocation
+    from agent.modules.remote import core as remote_core
+    from agent.modules.remote.vendors import get_profile
+
+    class Session:
+        connected = True
+        workspace_id = "ws_telnet_paging"
+        host = "10.0.0.1"
+        vendor = get_profile("h3c")
+
+        def __init__(self):
+            self.sent: list[bytes] = []
+            self._chunks = [
+                b"display logbuffer\r\nline 1\r\n---- More ----",
+                b"\r\nline 2\r\n<CE1>",
+            ]
+
+        def send(self, data: bytes):
+            self.sent.append(data)
+
+        def recv(self, timeout: float = 0.0) -> bytes:
+            return self._chunks.pop(0) if self._chunks else b""
+
+    session = Session()
+    monkeypatch.setattr(remote_core, "get_session", lambda _sid: session)
+    monkeypatch.setattr(remote_core, "_drain_available", lambda *_args, **_kwargs: b"")
+
+    result = _handler_network_telnet(ToolInvocation(
+        arguments={
+            "session_id": "telnet_paging",
+            "batch": True,
+            "command": "display logbuffer",
+        },
+        workspace_id="ws_telnet_paging",
+    ))
+
+    assert result["ok"] is True
+    assert b" " in session.sent
+    assert "line 2" in result["output"]
+    assert "More" not in result["output"]
+
+
+def test_inspection_enter_action_sends_newline_to_existing_session(monkeypatch):
+    """Runner Enter action sends a newline through the live remote session."""
+    from agent.modules.inspection import runner
+    from agent.modules.remote import core as remote_core
+
+    class Session:
+        connected = True
+        workspace_id = "ws_enter"
+
+    sent = []
+    monkeypatch.setattr(remote_core, "get_session", lambda _sid: Session())
+    monkeypatch.setattr(remote_core, "send_interactive", lambda sid, data: sent.append((sid, data)) or {"ok": True})
+    monkeypatch.setattr(remote_core, "_read_until_prompt", lambda *_args, **_kwargs: b"<CE1>")
+
+    result = runner._send_enter_action("ws_enter", "sid_enter")
+
+    assert result["ok"] is True
+    assert sent == [("sid_enter", "\n")]

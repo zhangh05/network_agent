@@ -16,6 +16,16 @@ const TYPE_LABELS: Record<string, string> = {
   general: "通用", log: "日志",
 };
 
+const ENTER_ACTION = "__ENTER__";
+
+function isEnterAction(value: string): boolean {
+  return String(value || "").trim().toUpperCase() === ENTER_ACTION;
+}
+
+function displayCommand(value: string): string {
+  return isEnterAction(value) ? "回车" : value;
+}
+
 export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) {
   const [vendors, setVendors] = useState<string[]>([]);
   const [activeVendor, setActiveVendor] = useState("");
@@ -115,13 +125,13 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
   };
   const addPreCmd = () => {
     const c = newPreCmd.trim();
-    // pre 允许空字符串（表示回车）
+    if (!c) { setError("前置命令不能为空；需要回车请点击「插入回车」"); return; }
     setPreCommands(prev => [...prev, c]);
     setDirty(true);
     setNewPreCmd(""); setShowAddPreRow(false); setError("");
   };
   const addPreEnter = () => {
-    setPreCommands(prev => [...prev, ""]);
+    setPreCommands(prev => [...prev, ENTER_ACTION]);
     setDirty(true);
     setError("");
   };
@@ -137,12 +147,13 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
   };
   const addPostCmd = () => {
     const c = newPostCmd.trim();
+    if (!c) { setError("后置命令不能为空；需要回车请点击「插入回车」"); return; }
     setPostCommands(prev => [...prev, c]);
     setDirty(true);
     setNewPostCmd(""); setShowAddPostRow(false); setError("");
   };
   const addPostEnter = () => {
-    setPostCommands(prev => [...prev, ""]);
+    setPostCommands(prev => [...prev, ENTER_ACTION]);
     setDirty(true);
     setError("");
   };
@@ -233,7 +244,7 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
     newVal: string,
     setNewVal: (v: string) => void,
     addFn: () => void,
-    addEnterFn: () => void,
+    addEnterFn?: () => void,
   ) => (
     <div style={{ marginBottom: 14 }}>
       <div style={{ fontWeight: 700, fontSize: 12, color: `var(--${color})`, marginBottom: 6 }}>
@@ -250,14 +261,15 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
               minWidth: 28, textAlign: "right", flexShrink: 0,
             }}>{i + 1}</span>
             <input
-              value={cmd}
-              placeholder={cmd === "" ? "(回车)" : undefined}
+              value={displayCommand(cmd)}
+              readOnly={isEnterAction(cmd)}
               onChange={e => editFn(i, e.target.value)}
               style={{
                 ...inputStyle(true),
                 flex: 1,
-                fontStyle: cmd === "" ? "italic" : "normal",
-                color: cmd === "" ? "var(--text-4)" : "var(--text)",
+                fontStyle: isEnterAction(cmd) ? "italic" : "normal",
+                color: isEnterAction(cmd) ? "var(--text-4)" : "var(--text)",
+                background: isEnterAction(cmd) ? "var(--surface-2)" : "var(--surface)",
               }}
               onFocus={e => e.currentTarget.style.borderColor = "var(--accent)"}
               onBlur={e => e.currentTarget.style.borderColor = "var(--line)"}
@@ -280,7 +292,7 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
           padding: "8px 12px", background: "var(--surface-2)", borderRadius: 7,
         }}>
           <input
-            placeholder={`输入${label}（留空为回车）`}
+            placeholder={`输入${label}${addEnterFn ? "，需要回车请点插入回车" : ""}`}
             value={newVal}
             onChange={e => setNewVal(e.target.value)}
             style={{ ...inputStyle(true), flex: 1 }}
@@ -288,8 +300,10 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
           />
           <button className="btn sm primary" onClick={addFn}
             style={{ fontSize: 11, padding: "3px 10px" }}>添加</button>
-          <button className="btn sm" onClick={addEnterFn}
-            style={{ fontSize: 11, padding: "3px 8px" }}>插入回车</button>
+          {addEnterFn && (
+            <button className="btn sm" onClick={addEnterFn}
+              style={{ fontSize: 11, padding: "3px 8px" }}>插入回车</button>
+          )}
           <button className="btn sm ghost" onClick={() => { setAddRow(false); setNewVal(""); setError(""); }}
             style={{ fontSize: 11, padding: "3px 6px" }}>取消</button>
         </div>
@@ -297,8 +311,10 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
           <button className="btn sm" onClick={() => { setAddRow(true); setNewVal(""); }}
             style={{ fontSize: 12, padding: "4px 12px" }}>+ 添加{label}</button>
-          <button className="btn sm ghost" onClick={addEnterFn}
-            style={{ fontSize: 12, padding: "4px 10px" }}>插入回车</button>
+          {addEnterFn && (
+            <button className="btn sm ghost" onClick={addEnterFn}
+              style={{ fontSize: 12, padding: "4px 10px" }}>插入回车</button>
+          )}
         </div>
       )}
     </div>
@@ -335,7 +351,7 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
             <div style={{ fontWeight: 800, fontSize: 18, color: "var(--text)" }}>{TYPE_LABELS[scriptType] || scriptType}脚本管理</div>
             <div style={{ marginTop: 5, fontSize: 12, color: "var(--text-4)", lineHeight: 1.5 }}>
               配置各厂商{TYPE_LABELS[scriptType] || scriptType}巡检命令列表。未配置则自动使用「通用」脚本；通用也未配置则该厂商将被跳过。
-              空命令表示回车（Enter），用于刷新欢迎横幅或发送确认。
+              前置/后置可插入显式回车动作，用于刷新欢迎横幅或发送确认。
             </div>
           </div>
           <button className="btn sm ghost" onClick={handleClose}
@@ -396,7 +412,7 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
               editCmd, deleteCmd,
               showAddRow, setShowAddRow,
               newCmd, setNewCmd,
-              addCmd, () => { /* commands 不单独提供插入回车，因为命令不能是空 */ },
+              addCmd,
             )}
 
             {/* post commands */}

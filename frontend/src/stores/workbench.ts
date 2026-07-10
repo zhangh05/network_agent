@@ -199,6 +199,7 @@ interface WorkbenchState {
   runDetailError: Record<string, string>;
 
   switchSession: (session_id: string | null) => void;
+  moveSessionMessages: (from_session_id: string, to_session_id: string) => void;
   appendUser: (text: string, session_id: string | null) => void;
   /** Create a streaming assistant placeholder before response arrives */
   appendAssistantStreaming: (session_id: string | null) => string;
@@ -254,6 +255,28 @@ export const useWorkbenchStore = create<WorkbenchState>()(
             };
           }
           return { currentSessionId: session_id };
+        });
+      },
+
+      moveSessionMessages: (from_session_id, to_session_id) => {
+        const fromSid = String(from_session_id || "").trim();
+        const toSid = String(to_session_id || "").trim();
+        if (!fromSid || !toSid || fromSid === toSid) return;
+        set((s) => {
+          const source = Array.isArray(s.bySession[fromSid])
+            ? s.bySession[fromSid].filter(validChatMessage)
+            : [];
+          if (source.length === 0) return s;
+          const target = Array.isArray(s.bySession[toSid])
+            ? s.bySession[toSid].filter(validChatMessage)
+            : [];
+          const nextBySession = { ...s.bySession };
+          nextBySession[toSid] = dedupeMessages([...target, ...source]);
+          delete nextBySession[fromSid];
+          return {
+            bySession: capHistory(nextBySession, toSid),
+            currentSessionId: s.currentSessionId === fromSid ? toSid : s.currentSessionId,
+          };
         });
       },
 

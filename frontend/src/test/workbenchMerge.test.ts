@@ -184,4 +184,32 @@ describe("workbench backend message merge", () => {
       "run-b:assistant:再次查询完成。",
     ]);
   });
+
+  it("moves scratch streaming messages before final websocket update", () => {
+    const store = useWorkbenchStore.getState();
+    store.switchSession(null);
+    store.appendUser("你好", "_scratch");
+    const assistantId = store.appendAssistantStreaming("_scratch");
+    store.updateAssistant(assistantId, { text: "流式片段" }, "_scratch");
+
+    store.moveSessionMessages("_scratch", "sess-new");
+    store.switchSession("sess-new");
+    useWorkbenchStore.getState().updateAssistant(
+      assistantId,
+      {
+        status: "ready",
+        text: "最终回答",
+        run_id: "turn-new",
+      },
+      "sess-new",
+    );
+
+    const state = useWorkbenchStore.getState();
+    expect(state.bySession["_scratch"]).toBeUndefined();
+    expect(state.bySession["sess-new"].map((m) => `${m.role}:${m.text}:${m.status}`)).toEqual([
+      "user:你好:ready",
+      "assistant:最终回答:ready",
+    ]);
+    expect(state.bySession["sess-new"][1].run_id).toBe("turn-new");
+  });
 });

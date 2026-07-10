@@ -1797,6 +1797,20 @@ def _extract_output(exec_result) -> str:
     return str(exec_result)
 
 
+def _strip_paging_markers(text: str) -> str:
+    """Remove terminal pager prompts from collected remote output."""
+    import re as _re
+
+    cleaned = str(text or "")
+    patterns = (
+        r"\r?\n?\s*-{2,}\s*More\s*-{2,}\s*",
+        r"\r?\n?\s*--\s*[Mm]ore\s*--\s*",
+    )
+    for pattern in patterns:
+        cleaned = _re.sub(pattern, "\n", cleaned)
+    return cleaned
+
+
 def _handler_network_telnet(inv: ToolInvocation) -> dict:
     """Telnet into a device, execute a command, return output. v3.3: session reuse.
     v4.2: batch flag — send all commands at once, read full output."""
@@ -1857,14 +1871,29 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
             buf = b""
             idle_deadline = _t.time() + 5.0  # 5s idle timeout
             absolute_deadline = _t.time() + max(60, command.count("\n") * 5)
+            page_advances = 0
+            profile = getattr(sess, "vendor", None)
             while _t.time() < absolute_deadline:
                 chunk = sess.recv(timeout=0.3)
                 if chunk:
                     buf += chunk
                     idle_deadline = _t.time() + 1.0  # reset idle timer
+                    text = buf.decode("utf-8", errors="replace")
+                    if profile and profile.match_paging(text):
+                        page_advances += 1
+                        if page_advances <= 200:
+                            sess.send(str(getattr(profile, "paging_response", " ") or " ").encode())
+                            idle_deadline = _t.time() + 3.0
+                            continue
+                        return {
+                            "ok": False,
+                            "error": "paging_loop_limit_exceeded",
+                            "output": text[:100000],
+                            "session_id": session_id,
+                        }
                 elif _t.time() >= idle_deadline:
                     break
-            output = buf.decode("utf-8", errors="replace")[:100000]
+            output = _strip_paging_markers(buf.decode("utf-8", errors="replace"))[:100000]
             return {
                 "ok": True, "host": host,
                 "output": output,

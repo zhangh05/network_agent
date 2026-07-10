@@ -26,6 +26,7 @@ from .models import (
 )
 from agent.runtime.utils import now_iso
 
+ENTER_ACTION = "__ENTER__"
 
 # ==========================================================================
 # v4.0 — H3C command sets (flat lists, no parser keys)
@@ -247,14 +248,30 @@ def load_vendor_commands(workspace_id: str, vendor: str, *, script_type: str = "
 
 
 def _clean_commands(commands) -> list[str]:
-    """Return executable command lines only.
-
-    Telnet setup already sends a wake-up CRLF. Empty strings are not
-    executable commands and must not reach session-control handling.
-    """
+    """Return command/action lines only; blank rows are not executable."""
     if not isinstance(commands, list):
         return []
-    return [str(command).strip() for command in commands if str(command).strip()]
+    cleaned: list[str] = []
+    for command in commands:
+        token = str(command or "").strip()
+        if not token:
+            continue
+        cleaned.append(ENTER_ACTION if _is_enter_action(token) else token)
+    return cleaned
+
+
+def _is_enter_action(command: str) -> bool:
+    return str(command or "").strip().upper() in {
+        ENTER_ACTION,
+        "__CR__",
+        "__RETURN__",
+        "<ENTER>",
+        "[ENTER]",
+        "(ENTER)",
+        "ENTER",
+        "回车",
+        "(回车)",
+    }
 
 
 def save_vendor_commands(workspace_id: str, vendor: str,
@@ -270,9 +287,11 @@ def save_vendor_commands(workspace_id: str, vendor: str,
         "updated_at": now_iso(),
         "source": "manual",
         "commands": _clean_commands(commands),
-        "pre_commands": _clean_commands(pre_commands),
-        "post_commands": _clean_commands(post_commands),
     }
+    if pre_commands is not None:
+        data["pre_commands"] = _clean_commands(pre_commands)
+    if post_commands is not None:
+        data["post_commands"] = _clean_commands(post_commands)
     try:
         atomic_write_json(fp, data)
         return True
@@ -309,7 +328,15 @@ def upload_vendor_script_file(workspace_id: str, vendor: str,
         lines.append(line)
     if not lines:
         return False
-    return save_vendor_commands(workspace_id, vendor, lines, script_type=script_type)
+    defaults = resolve_command_profile(vendor, "")
+    return save_vendor_commands(
+        workspace_id,
+        vendor,
+        lines,
+        script_type=script_type,
+        pre_commands=list(defaults.pre_commands or []),
+        post_commands=list(defaults.post_commands or []),
+    )
 
 
 def load_command_profile(workspace_id: str, vendor: str = "",
@@ -365,6 +392,8 @@ def is_read_only_command(command: str) -> bool:
     """
     cmd = (command or "").strip().lower()
     if not cmd:
+        return True
+    if _is_enter_action(command):
         return True
     blocked_prefixes = (
         "write ", "copy running", "copy start", "save ",

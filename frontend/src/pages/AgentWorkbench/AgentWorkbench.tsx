@@ -139,6 +139,8 @@ const MemoMessageRow = memo(function MemoMessageRow({ m, idx, total, renderFn }:
     && prev.m.status === next.m.status
     && prev.m.toolCalls === next.m.toolCalls
     && prev.m.result === next.m.result
+    && prev.m.progressText === next.m.progressText
+    && prev.m.progressElapsedMs === next.m.progressElapsedMs
     && prev.idx === next.idx;
 });
 
@@ -156,6 +158,7 @@ export function TaskWorkbench() {
   const updateAssistant = useWorkbenchStore((s) => s.updateAssistant);
   const setSending = useWorkbenchStore((s) => s.setSending);
   const switchSession = useWorkbenchStore((s) => s.switchSession);
+  const moveSessionMessages = useWorkbenchStore((s) => s.moveSessionMessages);
   const mergeFromBackend = useWorkbenchStore((s) => s.mergeFromBackend);
   const setLatestResult = useWorkbenchStore((s) => s.setLatestResult);
 
@@ -828,17 +831,14 @@ export function TaskWorkbench() {
       // FIX 3: Clear msgWsRef (not wsRef which is now systemWsRef).
       msgWsRef.current = null;
 
-      // Phase 1: defer session migration to next microtask
+      // Resolve new-session routing before writing the final assistant text.
+      // The streaming placeholder starts in "_scratch"; if we write the final
+      // answer to the backend session before moving it, updateAssistant becomes
+      // a no-op and the user only sees the answer after a manual refresh.
       if (!currentSessionId && resolvedSid) {
-        queueMicrotask(() => {
-          useSessionStore.getState().setCurrentSession(resolvedSid);
-          useWorkbenchStore.setState((prev) => {
-            const scratchMsgs = prev.bySession["_scratch"] ?? [];
-            const existing = prev.bySession[resolvedSid] ?? [];
-            return { bySession: { ...prev.bySession, [resolvedSid]: [...existing, ...scratchMsgs], _scratch: [] } };
-          });
-          useWorkbenchStore.getState().switchSession(resolvedSid);
-        });
+        moveSessionMessages("_scratch", resolvedSid);
+        useSessionStore.getState().setCurrentSession(resolvedSid);
+        switchSession(resolvedSid);
       }
 
       const wsResult = agentResultFromWsDone(streamingResult, streamedText, resolvedSid);
@@ -887,13 +887,9 @@ export function TaskWorkbench() {
         });
         const resolvedSid = (res.session_id && res.session_id !== "—" ? res.session_id : currentSessionId) ?? undefined;
         if (!currentSessionId && resolvedSid) {
+          moveSessionMessages("_scratch", resolvedSid);
           useSessionStore.getState().setCurrentSession(resolvedSid);
-          useWorkbenchStore.setState((prev) => {
-            const scratchMsgs = prev.bySession["_scratch"] ?? [];
-            const existing = prev.bySession[resolvedSid] ?? [];
-            return { bySession: { ...prev.bySession, [resolvedSid]: [...existing, ...scratchMsgs], _scratch: [] } };
-          });
-          useWorkbenchStore.getState().switchSession(resolvedSid);
+          switchSession(resolvedSid);
         }
         const tcArray = (res.tool_calls ?? []).map((tc: ToolCallResult) => ({
           tool_id: tc.tool_id, tool_name: toolLabel(tc.tool_id), ok: tc.ok,

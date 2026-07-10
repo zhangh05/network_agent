@@ -54,6 +54,7 @@ from .profiles import (
     resolve_profile,
     load_command_profile,
     is_read_only_command,
+    ENTER_ACTION,
 )
 from .tracking import ensure_tracking, record_poll
 
@@ -608,6 +609,26 @@ def _exec_one_command(workspace_id: str, asset_id: str, protocol: str,
     return parsed
 
 
+def _send_enter_action(workspace_id: str, session_id: str) -> dict:
+    """Send a structured Enter action to an already-open remote session."""
+    if not session_id:
+        return {"ok": False, "error": "session_required_for_enter", "output": "", "session_id": ""}
+    try:
+        from agent.modules.remote.core import get_session, send_interactive, _read_until_prompt
+        sess = get_session(session_id)
+        if not sess or not getattr(sess, "connected", False):
+            return {"ok": False, "error": "session_not_connected", "output": "", "session_id": session_id}
+        if getattr(sess, "workspace_id", "") != workspace_id:
+            return {"ok": False, "error": "session_workspace_mismatch", "output": "", "session_id": session_id}
+        sent = send_interactive(session_id, "\n")
+        if not sent.get("ok"):
+            return {"ok": False, "error": str(sent.get("error") or "enter_send_failed"), "output": "", "session_id": session_id}
+        output = _read_until_prompt(sess, timeout=1.5).decode("utf-8", errors="replace")
+        return {"ok": True, "output": output, "error": "", "session_id": session_id}
+    except Exception as exc:
+        return {"ok": False, "error": f"enter_runtime_error: {str(exc)[:160]}", "output": "", "session_id": session_id}
+
+
 def _close_remote_session(workspace_id: str, protocol: str, session_id: str) -> None:
     """Close a reused SSH/Telnet session through the canonical runtime."""
     if not session_id:
@@ -733,6 +754,17 @@ def _run_checks_on_asset(task: InspectionTask,
         nonlocal bucket_session_id
         cmd = str(cmd or "").strip()
         if not cmd:
+            return
+        if cmd == ENTER_ACTION:
+            run_result = _send_enter_action(workspace_id, bucket_session_id)
+            all_outputs.append({
+                "command": ENTER_ACTION,
+                "ok": bool(run_result.get("ok")),
+                "output": run_result.get("output", ""),
+                "error": run_result.get("error", ""),
+                "elapsed_ms": 0,
+                "session_id": bucket_session_id,
+            })
             return
         if bucket_session_id:
             _register_task_session(workspace_id, task.task_id, dr.protocol, bucket_session_id)

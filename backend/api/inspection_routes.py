@@ -381,17 +381,20 @@ def register_inspection_routes(app):
         if len(post_commands) > 20:
             return jsonify({"ok": False, "error": "too_many_post_commands: max 20"}), 400
 
-        # Validate: all commands must be non-empty strings and read-only
-        # v4.3: empty strings in pre/post are allowed (they represent Enter/CR)
+        # Validate: all inspection commands must be non-empty strings and read-only.
+        # Enter is an explicit __ENTER__ action in pre/post, not an empty string.
         for cmd in commands:
             if not isinstance(cmd, str) or not cmd.strip():
                 return jsonify({"ok": False, "error": "commands_must_be_non_empty_strings"}), 400
         for cmd in commands:
             if not is_read_only_command(cmd):
                 return jsonify({"ok": False, "error": f"blocked_write_command: {cmd[:80]}"}), 400
-        # pre/post commands can be empty strings (Enter) but still must be read-only when non-empty
         for cmd in pre_commands + post_commands:
-            if isinstance(cmd, str) and cmd.strip() and not is_read_only_command(cmd):
+            if not isinstance(cmd, str) or not cmd.strip():
+                return jsonify({"ok": False, "error": "pre_post_commands_must_be_non_empty_strings"}), 400
+        # pre/post commands can include explicit __ENTER__ actions and otherwise must be read-only.
+        for cmd in pre_commands + post_commands:
+            if not is_read_only_command(cmd):
                 return jsonify({"ok": False, "error": f"blocked_write_command: {cmd[:80]}"}), 400
 
         success = save_vendor_commands(
