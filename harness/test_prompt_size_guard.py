@@ -34,4 +34,6 @@ def test_prompt_with_evidence_still_small():
         visible_tool_ids = ["config.manage", "workspace.file"]
 
     assembly = compile_runtime_prompt(CtxWithEvidence())
-    assert len(assembly.final_prompt) < 8000, f"prompt too large: {len(assembly.final_prompt)} chars"
+    # SYSTEM_CONTRACT grew with inspection playbook, artifact_id rules,
+    # and memory/knowledge integration. 9000 chars still bounds bloat.
+    assert len(assembly.final_prompt) < 9000, f"prompt too large: {len(assembly.final_prompt)} chars"
