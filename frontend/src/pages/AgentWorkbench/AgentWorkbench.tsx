@@ -1350,7 +1350,7 @@ function parseThinking(text: string): { thinking: string; body: string } {
 const highlightCache = new Map<string, string>();
 const HL_CACHE_MAX = 2000;
 function highlightCode(html: string): string {
-  return html.replace(/<pre><code class="language-(\w+)?">([\s\S]*?)<\/code><\/pre>/g, (_, lang, code) => {
+  return html.replace(/<pre><code class="language-([^"]+)">([\s\S]*?)<\/code><\/pre>/g, (_, lang, code) => {
     try {
       const decoded = new DOMParser().parseFromString(code, "text/html").body.textContent || "";
       const cacheKey = (lang || "") + " " + decoded;

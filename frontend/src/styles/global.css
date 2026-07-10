@@ -2094,14 +2094,17 @@ details.collapse[open] summary::before {
 
 .markdown-body {
   white-space: normal;
-  word-break: break-word;
-  font-size: var(--fs-13);
-  line-height: 1.55;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  font-size: var(--fs-14);
+  line-height: 1.72;
   color: var(--text);
+  text-wrap: pretty;
 }
 
 .markdown-body p {
-  margin: 0 0 7px 0;
+  margin: 0 0 10px;
+  color: var(--text-2);
 }
 
 .markdown-body p:last-child {
@@ -2114,10 +2117,11 @@ details.collapse[open] summary::before {
 .markdown-body h4,
 .markdown-body h5,
 .markdown-body h6 {
-  margin: 10px 0 4px 0;
-  font-weight: 680;
-  line-height: 1.35;
-  color: var(--text-2);
+  margin: 20px 0 8px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--text);
+  text-wrap: balance;
 }
 
 .markdown-body h1:first-child,
@@ -2126,70 +2130,46 @@ details.collapse[open] summary::before {
   margin-top: 0;
 }
 
-.markdown-body h1 { font-size: 1.08em; font-weight: 700; }
-.markdown-body h2 { font-size: 1.04em; font-weight: 660; padding-bottom: 2px; border-bottom: 1px solid var(--line-2); }
-.markdown-body h3 { font-size: 1.0em; font-weight: 640; }
-.markdown-body h4 { font-size: 0.96em; font-weight: 620; }
-
-/* code blocks — keep, they're essential for network configs */
-.markdown-body .code-block {
-  position: relative;
-  margin: 8px 0 10px;
-  padding: 10px 12px;
-  background: #f6f8fa;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  overflow-x: auto;
-  font-size: 0.88em;
-  line-height: 1.5;
-  font-family: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", "Menlo", monospace;
+.markdown-body h1 { font-size: 1.32em; }
+.markdown-body h2 {
+  font-size: 1.16em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line-2);
 }
-
-[data-theme="dark"] .markdown-body .code-block {
-  background: #161b22;
-  border-color: #30363d;
-}
-
-.markdown-body .code-block .code-lang {
-  position: absolute;
-  top: 3px;
-  right: 8px;
-  font-size: 0.68em;
-  color: var(--text-hint);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.markdown-body .code-block code {
-  display: block;
-  white-space: pre;
-  overflow-x: auto;
-  color: var(--text);
-  background: none;
-  padding: 0;
-  border: none;
-  font-size: inherit;
-}
+.markdown-body h3 { font-size: 1.08em; }
+.markdown-body h4 { font-size: 1em; }
+.markdown-body h5,
+.markdown-body h6 { font-size: 0.94em; color: var(--text-2); font-weight: 600; }
 
 /* Inline code */
-.markdown-body code:not(.code-block code) {
-  padding: 1px 4px;
-  font-size: 0.88em;
+.markdown-body :not(pre) > code {
+  padding: 2px 5px;
+  font-size: 0.86em;
   font-family: "SF Mono", "Fira Code", "Fira Mono", "Roboto Mono", "Menlo", monospace;
-  background: rgba(175, 184, 193, 0.2);
-  border: 1px solid rgba(175, 184, 193, 0.25);
-  border-radius: 3px;
-  color: var(--text);
+  background: var(--surface-3);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  color: var(--text-2);
+  font-weight: 500;
 }
 
 /* Tables */
+.markdown-body .markdown-table-scroll {
+  width: 100%;
+  margin: 12px 0 16px;
+  overflow-x: auto;
+  border: 1px solid var(--line-2);
+  border-radius: 7px;
+  background: var(--surface);
+  scrollbar-width: thin;
+}
+
 .markdown-body table {
   width: 100%;
-  margin: 10px 0 14px;
+  min-width: 520px;
+  margin: 0;
   border-collapse: collapse;
   font-size: 0.9em;
-  overflow-x: auto;
-  display: block;
 }
 
 .markdown-body thead {
@@ -2198,9 +2178,11 @@ details.collapse[open] summary::before {
 
 .markdown-body th,
 .markdown-body td {
-  padding: 7px 9px;
+  padding: 9px 11px;
   text-align: left;
-  border: 1px solid var(--line-2);
+  border: 0;
+  border-right: 1px solid var(--line-2);
+  border-bottom: 1px solid var(--line-2);
   vertical-align: top;
   line-height: 1.4;
 }
@@ -2213,7 +2195,18 @@ details.collapse[open] summary::before {
 }
 
 .markdown-body tr:nth-child(even) td {
-  background: var(--bg-soft);
+  background: color-mix(in srgb, var(--surface-2) 58%, transparent);
+}
+
+.markdown-body tr:last-child td { border-bottom: 0; }
+.markdown-body th:last-child,
+.markdown-body td:last-child { border-right: 0; }
+
+/* Tables already express hierarchy through headers and columns. Ignore LLM
+   emphasis markers inside body cells so values align with a stable weight. */
+.markdown-body td strong {
+  font-weight: inherit;
+  color: inherit;
 }
 
 .markdown-body th:first-child,
@@ -2248,13 +2241,13 @@ details.collapse[open] summary::before {
 }
 
 .markdown-body .pipe-card-title {
-  font-weight: 680;
+  font-weight: 600;
   color: var(--text);
 }
 
 .markdown-body .pipe-card-meta {
-  color: var(--accent-strong);
-  font-weight: 620;
+  color: var(--text-3);
+  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -2290,17 +2283,15 @@ details.collapse[open] summary::before {
 }
 
 .markdown-body .report-card-title {
-  font-weight: 720;
+  font-weight: 600;
   color: var(--text);
 }
 
 .markdown-body .report-card-meta {
   justify-self: start;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: rgba(24, 95, 143, 0.08);
-  color: var(--accent-strong);
-  font-weight: 680;
+  padding: 0;
+  color: var(--text-3);
+  font-weight: 500;
   font-size: 0.92em;
   white-space: nowrap;
 }
@@ -2312,22 +2303,24 @@ details.collapse[open] summary::before {
 
 .markdown-body .insight-list {
   display: grid;
-  gap: 7px;
+  gap: 0;
   margin: 10px 0 12px;
+  border-top: 1px solid var(--line-2);
+  border-bottom: 1px solid var(--line-2);
 }
 
 .markdown-body .insight-item {
   display: grid;
   grid-template-columns: minmax(130px, 0.38fr) minmax(0, 1fr);
   gap: 8px 12px;
-  padding: 8px 10px;
-  background: rgba(246, 249, 252, 0.96);
-  border-left: 3px solid var(--accent);
-  border-radius: 0 6px 6px 0;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--line-2);
 }
 
+.markdown-body .insight-item:last-child { border-bottom: 0; }
+
 .markdown-body .insight-label {
-  font-weight: 720;
+  font-weight: 600;
   color: var(--text);
 }
 
@@ -2336,22 +2329,26 @@ details.collapse[open] summary::before {
   line-height: 1.56;
 }
 
-[data-theme="dark"] .markdown-body .report-card,
-[data-theme="dark"] .markdown-body .insight-item {
+[data-theme="dark"] .markdown-body .report-card {
   background: rgba(17, 24, 39, 0.72);
 }
 
 /* Lists */
 .markdown-body ul,
 .markdown-body ol {
-  margin: 5px 0 8px 0;
-  padding-left: 20px;
+  margin: 7px 0 12px;
+  padding-left: 24px;
 }
 
 .markdown-body li {
-  margin: 2px 0;
-  line-height: 1.62;
-  padding-left: 2px;
+  margin: 4px 0;
+  line-height: 1.65;
+  padding-left: 3px;
+}
+
+.markdown-body li::marker {
+  color: var(--text-3);
+  font-weight: 600;
 }
 
 .markdown-body li p {
@@ -2365,14 +2362,49 @@ details.collapse[open] summary::before {
   margin: 2px 0 2px 0;
 }
 
+.markdown-body .task-list {
+  padding-left: 0;
+  list-style: none;
+}
+
+.markdown-body .task-list-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding-left: 0;
+}
+
+.markdown-body .task-checkbox {
+  display: grid;
+  width: 15px;
+  height: 15px;
+  place-items: center;
+  margin-top: 4px;
+  border: 1px solid var(--line-1);
+  border-radius: 4px;
+  color: var(--accent-text);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.markdown-body .task-list-item.is-complete .task-checkbox {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.markdown-body .task-list-item.is-complete > span:last-child {
+  color: var(--text-3);
+}
+
 /* Blockquotes */
 .markdown-body blockquote {
-  margin: 10px 0 12px;
-  padding: 8px 13px;
-  border-left: 3px solid var(--accent);
+  margin: 12px 0 14px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--line-3);
   color: var(--text-soft);
-  background: var(--bg-soft);
-  border-radius: 0 4px 4px 0;
+  background: var(--surface-2);
+  border-radius: 0 6px 6px 0;
 }
 
 .markdown-body blockquote p {
@@ -2381,19 +2413,21 @@ details.collapse[open] summary::before {
 
 /* Horizontal rule */
 .markdown-body hr {
-  margin: 10px 0;
+  margin: 18px 0;
   border: none;
   border-top: 1px solid var(--line-2);
 }
 
 /* Links */
 .markdown-body a {
-  color: var(--accent);
-  text-decoration: none;
+  color: var(--accent-2);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  text-underline-offset: 3px;
 }
 
 .markdown-body a:hover {
-  text-decoration: underline;
+  text-decoration-color: currentColor;
 }
 
 /* Strong / emphasis */
@@ -2402,8 +2436,18 @@ details.collapse[open] summary::before {
   color: var(--text);
 }
 
+.markdown-body h1 strong,
+.markdown-body h2 strong,
+.markdown-body h3 strong,
+.markdown-body h4 strong,
+.markdown-body h5 strong,
+.markdown-body h6 strong {
+  font-weight: inherit;
+}
+
 .markdown-body em {
   font-style: italic;
+  color: var(--text-2);
 }
 
 .markdown-body s {
@@ -3692,31 +3736,64 @@ details.collapse[open] summary::before {
    Chat UI Enhancements
    ══════════════════════════════════════════════════ */
 
-/* ── Code block syntax highlighting ── */
-.hljs { background: var(--surface-2) !important; border: 1px solid var(--line); border-radius: var(--r-6); }
-.hljs-built_in, .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section { color: var(--accent-2) !important; }
-.hljs-string, .hljs-regexp, .hljs-addition, .hljs-attribute, .hljs-meta-string { color: var(--ok) !important; }
-.hljs-number, .hljs-literal, .hljs-variable, .hljs-template-variable, .hljs-tag .hljs-attr { color: #cf6a4c !important; }
-.hljs-comment, .hljs-quote { color: var(--text-4) !important; font-style: italic; }
-.hljs-title, .hljs-name, .hljs-selector-id, .hljs-selector-class, .hljs-function > .hljs-title { color: #4671d5 !important; }
-[data-theme="dark"] .hljs { background: var(--surface-2) !important; }
+/* ── Code block syntax highlighting: one restrained product theme ── */
+.hljs { color: var(--text-2); background: var(--surface-2); }
+.hljs-built_in,
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section,
+.hljs-title,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-function > .hljs-title { color: var(--accent-2); }
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute,
+.hljs-meta-string { color: var(--ok); }
+.hljs-number,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag .hljs-attr { color: var(--text); }
+.hljs-comment,
+.hljs-quote { color: var(--text-4); font-style: italic; }
 
-.code-block-wrap { position: relative; margin: 8px 0; }
-.code-block-wrap pre { margin: 0; }
+.markdown-body .code-block-wrap {
+  position: relative;
+  margin: 12px 0 16px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+}
+.markdown-body .code-block-wrap pre { margin: 0; overflow-x: auto; }
+.markdown-body .code-block-wrap pre > code {
+  display: block;
+  min-width: max-content;
+  padding: 13px 15px;
+  border: 0;
+  border-radius: 0 !important;
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  line-height: 1.62;
+  white-space: pre;
+}
 .code-block-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 3px 10px; font-size: var(--fs-10); color: var(--text-3);
-  background: var(--surface-3); border: 1px solid var(--line);
-  border-bottom: 0; border-radius: var(--r-6) var(--r-6) 0 0;
+  min-height: 30px; padding: 4px 10px 4px 12px; font-size: var(--fs-10); color: var(--text-3);
+  background: var(--surface-3); border-bottom: 1px solid var(--line);
+  font-family: var(--font-mono); text-transform: lowercase;
 }
 .code-block-header + pre, .code-block-header + pre > code {
-  border-radius: 0 0 var(--r-6) var(--r-6) !important;
+  border-radius: 0 !important;
 }
 .code-copy-btn {
-  padding: 1px 6px; cursor: pointer; font-size: 10px; color: var(--text-3);
-  background: none; border: none; border-radius: 3px; transition: all var(--dur-2);
+  min-width: 42px; padding: 3px 7px; cursor: pointer; font-size: 10px; color: var(--text-3);
+  background: transparent; border: 1px solid transparent; border-radius: 4px; transition: all var(--dur-2);
 }
-.code-copy-btn:hover { color: var(--text); background: var(--surface-2); }
+.code-copy-btn:hover { color: var(--text); background: var(--surface); border-color: var(--line-2); }
 
 /* ── Thinking / Reasoning block ── */
 .thinking-block {

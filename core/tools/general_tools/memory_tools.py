@@ -272,7 +272,11 @@ def handle_memory_profile_merged(inv: ToolInvocation) -> dict:
 
 
 def handle_memory_update(inv: ToolInvocation) -> dict:
-    """Update memory content. Applies redaction but skips full gating."""
+    """Propose a governed memory update.
+
+    Active facts are never overwritten by an LLM tool call. Updating an active
+    memory creates a reviewable replacement candidate linked to the original.
+    """
     args = inv.arguments
     memory_id = str(args.get("memory_id", "")).strip()
     content = str(args.get("content", "")).strip()
@@ -286,13 +290,42 @@ def handle_memory_update(inv: ToolInvocation) -> dict:
         rec = store.get(ws, memory_id)
         if not rec:
             return _error_inv(inv, f"memory_id not found: {memory_id}")
-        from workspace.memory_governance import _redact
-        rec.content = _redact(content[:2000])
-        rec.updated_at = now_iso()
-        store._save(rec)
+        from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+        replacing_active = rec.status == "active"
+        proposal = MemoryRecord(
+            workspace_id=ws,
+            session_id=rec.session_id,
+            task_id=rec.task_id,
+            scope=rec.scope,
+            memory_type=rec.memory_type,
+            status="pending",
+            source="agent_suggestion",
+            source_ref=rec.memory_id,
+            content=content[:2000],
+            summary=rec.summary or content[:200],
+            confidence=rec.confidence,
+            citations=list(rec.citations or []),
+            created_by="llm_tool",
+            metadata={**dict(rec.metadata or {}), "supersedes_memory_id": rec.memory_id},
+        )
+        if not replacing_active:
+            proposal.memory_id = rec.memory_id
+        result = MemoryWriteGate(store).write(proposal)
+        if not result.get("ok"):
+            return _error_inv(inv, str(result.get("error") or "memory update rejected")[:200])
+        result_memory_id = str(result.get("memory_id") or proposal.memory_id)
+        duplicate = bool(result.get("duplicate"))
         return _ok(inv, "", {
-            "memory_id": memory_id, "updated": True,
-            "_hint": "记忆已更新。",
+            "memory_id": result_memory_id,
+            "supersedes_memory_id": memory_id,
+            "status": result.get("status"),
+            "updated": not duplicate and not replacing_active,
+            "duplicate": duplicate,
+            "_hint": (
+                "内容与现有记忆重复，未创建新版本。"
+                if duplicate else
+                "更新已进入记忆门控。" + ("需确认后替换原记忆。" if replacing_active else "")
+            ),
         })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])

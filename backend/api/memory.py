@@ -1,9 +1,5 @@
 # backend/api/memory.py
-"""Memory API — status, write, search.
-v3.10: ALL memory operations now go through workspace/memory_governance.py.
-Old memory.store / memory.writer / memory.retriever are deprecated.
-    MemoryWriteGate enforces: redaction, secret rejection, pending/active, conflict detection.
-."""
+"""Governed memory API: lifecycle, retrieval, review, and deletion."""
 from flask import request, jsonify
 
 
@@ -32,17 +28,22 @@ def handle_memory_status():
     if err:
         return jsonify({"ok": False, "error": err}), 400
     try:
-        from workspace.memory_governance import MemoryStore, MemoryWriteGate
+        from workspace.memory_governance import MemoryStore, get_memory_gate_mode
         store = MemoryStore()
-        gate = MemoryWriteGate()
         records = store.list_retrievable(ws_id)
+        all_records = store.list_all(ws_id)
+        status_counts: dict[str, int] = {}
+        for record in all_records:
+            status_counts[record.status] = status_counts.get(record.status, 0) + 1
         return jsonify({
             "ok": True,
             "enabled": True,
             "backend": "governed_context_store",
             "workspace_id": ws_id,
             "records": len(records),
-            "data_dir": f"workspaces/{ws_id}/durable/memory/",
+            "gate_mode": get_memory_gate_mode(ws_id),
+            "status_counts": status_counts,
+            "data_dir": f"workspaces/{ws_id}/memory/",
         })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
@@ -62,8 +63,11 @@ def handle_memory_write():
         return jsonify({"ok": False, "error": err}), 400
 
     source = data.get("source", "agent")
-    confidence = float(data.get("confidence", 0.5))
-    user_confirmed = data.get("user_confirmed", False)
+    try:
+        confidence = max(0.0, min(float(data.get("confidence", 0.5)), 1.0))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "invalid_confidence"}), 400
+    user_confirmed = data.get("user_confirmed") is True
     is_subagent = bool(data.get("is_subagent", False))
 
     try:
@@ -83,10 +87,10 @@ def handle_memory_write():
             summary=title[:200],
             confidence=confidence,
             citations=data.get("citations", []),
-            created_by=source,
+            created_by="user" if user_confirmed else source,
             redacted=True,
         )
-        # v3.10: Read memory gating mode from workspace state
+        # The workspace setting selects the single governed write policy.
         from workspace.memory_governance import get_memory_gate_mode
         gate_mode = get_memory_gate_mode(ws_id)
         result = gate.write(rec, gate_mode=gate_mode)
@@ -112,12 +116,7 @@ def handle_memory_search():
     try:
         from workspace.memory_governance import MemoryStore
         store = MemoryStore()
-        records = store.list_retrievable(ws_id, limit=limit)
-
-        # Filter by query text if provided
-        if query:
-            q = query.lower()
-            records = [r for r in records if q in (r.get("content","")+r.get("summary","")).lower()]
+        records = store.search(ws_id, query, limit=limit)
 
         return jsonify({"ok": True, "results": records[:limit], "count": len(records[:limit])})
     except Exception as e:
@@ -171,13 +170,6 @@ def handle_memory_delete(memory_id):
         ok = store.delete_file(ws_id, memory_id)
         if not ok:
             return jsonify({"ok": False, "error": "memory_not_found"}), 404
-        # Also remove from ContextStore index
-        try:
-            from core.context.context_store import get_context_store
-            cs = get_context_store(ws_id)
-            cs.delete(f"mh_{memory_id}")
-        except Exception:
-            pass
         return jsonify({"ok": True, "deleted_count": 1})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
@@ -199,18 +191,6 @@ def handle_memory_batch_delete():
     for mid in ids:
         if store.delete_file(ws_id, mid):
             deleted += 1
-    # Purge ContextStore index for all deleted
-    if deleted > 0:
-        try:
-            from core.context.context_store import get_context_store
-            cs = get_context_store(ws_id)
-            for mid in ids:
-                try:
-                    cs.delete(f"mh_{mid}")
-                except Exception:
-                    pass
-        except Exception:
-            pass
     return jsonify({"ok": True, "deleted_count": deleted, "requested": len(ids)})
 
 

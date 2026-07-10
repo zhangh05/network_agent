@@ -2,6 +2,69 @@ import { describe, expect, it } from "vitest";
 import { renderAssistantHtml } from "../utils/displayText";
 
 describe("assistant markdown rendering", () => {
+  it("keeps heading hierarchy and emits the canonical highlighted code shape", () => {
+    const html = renderAssistantHtml([
+      "# 巡检结论",
+      "## 风险项",
+      "```bash",
+      "display version",
+      "```",
+    ].join("\n"));
+
+    expect(html).toContain("<h1>巡检结论</h1>");
+    expect(html).toContain("<h2>风险项</h2>");
+    expect(html).toContain('<pre><code class="language-bash">display version</code></pre>');
+    expect(html).not.toContain('class="code-block"');
+  });
+
+  it("wraps normal tables in a dedicated horizontal scroll container", () => {
+    const html = renderAssistantHtml([
+      "| 设备 | 状态 |",
+      "| --- | --- |",
+      "| PE1 | 正常 |",
+    ].join("\n"));
+
+    expect(html).toContain('<div class="markdown-table-scroll"><table>');
+    expect(html).toContain("<td style=\"text-align:left\">PE1</td>");
+  });
+
+  it("renders task lists as readable status rows", () => {
+    const html = renderAssistantHtml("- [x] 已采集配置\n- [ ] 等待人工确认");
+
+    expect(html).toContain('<ul class="task-list">');
+    expect(html).toContain('task-list-item is-complete');
+    expect(html).toContain('task-list-item');
+    expect(html).toContain('等待人工确认');
+  });
+
+  it("does not apply emphasis rules inside inline code or link URLs", () => {
+    const html = renderAssistantHtml([
+      "任务 `ins_4b68d6d32ff8` 已完成。",
+      "路径 `<device_name>` 可在 [原始制品](https://example.test/raw_file?id=task_1) 查看。",
+    ].join("\n"));
+
+    expect(html).toContain("<code>ins_4b68d6d32ff8</code>");
+    expect(html).toContain("<code>&lt;device_name&gt;</code>");
+    expect(html).toContain('href="https://example.test/raw_file?id=task_1"');
+    expect(html).not.toContain("<em>4b68d6d32ff8</em>");
+    expect(html).not.toContain("&amp;lt;device_name&amp;gt;");
+  });
+
+  it("keeps operational identifiers literal instead of treating underscores as emphasis", () => {
+    const html = renderAssistantHtml([
+      "任务 ins_4b68d6d32ff8 已完成，制品为 art_d2fbca7e777a434d。",
+      "文件 files/agent_output/export/file_name.txt 已写入。",
+      "接口 GigabitEthernet_0_0_1 状态正常。",
+    ].join("\n"));
+
+    expect(html).toContain("ins_4b68d6d32ff8");
+    expect(html).toContain("art_d2fbca7e777a434d");
+    expect(html).toContain("files/agent_output/export/file_name.txt");
+    expect(html).toContain("GigabitEthernet_0_0_1");
+    expect(html).not.toContain("<em>");
+    expect(html).not.toContain("<strong>");
+  });
+
   it("keeps post-table sections outside the table when later lines still contain pipes", () => {
     const html = renderAssistantHtml([
       "二、数据对比",
@@ -80,6 +143,7 @@ describe("assistant markdown rendering", () => {
     ].join("\n"));
 
     expect(html).toContain('class="report-grid"');
+    expect(html).not.toContain('class="markdown-table-scroll"');
     expect(html.match(/class="report-card"/g)).toHaveLength(3);
     expect(html).toContain('class="report-card-title">常识判断</span>');
     expect(html).toContain('class="report-card-meta">约15-20题</span>');

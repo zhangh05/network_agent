@@ -25,7 +25,9 @@ function safeUrl(url: string): string {
 }
 
 function safeHref(url: string, label: string): string {
-  return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  // `renderInline` receives HTML-escaped text, so escaping the URL again would
+  // turn query separators into `&amp;amp;`.
+  return `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`;
 }
 
 function normalizeMarkdown(text: string): string {
@@ -40,41 +42,51 @@ function normalizeMarkdown(text: string): string {
 type RenderedTable = {
   html: string;
   consumed: number;
+  scrollable: boolean;
 };
 
 function renderSoftBreakLines(lines: string[]): string {
-  return renderInline(escapeHtml(lines.join('\n'))).replace(/\n/g, '<br />');
+  // Escape `|` so it renders as a literal pipe character instead of leaking
+  // raw into the HTML (browsers would otherwise render it as-is, which looks
+  // like a broken table cell boundary in natural-language paragraphs).
+  const escaped = escapeHtml(lines.join('\n')).replace(/\|/g, '&#124;');
+  return renderInline(escaped).replace(/\n/g, '<br />');
 }
 
 // ── Inline formatting ──
 
 function renderInline(raw: string): string {
   let text = raw;
+  const protectedSegments: string[] = [];
+  const protect = (html: string): string => {
+    const index = protectedSegments.push(html) - 1;
+    return `\uE000${index}\uE001`;
+  };
 
-  // Inline code (must run before bold/italic)
-  text = text.replace(/`([^`]+)`/g, (_: string, c: string) =>
-    `<code>${escapeHtml(c)}</code>`
+  // Protect code and links before emphasis parsing. Otherwise identifiers such
+  // as `ins_abc` and URLs with underscores are incorrectly split into <em>.
+  text = text.replace(/`([^`]+)`/g, (_: string, code: string) =>
+    protect(`<code>${code}</code>`)
+  );
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g,
+    (_: string, label: string, url: string) =>
+      protect(safeHref(safeUrl(url), label))
   );
 
   // Bold + italic combined
   text = text.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
-  text = text.replace(/___(.+?)___/g, '<strong><em>$1</em></strong>');
 
   // Bold
   text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  text = text.replace(/__(.+?)__/g, '<strong>$1</strong>');
 
   // Italic
   text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  text = text.replace(/_(.+?)_/g, '<em>$1</em>');
 
   // Strikethrough
   text = text.replace(/~~(.+?)~~/g, '<s>$1</s>');
 
-  // Links [text](url) — URL is sanitized to block javascript:/data: schemes
-  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g,
-    (_: string, label: string, url: string) =>
-      safeHref(safeUrl(url), label)
+  text = text.replace(/\uE000(\d+)\uE001/g, (_: string, index: string) =>
+    protectedSegments[Number(index)] || ''
   );
 
   return text;
@@ -218,7 +230,7 @@ function renderTable(lines: string[]): RenderedTable | null {
   );
 
   if (reportTable) {
-    return { html: renderReportCards(headers, bodyRows), consumed };
+    return { html: renderReportCards(headers, bodyRows), consumed, scrollable: false };
   }
 
   const thead = `<thead><tr>${headers
@@ -234,7 +246,7 @@ function renderTable(lines: string[]): RenderedTable | null {
       }).join('')}</tbody>`
     : '';
 
-  return { html: `<table>${thead}${tbody}</table>`, consumed };
+  return { html: `<table>${thead}${tbody}</table>`, consumed, scrollable: true };
 }
 
 function renderPipeParagraph(line: string): string {
@@ -264,15 +276,19 @@ function renderPipeParagraph(line: string): string {
 }
 
 function parseInsightLine(line: string): { label: string; text: string; emphasized: boolean } | null {
-  const match = line.trim().match(/^(\*\*)?([^：:]{2,28}[：:])(?:\*\*)?\s*(.+)$/);
+  // v3.17: require the label to actually be bold-wrapped (**Label：**) to avoid
+  // treating natural-language paragraphs like "流量路径：共享链路 — PE1..."
+  // as structured label-value pairs in an insight grid.
+  const match = line.trim().match(/^\*\*([^：:]{2,28}[：:])\*\*\s+(.+)$/);
   if (!match) return null;
-  return { label: match[2], text: match[3], emphasized: Boolean(match[1]) };
+  return { label: match[1], text: match[2], emphasized: true };
 }
 
 function renderInsightList(lines: string[]): string | null {
   const items = lines.map(parseInsightLine);
   if (items.some(item => !item)) return null;
-  if (items.length < 2 && !items[0]?.emphasized) return null;
+  // v3.17: require ≥2 bold-labeled lines — short un-emphasized runs no longer trigger.
+  if (items.length < 2) return null;
   return `<div class="insight-list">${items.map((item) => [
     '<div class="insight-item">',
     `<span class="insight-label">${renderInline(escapeHtml(item!.label))}</span>`,
@@ -304,8 +320,11 @@ export function renderMarkdown(text: string): string {
       }
       i++; // skip closing ```
       const codeText = escapeHtml(codeLines.join('\n'));
-      const langLabel = lang ? `<span class="code-lang">${escapeHtml(lang)}</span>` : '';
-      out.push(`<pre class="code-block">${langLabel}<code>${codeText || ' '}</code></pre>`);
+      const language = lang.replace(/[^a-zA-Z0-9_+-]/g, '') || 'plaintext';
+      // AgentWorkbench enhances this canonical shape with syntax highlighting
+      // and the copy toolbar. Keeping one code-block contract avoids the old
+      // double-frame appearance and makes unlabelled blocks work as well.
+      out.push(`<pre><code class="language-${escapeHtml(language)}">${codeText || ' '}</code></pre>`);
       continue;
     }
 
@@ -313,7 +332,7 @@ export function renderMarkdown(text: string): string {
     const trimmed = line.trimStart();
     const headerMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
     if (headerMatch) {
-      const level = Math.min(headerMatch[1].length + 1, 6);
+      const level = Math.min(headerMatch[1].length, 6);
       out.push(`<h${level}>${renderInline(escapeHtml(headerMatch[2].trim()))}</h${level}>`);
       i++;
       continue;
@@ -347,7 +366,9 @@ export function renderMarkdown(text: string): string {
     const remaining = lines.slice(i);
     const tableResult = renderTable(remaining);
     if (tableResult) {
-      out.push(tableResult.html);
+      out.push(tableResult.scrollable
+        ? `<div class="markdown-table-scroll">${tableResult.html}</div>`
+        : tableResult.html);
       i += tableResult.consumed;
       continue;
     }
@@ -355,6 +376,19 @@ export function renderMarkdown(text: string): string {
     if (line.trimStart().startsWith('|') && !tableResult) {
       out.push(renderPipeParagraph(line));
       i++;
+      continue;
+    }
+
+    // ── Task list ──
+    if (/^[\s]*[-*+]\s+\[[ xX]\]\s+/.test(line)) {
+      out.push('<ul class="task-list">');
+      while (i < lines.length && /^[\s]*[-*+]\s+\[[ xX]\]\s+/.test(lines[i])) {
+        const match = lines[i].match(/^[\s]*[-*+]\s+\[([ xX])\]\s+(.+)$/)!;
+        const checked = match[1].toLowerCase() === 'x';
+        out.push(`<li class="task-list-item${checked ? ' is-complete' : ''}"><span class="task-checkbox" aria-hidden="true">${checked ? '&#10003;' : ''}</span><span>${renderInline(escapeHtml(match[2]))}</span></li>`);
+        i++;
+      }
+      out.push('</ul>');
       continue;
     }
 

@@ -51,6 +51,7 @@ class EventType:
     MESSAGE_WRITTEN = "projection.message.written"
     ARTIFACT_WRITTEN = "projection.artifact.written"
     MEMORY_WRITTEN = "projection.memory.written"
+    MEMORY_DELETED = "projection.memory.deleted"
     TRACE_WRITTEN = "projection.trace.written"
     INSPECTION_CREATED  = "inspection.created"
     INSPECTION_UPDATED  = "inspection.updated"
@@ -67,6 +68,7 @@ class EventType:
         "final.response",
         "projection.run_record.written", "projection.message.written",
         "projection.artifact.written", "projection.memory.written",
+        "projection.memory.deleted",
         "projection.trace.written",
         "inspection.created", "inspection.updated", "inspection.completed",
     }

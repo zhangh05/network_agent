@@ -7,7 +7,8 @@ One LLM call per batch (not per candidate). Outputs structured JSON with:
   - summary (max 30 chars)
   - semantic_duplicate_of (by candidate_id, for dedup)
 
-Falls back gracefully: if LLM is unreachable, all candidates are kept.
+If the LLM is unreachable, candidates are returned as unavailable decisions so
+MemoryWriteGate can persist them as pending instead of losing or activating them.
 """
 
 from __future__ import annotations
@@ -21,24 +22,12 @@ if TYPE_CHECKING:
 
 _log = logging.getLogger("memory_write.llm_gate")
 
-# Minimum score to keep a candidate (operational facts are factual, not opinion)
-MIN_KEEP_SCORE = 2
-
-# Quick-gate: skip LLM when total candidates ≤ this and all HIGH-confidence.
-# Low-confidence candidates (≤0.55) must NOT bypass LLM review — they are the
-# ones most likely to be spam like "workspace.file: Completed.".
-QUICK_SKIP_MAX = 2
-QUICK_SKIP_CONFIDENCE = 0.55
+# Minimum score to retain a candidate. Score 3 remains pending; score 4+ may be
+# activated by MemoryWriteGate when the source is not a subagent.
+MIN_KEEP_SCORE = 3
 
 # Maximum candidates to send in one LLM batch
 MAX_BATCH_SIZE = 5
-
-# Types that LLM gate should never reject even with low score.
-# ONLY user_preference (explicit user intent) and device_state (confirmed facts).
-# operational_fact is excluded — low-quality facts like "Completed." must be rejectable.
-_ALWAYS_KEEP_TYPES = {"user_preference", "device_state"}
-
-
 
 class MemoryLLMGate:
     """LLM-based memory quality gating.
@@ -63,105 +52,93 @@ class MemoryLLMGate:
         if not candidates:
             return [], []
 
-        # Quick-gate: skip LLM when candidates are few AND all high-confidence.
-        # Low-confidence candidates (≤0.55) must NOT bypass LLM review — they
-        # are the ones most likely to be spam like "workspace.file: Completed.".
-        if (
-            len(candidates) <= QUICK_SKIP_MAX
-            and all(getattr(c, "confidence", 0) > QUICK_SKIP_CONFIDENCE for c in candidates)
-        ):
-            _log.debug(
-                "MemoryLLMGate: quick-skipping LLM call (%d candidates, all >%.2f)",
-                len(candidates), QUICK_SKIP_CONFIDENCE,
-            )
-            return list(candidates), []
-
-        # Limit batch size
-        batch = candidates[:MAX_BATCH_SIZE]
-        if len(candidates) > MAX_BATCH_SIZE:
-            _log.info(
-                "MemoryLLMGate: batch capped at %d (total=%d)",
-                MAX_BATCH_SIZE, len(candidates),
-            )
-
-        # Build prompt
-        candidates_json = self._serialize_candidates(batch)
-        system_prompt = self._load_prompt()
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Candidates to evaluate:\n{candidates_json}"},
-        ]
-
-        # Call LLM
-        try:
-            response = self._call_llm(messages)
-            results = self._parse_response(response, batch)
-        except Exception as e:
-            _log.exception("MemoryLLMGate: LLM call failed, keeping all %d candidates", len(batch))
-            # Graceful fallback: keep all
-            return list(candidates), []
-
-        # Apply results
         accepted: list[MemoryCandidate] = []
         skipped: list[dict] = []
-
-        # Build lookup: candidate_id → candidate
-        by_id = {c.candidate_id: c for c in batch}
-
-        # First pass: collect kept results
-        kept_ids: set[str] = set()
-        for r in results:
-            cid = r.get("id", "")
-            if r.get("keep", False) and r.get("score", 0) >= MIN_KEEP_SCORE:
-                kept_ids.add(cid)
-
-        # Remove semantic duplicates (dedup by LLM)
-        for r in results:
-            dup_of = r.get("semantic_duplicate_of")
-            if dup_of and dup_of in kept_ids:
-                kept_ids.discard(r.get("id", ""))
-                skipped.append({
-                    "candidate_id": r.get("id", ""),
-                    "reason": f"semantic_duplicate_of: {dup_of}",
-                    "memory_type": by_id.get(r.get("id", "")).memory_type if r.get("id", "") in by_id else "",
-                })
-
-        # Second pass: apply scores and summaries
-        for r in results:
-            cid = r.get("id", "")
-            c = by_id.get(cid)
-            if c is None:
+        for offset in range(0, len(candidates), MAX_BATCH_SIZE):
+            batch = candidates[offset:offset + MAX_BATCH_SIZE]
+            candidates_json = self._serialize_candidates(batch)
+            messages = [
+                {"role": "system", "content": self._load_prompt()},
+                {"role": "user", "content": f"Candidates to evaluate:\n{candidates_json}"},
+            ]
+            try:
+                response = self._call_llm(messages)
+                results = self._parse_response(response, batch)
+            except Exception:
+                _log.exception("MemoryLLMGate: LLM call failed for %d candidates", len(batch))
+                skipped.extend({
+                    "candidate_id": c.candidate_id,
+                    "reason": "llm_gate_unavailable",
+                    "memory_type": c.memory_type,
+                } for c in batch)
                 continue
 
-            score = r.get("score", 0)
-            summary = r.get("summary", "")
-
-            # Annotate candidate with LLM evaluation
-            c.metadata["llm_score"] = score
-            c.metadata["llm_summary"] = summary[:200] if summary else ""
-            # Use LLM summary if available and non-empty, else keep original summary
-            if summary:
-                c.metadata["summary"] = summary[:120]
-
-            if cid in kept_ids:
-                accepted.append(c)
-            elif score < MIN_KEEP_SCORE:
-                # Always-keep types: never reject even with low score
-                if getattr(c, "memory_type", "") in _ALWAYS_KEEP_TYPES:
-                    _log.debug("MemoryLLMGate: keeping %s despite score %d (type=%s)", cid, score, c.memory_type)
-                    accepted.append(c)
-                else:
-                    skipped.append({
-                        "candidate_id": cid,
-                        "reason": f"llm_score_too_low: {score}",
-                        "memory_type": c.memory_type,
-                    })
+            batch_accepted, batch_skipped = self._apply_results(batch, results)
+            accepted.extend(batch_accepted)
+            skipped.extend(batch_skipped)
 
         _log.debug(
             "MemoryLLMGate: %d candidates → %d accepted, %d skipped (score threshold=%d)",
-            len(batch), len(accepted), len(skipped), MIN_KEEP_SCORE,
+            len(candidates), len(accepted), len(skipped), MIN_KEEP_SCORE,
         )
 
+        return accepted, skipped
+
+    @staticmethod
+    def _apply_results(
+        batch: list[MemoryCandidate], results: list[dict],
+    ) -> tuple[list[MemoryCandidate], list[dict]]:
+        accepted: list[MemoryCandidate] = []
+        skipped: list[dict] = []
+        by_id = {c.candidate_id: c for c in batch}
+        decisions = {
+            str(r.get("id", "")): r
+            for r in results
+            if isinstance(r.get("id"), str) and r.get("id") in by_id
+        }
+        kept_ids = {
+            cid for cid, result in decisions.items()
+            if result.get("keep") is True and int(result.get("score", 0)) >= MIN_KEEP_SCORE
+        }
+
+        for cid, result in decisions.items():
+            duplicate_of = str(result.get("semantic_duplicate_of") or "")
+            if duplicate_of and duplicate_of in kept_ids:
+                kept_ids.discard(cid)
+
+        for candidate in batch:
+            result = decisions.get(candidate.candidate_id)
+            if result is None:
+                skipped.append({
+                    "candidate_id": candidate.candidate_id,
+                    "reason": "llm_gate_missing_decision",
+                    "memory_type": candidate.memory_type,
+                })
+                continue
+            score = max(1, min(int(result.get("score", 0) or 0), 5))
+            summary = str(result.get("summary", "") or "")[:200]
+            duplicate_of = str(result.get("semantic_duplicate_of") or "")
+            candidate.metadata.update({
+                "llm_score": score,
+                "llm_keep": bool(result.get("keep", False)),
+                "llm_summary": summary,
+            })
+            if summary:
+                candidate.metadata["summary"] = summary[:120]
+
+            if candidate.candidate_id in kept_ids:
+                accepted.append(candidate)
+            else:
+                reason = (
+                    f"semantic_duplicate_of: {duplicate_of}"
+                    if duplicate_of and duplicate_of in decisions
+                    else f"llm_score_too_low: {score}"
+                )
+                skipped.append({
+                    "candidate_id": candidate.candidate_id,
+                    "reason": reason,
+                    "memory_type": candidate.memory_type,
+                })
         return accepted, skipped
 
     # ── Internal helpers ─────────────────────────────────────────────────
@@ -246,16 +223,19 @@ class MemoryLLMGate:
 
         results = data.get("candidates", [])
         if not results:
-            _log.warning("MemoryLLMGate: LLM returned empty candidates list")
-            return []
+            raise ValueError("LLM returned empty candidates list")
 
         # Validate and fill defaults
         valid = []
         for r in results:
             if not isinstance(r, dict) or "id" not in r:
                 continue
-            r.setdefault("score", 0)
-            r.setdefault("keep", False)
+            try:
+                r["score"] = max(1, min(int(r.get("score", 0)), 5))
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(r.get("keep"), bool):
+                continue
             r.setdefault("summary", "")
             r.setdefault("semantic_duplicate_of", None)
             valid.append(r)

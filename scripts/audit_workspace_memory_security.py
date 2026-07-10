@@ -150,8 +150,8 @@ def audit():
     for py_file in PROJECT_ROOT.rglob("*.py"):
         if py_file.name.startswith("__"):
             continue
-        p = str(py_file)
-        if "scripts/audit_workspace" in p or "scripts/audit_observability" in p or "scripts/audit_artifact" in p or "scripts/audit_context" in p or "scripts/audit_prompt" in p or "scripts/audit_job" in p or "scripts/audit_report" in p or "scripts/cleanup" in p or "scripts/live_" in p or "scripts/seed_" in p or "harness/" in p:
+        relative = py_file.relative_to(PROJECT_ROOT)
+        if relative.parts[0] in {"scripts", "harness"}:
             continue
         content = py_file.read_text()
         if "GraphAgent" in content:

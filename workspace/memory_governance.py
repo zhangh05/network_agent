@@ -6,7 +6,7 @@ written first and are the SSOT for memory write acceptance.
 """
 
 from __future__ import annotations
-import json, time as _time, hashlib, uuid
+import json, time as _time, hashlib, logging, uuid
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional, Literal
@@ -17,7 +17,7 @@ from agent.runtime.utils import from_iso, now_iso, to_iso
 Scope = Literal["global","workspace","session","task"]
 MemoryType = Literal[
     "user_preference","task_pattern","tool_learning","error_lesson",
-    "artifact_summary","operational_fact","profile","knowledge_note",
+    "artifact_summary","operational_fact","device_state","profile","knowledge_note",
 ]
 MemoryStatus = Literal["pending","active","rejected","expired","conflict"]
 MemorySource = Literal[
@@ -26,6 +26,12 @@ MemorySource = Literal[
 ]
 
 _REDACT_KEYS = {"password","token","api_key","secret","credential","key","auth"}
+_VALID_GATE_MODES = {"rule_only", "llm_first"}
+_VALID_SCOPES = {"global", "workspace", "session", "task"}
+_VALID_MEMORY_TYPES = {
+    "user_preference", "task_pattern", "tool_learning", "error_lesson",
+    "artifact_summary", "operational_fact", "device_state", "profile", "knowledge_note",
+}
 
 def _now(): return now_iso()
 def _mid(): return f"mem-{uuid.uuid4().hex[:12]}"
@@ -96,6 +102,16 @@ class MemoryStore:
     def _save(self, record: MemoryRecord):
         """Internal write — gate checks are enforced by MemoryWriteGate."""
         record.workspace_id = self._validated_ws_id(record.workspace_id)
+        record.content = _redact(record.content)
+        record.summary = _redact(record.summary)
+        record.source_ref = _redact(record.source_ref)
+        try:
+            from core.tools.redaction import redact_tool_output
+            record.citations = redact_tool_output(list(record.citations or []))
+            record.metadata = redact_tool_output(dict(record.metadata or {}))
+        except Exception:
+            record.citations = list(record.citations or [])
+            record.metadata = dict(record.metadata or {})
         d = self._dir(record.workspace_id); d.mkdir(parents=True, exist_ok=True)
         from core.graph.projection_events import append_memory_written
         event_id = append_memory_written(
@@ -108,29 +124,42 @@ class MemoryStore:
         record.metadata["projection_of"] = "GraphStore"
         atomic_write_json(self._path(record.workspace_id, record.memory_id), record.to_dict())
 
-        # ── Index into ContextStore for BM25 retrieval ──
-        # Without this, MemoryHitsFragment / UnifiedRetriever cannot find
-        # memories via search_memory() and auto-injection silently fails.
+        # ContextStore is a retrievable projection, not the memory lifecycle
+        # store. Only active, non-expired records may exist in this index.
         try:
             from core.context.context_store import get_context_store
             store = get_context_store(record.workspace_id)
-            store.put({
-                "item_type": "memory_hit",
-                "item_id": f"mh_{record.memory_id}",
-                "workspace_id": record.workspace_id,
-                "source": "memory_governance",
-                "title": record.summary[:200] if record.summary else record.content[:200],
-                "summary": record.summary[:500] if record.summary else record.content[:500],
-                "content": record.content[:2000],
-                "memory_id": record.memory_id,
-                "memory_type": record.memory_type,
-                "confidence": record.confidence,
-                "scope": record.scope,
-                "tags": [],
-                "status": record.status,
-                "memory_status": record.status,
-                "created_at": record.created_at,
-            })
+            item_id = f"mh_{record.memory_id}"
+            if record.is_retrievable():
+                store.put({
+                    "item_type": "memory_hit",
+                    "item_id": item_id,
+                    "workspace_id": record.workspace_id,
+                    "source": "memory_governance",
+                    "title": record.summary[:200] if record.summary else record.content[:200],
+                    "summary": record.summary[:500] if record.summary else record.content[:500],
+                    "content": record.content[:2000],
+                    "memory_id": record.memory_id,
+                    "memory_type": record.memory_type,
+                    "confidence": record.confidence,
+                    "scope": record.scope,
+                    "session_id": record.session_id,
+                    "task_id": record.task_id,
+                    "expires_at": record.expires_at,
+                    "tags": [],
+                    "status": record.status,
+                    "memory_status": record.status,
+                    "confirmation_status": "confirmed",
+                    "created_at": record.created_at,
+                    "updated_at": record.updated_at,
+                })
+            else:
+                # Do not tombstone a projection that never existed. ContextStore
+                # tombstones are terminal in list projections, so doing this for
+                # a new pending record would prevent later confirmation from
+                # making the same item retrievable.
+                if store.get(item_id) is not None:
+                    store.delete(item_id)
         except Exception as e:
             logging.getLogger("memory_governance._save").warning(
                 "ContextStore index failed for memory %s: %s",
@@ -139,9 +168,27 @@ class MemoryStore:
 
     def delete_file(self, ws_id: str, memory_id: str) -> bool:
         """Physically delete a memory record file."""
+        ws_id = self._validated_ws_id(ws_id)
+        record = self.get(ws_id, memory_id)
         p = self._path(ws_id, memory_id)
         if p.exists():
+            from core.graph.projection_events import append_memory_deleted
+            append_memory_deleted(
+                workspace_id=ws_id,
+                memory_id=memory_id,
+                record=record.to_dict() if record else {},
+            )
             p.unlink()
+            try:
+                from core.context.context_store import get_context_store
+                context_store = get_context_store(ws_id)
+                item_id = f"mh_{memory_id}"
+                if context_store.get(item_id) is not None:
+                    context_store.delete(item_id)
+            except Exception as exc:
+                logging.getLogger("memory_governance.delete").warning(
+                    "ContextStore delete failed for memory %s: %s", memory_id, exc,
+                )
             return True
         return False
 
@@ -181,6 +228,15 @@ class MemoryStore:
                 break
         return [r.to_dict() for r in results]
 
+    def search(self, ws_id: str, query: str, limit: int = 10) -> list[dict]:
+        """Search the active retrieval projection using the shared BM25 engine."""
+        ws_id = self._validated_ws_id(ws_id)
+        limit = max(1, min(int(limit), 100))
+        if not str(query or "").strip():
+            return self.list_retrievable(ws_id, limit=limit)
+        from core.context.unified_retriever import get_retriever
+        return get_retriever(ws_id).search_memory(str(query), top_k=limit)
+
     def find_conflicts(self, record: MemoryRecord) -> list[MemoryRecord]:
         """Find conflicting records with same scope+type+similar content."""
         existing = self.list_all(record.workspace_id)
@@ -189,9 +245,12 @@ class MemoryStore:
             if r.memory_id == record.memory_id: continue
             if r.scope != record.scope: continue
             if r.memory_type != record.memory_type: continue
+            if record.scope == "session" and r.session_id != record.session_id: continue
+            if record.scope == "task" and r.task_id != record.task_id: continue
             if r.status not in ("active", "pending"): continue
-            # Simple similarity check
-            if _text_similarity(r.summary, record.summary) > 0.55:
+            existing_text = r.summary or r.content
+            candidate_text = record.summary or record.content
+            if _text_similarity(existing_text, candidate_text) > 0.55:
                 conflicts.append(r)
         return conflicts
 
@@ -204,7 +263,7 @@ class MemoryWriteGate:
     def __init__(self, store: MemoryStore = None):
         self.store = store or MemoryStore()
 
-    def write(self, candidate: MemoryRecord, gate_mode: str = "rule_only") -> dict:
+    def write(self, candidate: MemoryRecord, gate_mode: str | None = None) -> dict:
         """Gate a memory write. Returns dict with ok, status, memory_id, rejected, error.
 
         v3.10: Returns unified dict for all callers.
@@ -223,9 +282,33 @@ class MemoryWriteGate:
                     "rejected": True, "error": "invalid_workspace_id",
                     "gate_mode": gate_mode}
 
+        gate_mode = gate_mode or get_memory_gate_mode(candidate.workspace_id)
+        if gate_mode not in _VALID_GATE_MODES:
+            return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
+                    "rejected": True, "error": "invalid_gate_mode", "gate_mode": gate_mode}
+        if candidate.scope not in _VALID_SCOPES:
+            return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
+                    "rejected": True, "error": "invalid_memory_scope", "gate_mode": gate_mode}
+        if candidate.memory_type not in _VALID_MEMORY_TYPES:
+            return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
+                    "rejected": True, "error": "invalid_memory_type", "gate_mode": gate_mode}
+        if candidate.scope == "session" and not candidate.session_id:
+            return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
+                    "rejected": True, "error": "session_id_required", "gate_mode": gate_mode}
+        if candidate.scope == "task" and not candidate.task_id:
+            return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
+                    "rejected": True, "error": "task_id_required", "gate_mode": gate_mode}
+
         # 2. Secret rejection on original content before redaction; otherwise
         # redaction can hide the exact pattern from the detector.
-        if _contains_secret_pattern(candidate.content):
+        persistable_payload = {
+            "content": candidate.content,
+            "summary": candidate.summary,
+            "source_ref": candidate.source_ref,
+            "citations": candidate.citations,
+            "metadata": candidate.metadata,
+        }
+        if _contains_secret_pattern(persistable_payload):
             return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
                     "rejected": True, "error": "content contains secret-like patterns, rejected",
                     "gate_mode": gate_mode}
@@ -241,16 +324,11 @@ class MemoryWriteGate:
         candidate.content = _redact(candidate.content)
         candidate.summary = _redact(candidate.summary)
 
-        # 4. Subagent can only create pending
-        if candidate.created_by == "subagent" and candidate.status != "pending":
-            candidate.status = "pending"
-
-        # 5. Agent suggestion default pending unless high confidence
-        if candidate.source == "agent_suggestion" and candidate.confidence < 0.5:
-            candidate.status = "pending"
-
-        # 6. Low confidence default pending
-        if candidate.confidence < 0.2:
+        # Agent and subagent claims are proposals until the selected gate makes
+        # an explicit decision. Confidence alone is never proof.
+        is_subagent = candidate.created_by == "subagent" or candidate.source == "subagent"
+        is_agent_generated = candidate.source in ("agent_suggestion", "subagent") or is_subagent
+        if is_agent_generated:
             candidate.status = "pending"
 
         # 6b. Auto-confirm only explicit user/manual confirmations.
@@ -271,22 +349,55 @@ class MemoryWriteGate:
         # 7. LLM-first quality gate for agent-generated memories.
         # User-confirmed/manual memories are explicit user intent and must not
         # be rejected by an LLM classifier.
-        if gate_mode == "llm_first" and candidate.source in ("agent_suggestion", "subagent"):
+        if gate_mode == "llm_first" and is_agent_generated:
             accepted, skipped = _llm_gate_record(candidate)
-            if not accepted:
+            if accepted is None:
+                candidate.status = "pending"
+                warnings.extend(skipped)
+            elif not accepted:
                 reason = skipped[0].get("reason", "llm_gate_rejected") if skipped else "llm_gate_rejected"
-                return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
+                candidate.status = "rejected"
+                candidate.redacted = True
+                self.store._save(candidate)
+                return {"ok": False, "status": candidate.status, "memory_id": candidate.memory_id,
                         "rejected": True, "error": reason, "gate_mode": gate_mode,
                         "warnings": skipped}
-            warnings.extend(skipped)
+            else:
+                score = int(candidate.metadata.get("llm_score", 0) or 0)
+                candidate.status = "pending" if is_subagent or score < 4 else "active"
+                warnings.extend(skipped)
 
         # 8. Conflict detection
         conflicts = self.store.find_conflicts(candidate)
         if conflicts:
-            for c in conflicts:
-                if c.status == "active":
-                    candidate.status = "conflict"
-                    candidate.conflict_group = f"cg-{_time.time():.0f}"
+            duplicates = [
+                existing for existing in conflicts
+                if _text_similarity(
+                    existing.content or existing.summary,
+                    candidate.content or candidate.summary,
+                ) >= 0.9
+            ]
+            if duplicates:
+                existing = duplicates[0]
+                return {
+                    "ok": True,
+                    "status": existing.status,
+                    "memory_id": existing.memory_id,
+                    "rejected": False,
+                    "duplicate": True,
+                    "duplicate_of": existing.memory_id,
+                    "gate_mode": gate_mode,
+                }
+            active_conflicts = [c for c in conflicts if c.status == "active"]
+            if active_conflicts:
+                group = f"cg-{uuid.uuid4().hex[:12]}"
+                candidate.status = "conflict"
+                candidate.conflict_group = group
+                candidate.metadata["conflict_memory_ids"] = [c.memory_id for c in active_conflicts]
+                for existing in active_conflicts:
+                    existing.conflict_group = group
+                    existing.updated_at = _now()
+                    self.store._save(existing)
 
         # 9. Persist
         candidate.redacted = True
@@ -351,12 +462,13 @@ def _obfuscate_kv(text: str, key: str) -> str:
     import re
     return re.sub(rf'({key}\s*[=:]\s*)(\S+)', r'\1[REDACTED]', text, flags=re.I)
 
-def _contains_secret_pattern(text: str) -> bool:
+def _contains_secret_pattern(data) -> bool:
     try:
         from core.tools.redaction import contains_secret
-        return contains_secret(text)
+        return contains_secret(data)
     except Exception:
         import re
+        text = str(data)
         patterns = [r'sk-[a-zA-Z0-9]{20,}', r'Bearer\s+[a-zA-Z0-9\-_\.]{20,}',
                     r'AKIA[A-Z0-9]{16}', r'ghp_[a-zA-Z0-9]{36}']
         for p in patterns:
@@ -368,10 +480,13 @@ def _is_low_value_memory(record: MemoryRecord) -> bool:
     # Check summary and content independently — concatenating them can
     # hide generic content (e.g. "completed" + "completed." → "completed completed.").
     generic_words = {"", "started", "completed", "ok", "true", "false", "success", "failed", "done", "finish", "finished"}
-    for text in (record.summary, record.content):
+    content = (record.content or "").strip()
+    if not content:
+        return True
+    for text in (record.content, record.summary):
         text = (text or "").strip().lower().rstrip(".。!！?？,，;；")
         if not text:
-            return True
+            continue
         if text in generic_words:
             return True
         # Check after common separators (e.g. "workspace.file: completed" → "completed")
@@ -397,7 +512,7 @@ def _is_low_value_memory(record: MemoryRecord) -> bool:
         return True
     return False
 
-def _llm_gate_record(record: MemoryRecord) -> tuple[bool, list[dict]]:
+def _llm_gate_record(record: MemoryRecord) -> tuple[Optional[bool], list[dict]]:
     """Run LLM quality gate on a single memory record.
 
     If the record already has an llm_score from the planner's batch
@@ -413,7 +528,9 @@ def _llm_gate_record(record: MemoryRecord) -> tuple[bool, list[dict]]:
         if record.metadata and isinstance(record.metadata, dict):
             cached_score = record.metadata.get("llm_score")
             if cached_score is not None:
-                if cached_score >= 3:
+                record.metadata["llm_score"] = int(cached_score)
+                cached_keep = record.metadata.get("llm_keep", True)
+                if cached_keep and int(cached_score) >= 3:
                     cached_summary = record.metadata.get("llm_summary", "")
                     if cached_summary:
                         record.summary = str(cached_summary)[:200]
@@ -434,12 +551,13 @@ def _llm_gate_record(record: MemoryRecord) -> tuple[bool, list[dict]]:
             summary = meta.get("summary") or meta.get("llm_summary")
             if summary:
                 record.summary = str(summary)[:200]
+            record.metadata.update(meta)
             return True, skipped
+        if any(item.get("reason") == "llm_gate_unavailable" for item in skipped):
+            return None, skipped
         return False, skipped
     except Exception:
-        # Don't accept-all on LLM failure — agent_suggestion memories
-        # without LLM validation should be pending, not accepted.
-        return False, [{"reason": "llm_gate_unavailable_rejected"}]
+        return None, [{"reason": "llm_gate_unavailable"}]
 
 def _text_similarity(a: str, b: str) -> float:
     def _tokens(text: str) -> set[str]:
@@ -480,7 +598,9 @@ def _emit_event(ws_id: str, rec: MemoryRecord, event_type: str):
             payload_redacted={"memory_id": rec.memory_id, "memory_type": rec.memory_type},
         ))
     except Exception:
-        pass
+        logging.getLogger("memory_governance.events").debug(
+            "memory lifecycle event append failed", exc_info=True,
+        )
 
 
 def get_memory_gate_mode(workspace_id: str) -> str:
@@ -490,8 +610,12 @@ def get_memory_gate_mode(workspace_id: str) -> str:
         from workspace.manager import get_workspace_state
         state = get_workspace_state(workspace_id)
         raw = state.get("memory_gating", "").strip().lower()
-        if raw in ("llm_first", "llm", "llm-first"):
+        if raw == "llm_first":
             return "llm_first"
+        if raw == "rule_only":
+            return "rule_only"
     except Exception:
-        pass
+        logging.getLogger("memory_governance.settings").debug(
+            "memory gate mode lookup failed", exc_info=True,
+        )
     return "rule_only"

@@ -106,6 +106,22 @@ def append_memory_written(*, workspace_id: str, memory_id: str, record: dict[str
     )
 
 
+def append_memory_deleted(*, workspace_id: str, memory_id: str, record: dict[str, Any]) -> str:
+    return append_projection_event(
+        EventType.MEMORY_DELETED,
+        run_id=record.get("task_id") or memory_id,
+        workspace_id=workspace_id,
+        session_id=record.get("session_id", ""),
+        payload={
+            "memory_id": memory_id,
+            "status": "deleted",
+            "scope": record.get("scope", ""),
+            "memory_type": record.get("memory_type", ""),
+            "source": record.get("source", ""),
+        },
+    )
+
+
 def append_trace_written(*, workspace_id: str, run_id: str, trace_id: str, event_count: int) -> str:
     return append_projection_event(
         EventType.TRACE_WRITTEN,

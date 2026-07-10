@@ -6,7 +6,8 @@ import { IconSearch, IconPlus, IconRefresh, IconClose, IconCheck, IconTrash } fr
 
 interface MemEntry {
   memory_id?: string;
-  title: string;
+  title?: string;
+  summary?: string;
   content?: string;
   value_preview?: string;
   status?: string;
@@ -59,7 +60,14 @@ export function MemoryPage() {
     if (!title || !content) return;
     setErr("");
     try {
-      await memoryApi.create({ title, content, workspace_id: wsId });
+      const result = await memoryApi.create({
+        title,
+        content,
+        workspace_id: wsId,
+        memory_type: "knowledge_note",
+        user_confirmed: true,
+      });
+      if (!result.ok) throw new Error("记忆门控拒绝了该内容");
       setTitle("");
       setContent("");
       setShowCreate(false);
@@ -71,13 +79,26 @@ export function MemoryPage() {
 
   const handleDeleteHard = async (memoryId: string) => {
     try {
-      await memoryApi.deleteSoft(memoryId, wsId);
+      await memoryApi.deleteHard(memoryId, wsId);
       load();
       showToast("ok", "已永久删除");
     } catch (e: any) {
       showToast("err", "删除失败");
     }
     setDeleteConfirm(null);
+  };
+
+  const handleReview = async (memoryId: string, decision: "confirm" | "reject") => {
+    try {
+      const result = decision === "confirm"
+        ? await memoryApi.confirm({ memory_id: memoryId, workspace_id: wsId })
+        : await memoryApi.reject({ memory_id: memoryId, workspace_id: wsId });
+      if (!result.ok) throw new Error("review_failed");
+      showToast("ok", decision === "confirm" ? "记忆已确认并开始生效" : "记忆已拒绝");
+      await load();
+    } catch {
+      showToast("err", decision === "confirm" ? "确认失败" : "拒绝失败");
+    }
   };
 
   const handleBatchDelete = async () => {
@@ -250,8 +271,8 @@ export function MemoryPage() {
             {display.map((e, i) => {
               const isSelected = sel?.memory_id === e.memory_id;
               const isChecked = checked.has(e.memory_id ?? "");
-              const isInactive = e.status && e.status !== "active";
-              const dotColor = isInactive ? "err" : "ok";
+              const isInactive = e.status === "rejected" || e.status === "expired";
+              const dotColor = isInactive ? "err" : e.status === "pending" || e.status === "conflict" ? "warn" : "ok";
 
               return (
                 <div key={e.memory_id || i} className="card" style={{ padding: 0, cursor: "pointer", opacity: isInactive ? 0.55 : 1, transition: "all var(--dur-2) var(--ease)", outline: isChecked ? "2px solid var(--accent)" : "none" }}>
@@ -272,9 +293,11 @@ export function MemoryPage() {
                       <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
                         <StatusDot status={dotColor} />
                         <strong style={{ fontSize: "var(--fs-14)", lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {e.title || ""}
+                          {e.title || e.summary || e.content?.slice(0, 80) || "未命名记忆"}
                         </strong>
-                        {isInactive && <Badge kind="err">{e.status}</Badge>}
+                        {e.status && e.status !== "active" && (
+                          <Badge kind={isInactive ? "err" : "warn"}>{e.status}</Badge>
+                        )}
                         {e.memory_type && <Badge kind="info">{e.memory_type}</Badge>}
                         {e.scope && <Badge kind="muted">{e.scope}</Badge>}
                       </div>
@@ -317,6 +340,16 @@ export function MemoryPage() {
                       {e.tags && e.tags.length > 0 && (
                         <div style={{ display: "flex", gap: 4, marginTop: 10, flexWrap: "wrap" }}>
                           {e.tags.map((t: string) => <Badge key={t} kind="accent">{t}</Badge>)}
+                        </div>
+                      )}
+                      {(e.status === "pending" || e.status === "conflict") && e.memory_id && (
+                        <div style={{ display: "flex", gap: 8, marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--line-2)" }}>
+                          <button className="btn primary sm" onClick={() => void handleReview(e.memory_id!, "confirm")}>
+                            <IconCheck size={12} /> 确认并启用
+                          </button>
+                          <button className="btn sm" onClick={() => void handleReview(e.memory_id!, "reject")}>
+                            <IconClose size={12} /> 拒绝
+                          </button>
                         </div>
                       )}
                     </div>

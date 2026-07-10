@@ -392,13 +392,19 @@ def _write_turn_memories(
                     session_id=session_id,
                     scope="workspace",
                     memory_type=str(item.get("type", "operational_fact")),
-                    status="active",
+                    status="pending",
                     source="agent_suggestion",
                     content=str(item.get("content", ""))[:2000],
-                    summary=str(item.get("content", ""))[:200],
+                    summary=str(item.get("summary") or item.get("content", ""))[:200],
                     confidence=float(item.get("confidence", 0.7)),
                     created_by="llm",
                     redacted=True,
+                    metadata={
+                        "llm_score": item.get("score"),
+                        "llm_keep": item.get("keep"),
+                        "llm_summary": str(item.get("summary", ""))[:200],
+                        "gate_origin": "turn_memory_generation",
+                    } if gate_mode == "llm_first" else {},
                 )
                 gate.write(rec, gate_mode=gate_mode)
     except Exception as e:

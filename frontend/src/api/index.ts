@@ -480,7 +480,7 @@ export const memoryApi = {
       signal,
     ),
 
-  deleteSoft: (
+  deleteHard: (
     memoryId: string,
     workspaceId: string,
     signal?: AbortSignal,
@@ -529,6 +529,22 @@ export const memoryApi = {
       {
         method: "POST",
         url: "/memory/confirm",
+        data,
+      },
+      signal,
+    ),
+
+  reject: (
+    data: {
+      workspace_id: string;
+      memory_id: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; status?: string; error?: string }> =>
+    apiRequest<{ ok: boolean; status?: string; error?: string }>(
+      {
+        method: "POST",
+        url: "/memory/reject",
         data,
       },
       signal,

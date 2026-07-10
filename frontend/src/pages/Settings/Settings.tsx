@@ -81,7 +81,6 @@ export function Settings() {
         setMemoryGatingLoaded(true);
       })
       .catch(() => {
-        // If endpoint unavailable (pre-update backend), default to off
         if (alive) setMemoryGatingLoaded(true);
       });
     return () => { alive = false; };
@@ -95,8 +94,6 @@ export function Settings() {
       .then((res) => {
         if (!aliveRef.current) return;
 
-        // Guard: old backend (no new /providers endpoint) may return a 404 HTML page
-        // or an unexpected shape. Tolerate gracefully.
         const list = Array.isArray(res?.providers) ? res.providers : [];
         const active = res?.active ?? "";
 
@@ -658,14 +655,14 @@ function MemoryGatingCard({
     <div className="card" style={{ marginTop: 16, padding: "20px 24px" }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 16 }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 15, fontWeight: 680, marginBottom: 2 }}>记忆门控 Memory Gating</div>
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>记忆门控 Memory Gating</div>
           <div className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
             选择每轮对话后，系统如何生成长期记忆
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: enabled ? "var(--ok)" : "var(--ink-mute)" }}>
-            {enabled ? "LLM 生成" : "规则提取"}
+            {enabled ? "LLM 优先" : "规则门控"}
           </span>
           <button type="button" className={"toggle" + (enabled ? " on" : "")} onClick={() => onToggle(!enabled)}
             disabled={loading} role="switch" aria-checked={enabled} data-testid="toggle-memory-gating">
@@ -679,23 +676,23 @@ function MemoryGatingCard({
           border: "1px solid " + (enabled ? "rgba(52, 199, 89, 0.2)" : "var(--border-2)"),
           borderRadius: 8, padding: "14px 16px", fontSize: 12, lineHeight: 1.7,
         }}>
-          <div style={{ fontWeight: 680, marginBottom: 6, fontSize: 13 }}>
+          <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>
             <span style={{ marginRight: 8 }}>{enabled ? "🧠" : "⚡"}</span>
-            当前：{enabled ? "LLM 生成模式（llm_first）" : "纯规则提取模式（rule_only）"}
+            当前：{enabled ? "LLM 优先门控（llm_first）" : "纯规则门控（rule_only）"}
           </div>
           <div style={{ color: "var(--text-2)", lineHeight: 1.7 }}>
-            {enabled ? "LLM 观看完整对话后总结记忆，自然语言提取更精准，能捕捉隐性偏好和复杂上下文。"
-              : "仅从工具执行结果（tool_calls）中结构化提取事实（IP、命令输出、错误日志、用户偏好），不调用额外 LLM。"}
+            {enabled ? "LLM 从本轮对话与工具结果中提取候选，并统一完成价值评分和检索摘要；不会推测用户未明确表达的偏好。"
+              : "只按确定性规则从工具结果和用户明确表达中生成候选，不调用额外 LLM。"}
           </div>
           <div style={{ color: "var(--text-2)", lineHeight: 1.7, marginTop: 2 }}>
-            {enabled ? "安全门控仍然生效：敏感信息（密码、IP、Key）自动脱敏、拒绝写入。"
-              : "零额外 Token 开销，固定上限 3 条/轮，自动去重和值过滤。"}
+            {enabled ? "高分候选可生效，边界候选等待确认；模型不可用时也会进入待确认，不会静默写入或丢失。"
+              : "Agent 候选统一等待确认；用户手动保存的记忆直接生效。安全过滤、去重与冲突检测始终启用。"}
           </div>
           <div style={{ marginTop: 8, padding: "6px 10px", background: "var(--bg-soft, #f5f5f5)", borderRadius: 5,
             fontSize: 11, color: "var(--text-3)", display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ opacity: 0.6 }}>⏱</span>
-            {enabled ? "额外延迟 ≈ 0.3-0.8s（LLM 记忆生成调用）"
-              : "每轮最多写入 3 条 · 全局上限 500 条 · 同类型 FIFO 淘汰"}
+            {enabled ? "异步执行一次记忆生成与评分，不阻塞本轮回复"
+              : "每轮最多生成 3 条候选 · 零额外模型调用"}
           </div>
         </div>
       )}

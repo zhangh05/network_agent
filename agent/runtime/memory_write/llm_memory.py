@@ -19,18 +19,24 @@ SYSTEM_PROMPT = """You are a memory curator for a network operations AI agent.
 Review the conversation below and identify key facts, decisions, findings,
 or patterns worth remembering for future conversations.
 
-Return a JSON array of memory items. Each item:
+Return a JSON array of candidate memory items. Evaluate every extracted item;
+the downstream gate will enforce your score and keep decision. Each item:
 - "content": max 200 chars. Write a complete sentence. Include device names,
   IPs, commands, results, or decisions. Do NOT write "tool X completed."
 - "type": one of "operational_fact", "device_state", "error_lesson",
   "user_preference", "task_pattern"
 - "confidence": 0.0-1.0. Higher = more certain it's worth remembering.
+- "score": integer 1-5. 4-5 is durable and reusable, 3 needs user review,
+  1-2 is noise or too vague.
+- "keep": true only when score >= 3.
+- "summary": max 80 chars, same language, optimized for future retrieval.
 
 Skip trivial or redundant facts. In particular, do NOT create memories that
 only state a tool completed without any substantive finding (e.g. "pcap
 analysis completed", "Completed", "Started"). Such items will be rejected.
 
-Max 3 items. If nothing worth remembering, return an empty array [].
+Max 3 items. A generic completion without a concrete finding is score <= 2.
+If nothing worth evaluating, return an empty array [].
 
 Respond ONLY with valid JSON. No markdown, no explanation."""
 
@@ -116,8 +122,31 @@ def _parse_json(raw: str) -> list[dict[str, Any]]:
         else:
             _log.warning("LLM memory: no valid JSON in response")
             return []
-    if isinstance(data, list):
-        return [item for item in data if isinstance(item, dict) and item.get("content")]
-    if isinstance(data, dict) and data.get("content"):
-        return [data]
-    return []
+    raw_items = data if isinstance(data, list) else [data] if isinstance(data, dict) else []
+    valid_types = {
+        "operational_fact", "device_state", "error_lesson",
+        "user_preference", "task_pattern",
+    }
+    result: list[dict[str, Any]] = []
+    for item in raw_items[:3]:
+        if not isinstance(item, dict):
+            continue
+        content = str(item.get("content", "") or "").strip()[:200]
+        memory_type = str(item.get("type", "") or "").strip()
+        if not content or memory_type not in valid_types:
+            continue
+        try:
+            confidence = max(0.0, min(float(item.get("confidence", 0.5)), 1.0))
+            score = max(1, min(int(item.get("score", 0)), 5))
+        except (TypeError, ValueError):
+            continue
+        keep = item.get("keep") is True and score >= 3
+        result.append({
+            "content": content,
+            "type": memory_type,
+            "confidence": confidence,
+            "score": score,
+            "keep": keep,
+            "summary": str(item.get("summary", "") or "").strip()[:80],
+        })
+    return result

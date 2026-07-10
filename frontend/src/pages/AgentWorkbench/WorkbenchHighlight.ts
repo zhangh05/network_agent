@@ -18,8 +18,6 @@ import sql from "highlight.js/lib/languages/sql";
 import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
-import "highlight.js/styles/github.min.css";
-
 for (const [name, language] of Object.entries({
   accesslog,
   bash,
