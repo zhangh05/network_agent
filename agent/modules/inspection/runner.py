@@ -702,10 +702,10 @@ def _run_checks_on_asset(task: InspectionTask,
     # Both general and log inspection use vendor_profile.commands (which
     # comes from workspace script overrides).  No more built-in command
     # lists — script management is the sole source.
-    raw_commands: list[str] = list(vendor_profile.commands)
+    raw_commands = [str(cmd).strip() for cmd in vendor_profile.commands if str(cmd).strip()]
 
-    pre_commands = list(vendor_profile.pre_commands) if vendor_profile.pre_commands else []
-    post_commands = list(vendor_profile.post_commands) if vendor_profile.post_commands else []
+    pre_commands = [str(cmd).strip() for cmd in (vendor_profile.pre_commands or []) if str(cmd).strip()]
+    post_commands = [str(cmd).strip() for cmd in (vendor_profile.post_commands or []) if str(cmd).strip()]
 
     # ── empty commands → skip ─────────────────────────────────────────
     if not raw_commands:
@@ -733,6 +733,9 @@ def _run_checks_on_asset(task: InspectionTask,
 
     def run_one(cmd: str, timeout: int = 30) -> None:
         nonlocal bucket_session_id
+        cmd = str(cmd or "").strip()
+        if not cmd:
+            return
         if bucket_session_id:
             _register_task_session(workspace_id, task.task_id, dr.protocol, bucket_session_id)
         try:

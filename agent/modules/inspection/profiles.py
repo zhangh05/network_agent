@@ -31,15 +31,10 @@ from agent.runtime.utils import now_iso
 # v4.0 — H3C command sets (flat lists, no parser keys)
 # ==========================================================================
 
-_H3C_PRE = [
-    "",  # flush welcome banner (enter)
-    "",  # flush welcome banner (enter)
-    "screen-length disable",
-]
+_H3C_PRE = ["screen-length disable"]
 
 _H3C_POST = [
     "undo screen-length disable",
-    "",  # extra enter after screen-length re-enable
 ]
 
 # v4.1: no built-in command lists — commands come exclusively from
@@ -62,37 +57,37 @@ VENDOR_COMMAND_PROFILES: dict[str, VendorCommandProfile] = {
     "huawei": VendorCommandProfile(
         vendor="huawei",
         commands=[],
-        pre_commands=["", ""],
+        pre_commands=[],
         post_commands=[],
     ),
     "cisco": VendorCommandProfile(
         vendor="cisco",
         commands=[],
-        pre_commands=["", ""],
+        pre_commands=[],
         post_commands=[],
     ),
     "hillstone": VendorCommandProfile(
         vendor="hillstone",
         commands=[],
-        pre_commands=["", ""],
+        pre_commands=[],
         post_commands=[],
     ),
     "ruijie": VendorCommandProfile(
         vendor="ruijie",
         commands=[],
-        pre_commands=["", ""],
+        pre_commands=[],
         post_commands=[],
     ),
     "dipu": VendorCommandProfile(
         vendor="dipu",
         commands=[],
-        pre_commands=["", ""],
+        pre_commands=[],
         post_commands=[],
     ),
     "generic": VendorCommandProfile(
         vendor="generic",
         commands=[],
-        pre_commands=["", ""],
+        pre_commands=[],
         post_commands=[],
     ),
 }
@@ -245,10 +240,21 @@ def load_vendor_commands(workspace_id: str, vendor: str, *, script_type: str = "
     raw_pre = data.get("pre_commands")
     raw_post = data.get("post_commands")
     return {
-        "commands": data.get("commands", []) if isinstance(data.get("commands"), list) else [],
-        "pre_commands": raw_pre if isinstance(raw_pre, list) else None,
-        "post_commands": raw_post if isinstance(raw_post, list) else None,
+        "commands": _clean_commands(data.get("commands")),
+        "pre_commands": _clean_commands(raw_pre) if isinstance(raw_pre, list) else None,
+        "post_commands": _clean_commands(raw_post) if isinstance(raw_post, list) else None,
     }
+
+
+def _clean_commands(commands) -> list[str]:
+    """Return executable command lines only.
+
+    Telnet setup already sends a wake-up CRLF. Empty strings are not
+    executable commands and must not reach session-control handling.
+    """
+    if not isinstance(commands, list):
+        return []
+    return [str(command).strip() for command in commands if str(command).strip()]
 
 
 def save_vendor_commands(workspace_id: str, vendor: str,
@@ -263,9 +269,9 @@ def save_vendor_commands(workspace_id: str, vendor: str,
         "script_type": script_type,
         "updated_at": now_iso(),
         "source": "manual",
-        "commands": commands,
-        "pre_commands": pre_commands if pre_commands is not None else [],
-        "post_commands": post_commands if post_commands is not None else [],
+        "commands": _clean_commands(commands),
+        "pre_commands": _clean_commands(pre_commands),
+        "post_commands": _clean_commands(post_commands),
     }
     try:
         atomic_write_json(fp, data)
@@ -355,12 +361,11 @@ def load_command_profile(workspace_id: str, vendor: str = "",
 def is_read_only_command(command: str) -> bool:
     """Static safety check: refuse anything that smells like a write.
 
-    v4.0: empty strings (enter/newline sentinel) are always allowed
-    — they're used for welcome-banner flushing in pre_commands.
+    Empty strings are ignored by profile loading and are not executable.
     """
     cmd = (command or "").strip().lower()
     if not cmd:
-        return True  # empty/newline is safe (banner flush)
+        return True
     blocked_prefixes = (
         "write ", "copy running", "copy start", "save ",
         "reload", "reboot", "reset", "shutdown", "poweroff",

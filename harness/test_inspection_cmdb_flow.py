@@ -1009,3 +1009,42 @@ def test_get_asset_flags_password_corrupted(tmp_path):
         assert rec2.get("password_corrupted") is True
     finally:
         spaths.workspace_root = orig_root
+
+
+def test_inspection_profiles_drop_blank_session_sentinels():
+    """Blank script rows must never become remote session operations."""
+    from agent.modules.inspection import profiles
+
+    assert profiles._clean_commands(["", " display version ", "  "]) == ["display version"]
+    assert profiles._clean_commands(["", " screen-length disable ", ""]) == ["screen-length disable"]
+    assert profiles._clean_commands(["undo screen-length disable", ""]) == ["undo screen-length disable"]
+
+
+def test_telnet_session_requires_explicit_close(monkeypatch):
+    """An empty command probes an existing session; it never closes it."""
+    from core.tools.canonical_registry import _handler_network_telnet
+    from core.tools.schemas import ToolInvocation
+    from agent.modules.remote import core as remote_core
+
+    class Session:
+        connected = True
+        workspace_id = "ws_telnet_probe"
+        host = "10.0.0.1"
+
+    closed = []
+    monkeypatch.setattr(remote_core, "get_session", lambda _sid: Session())
+    monkeypatch.setattr(remote_core, "disconnect", lambda sid: closed.append(sid) or {"ok": True})
+
+    probe = _handler_network_telnet(ToolInvocation(
+        arguments={"session_id": "telnet_1", "command": ""},
+        workspace_id="ws_telnet_probe",
+    ))
+    assert probe == {"ok": True, "session_id": "telnet_1", "session_active": True}
+    assert closed == []
+
+    closed_result = _handler_network_telnet(ToolInvocation(
+        arguments={"session_id": "telnet_1", "close_session": True},
+        workspace_id="ws_telnet_probe",
+    ))
+    assert closed_result["ok"] is True
+    assert closed == ["telnet_1"]

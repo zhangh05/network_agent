@@ -1664,7 +1664,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
     v3.3: Supports persistent sessions via session_id.
     - First call without session_id: creates session, returns session_id.
     - Subsequent calls with session_id: reuses existing session (fast).
-    - Set close_session=true or omit command to close.
+    - Set close_session=true to close. An omitted command is a health probe.
     """
     from agent.modules.remote.core import ssh_connect, exec_command, disconnect, get_session
 
@@ -1697,7 +1697,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
             return {"ok": False, "error": f"asset_resolve_failed: {str(exc)[:120]}"}
 
     # Close session request
-    if session_id and (close_session or not command):
+    if session_id and close_session:
         try:
             existing = get_session(session_id)
             if not existing or getattr(existing, "workspace_id", "") != workspace_id:
@@ -1830,7 +1830,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
             return {"ok": False, "error": f"asset_resolve_failed: {str(exc)[:120]}"}
 
     # Close session
-    if session_id and (close_session or not command):
+    if session_id and close_session:
         try:
             existing = get_session(session_id)
             if not existing or getattr(existing, "workspace_id", "") != workspace_id:
@@ -1880,6 +1880,8 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
             if existing and getattr(existing, "connected", False):
                 if getattr(existing, "workspace_id", "") != workspace_id:
                     return {"ok": False, "error": "session_workspace_mismatch"}
+                if not command:
+                    return {"ok": True, "session_id": session_id, "session_active": True}
                 exec_result = exec_command(session_id, command)
                 return {
                     "ok": True, "host": host, "command": command,
