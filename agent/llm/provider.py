@@ -5,7 +5,7 @@ Error diagnostics: preserves HTTP status, error type, and non-sensitive details.
 Only masks real tokens/Authorization/Bearer values.
 """
 
-import json, logging, os, urllib.request, urllib.error
+import json, logging, os, time, urllib.request, urllib.error
 from typing import Optional
 from agent.llm.schemas import LLMRequest, LLMResponse, LLMToolCall
 from agent.llm.key_resolver import mask_secret
@@ -515,10 +515,9 @@ def _push_stream_token(token: str):
     """Push a streaming token via StreamEmitter realtime callback."""
     try:
         from agent.runtime.query_engine import StreamEmitter
-        state = StreamEmitter._tls_state()
-        cb = state.realtime if hasattr(state, 'realtime') else None
+        cb = StreamEmitter._get_realtime()
         if cb:
-            cb({"type": "token", "content": token, "timestamp": __import__('time').time()})
+            cb({"type": "token", "content": token, "timestamp": time.time()})
     except Exception as e:
         _debug_log("[stream] push token error: %s", e)
 

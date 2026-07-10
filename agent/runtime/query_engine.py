@@ -5,6 +5,7 @@ Provides structured error types, LLM retry with exponential backoff,
 and trace ID generation for turn-level observability.
 """
 
+import contextvars
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -247,20 +248,14 @@ class StreamEmitter:
     If a realtime callback is registered via set_realtime_callback(), every emit()
     will also push the event to that callback for WebSocket streaming.
 
-    Usage::
-
-        emitter = StreamEmitter()
-        emitter.emit(StreamEvent.RUN_STARTED, {"session_id": "abc"})
-        emitter.emit(StreamEvent.TOOL_CALL, {"tool_id": "web.manage"})
-        events = emitter.to_events()
+    Callback storage uses both ``threading.local()`` (same-thread) and
+    ``contextvars.ContextVar`` (propagated across ``asyncio.to_thread``).
     """
 
-    # v4.0: use threading.local so each thread has its own callback.
-    # Previously this was a plain class attribute, which caused events
-    # from concurrent turns / WebSocket connections to leak across each
-    # other (a connection's callback could be overwritten before its
-    # turn finished, sending events to the wrong queue).
     _tls = None
+    _realtime_cv: contextvars.ContextVar[Optional[Callable]] = contextvars.ContextVar(
+        "stream_realtime", default=None,
+    )
 
     @classmethod
     def _tls_state(cls):
@@ -272,22 +267,35 @@ class StreamEmitter:
 
     @classmethod
     def set_realtime_callback(cls, callback):
-        """Set the real-time callback for the current thread only."""
+        """Set the real-time callback for the current thread and context.
+
+        Sets both ``threading.local()`` (for same-thread use) and
+        ``contextvars.ContextVar`` (for ``asyncio.to_thread`` propagation).
+        """
         state = cls._tls_state()
         state.realtime = callback
+        cls._realtime_cv.set(callback)
 
     @classmethod
     def clear_realtime_callback(cls):
-        """Clear the real-time callback for the current thread only."""
+        """Clear the real-time callback for the current thread and context."""
         if cls._tls is not None:
             cls._tls.realtime = None
+        cls._realtime_cv.set(None)
 
     @classmethod
     def _get_realtime(cls):
-        """Read the current thread's real-time callback, if any."""
-        if cls._tls is None:
-            return None
-        return getattr(cls._tls, "realtime", None)
+        """Read the current thread's real-time callback, if any.
+
+        Checks ``contextvars.ContextVar`` first (propagated across
+        ``asyncio.to_thread``) then falls back to ``threading.local()``.
+        """
+        cv_cb = cls._realtime_cv.get()
+        if cv_cb is not None:
+            return cv_cb
+        if cls._tls is not None:
+            return getattr(cls._tls, "realtime", None)
+        return None
 
     def __init__(self):
         self._events: list[dict] = []
@@ -297,9 +305,8 @@ class StreamEmitter:
 
         Args:
             event_type: One of the StreamEvent constants.
-            data: Event payload dict. The following keys are added automatically:
-                - ``timestamp``     — float seconds since epoch (for sortability / duration math)
-                - ``timestamp_iso`` — UTC ISO 8601 string (for human-readable audit logs)
+            data: Event payload dict. Keys ``timestamp`` / ``timestamp_iso``
+                are added automatically.
         """
         event = {
             "type": event_type,
@@ -308,7 +315,6 @@ class StreamEmitter:
             **data,
         }
         self._events.append(event)
-        # Push to thread-local realtime callback if registered
         cb = StreamEmitter._get_realtime()
         if cb:
             try:
