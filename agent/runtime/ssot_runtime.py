@@ -282,6 +282,12 @@ def run_ssot_turn(
             "retry_events": list(
                 (runtime_result.metadata or {}).get("retry_events") or []
             ),
+            "validation_correction_summary": dict(
+                (runtime_result.metadata or {}).get("validation_correction_summary") or {}
+            ),
+            "validation_correction_events": list(
+                (runtime_result.metadata or {}).get("validation_correction_events") or []
+            ),
         }
         result = AgentResult(
             ok=bool(runtime_result.success),

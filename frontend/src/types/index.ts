@@ -208,6 +208,17 @@ export interface AgentResult {
       final_status?: string;
       duration_ms?: number;
     }>;
+    /** Invalid tool arguments returned to the model for bounded correction. */
+    validation_correction_summary?: {
+      attempts?: number;
+      max_attempts?: number;
+      exhausted?: boolean;
+    };
+    validation_correction_events?: Array<{
+      attempt?: number;
+      max_attempts?: number;
+      errors?: Array<Record<string, unknown>>;
+    }>;
     /** Background task tracking surfaced from SSOT Runtime. Distinct from retry. */
     tracking_summary?: {
       kind?: string;

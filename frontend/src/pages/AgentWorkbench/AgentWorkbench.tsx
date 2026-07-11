@@ -85,6 +85,14 @@ function retryStats(result?: AgentResult) {
   };
 }
 
+function validationCorrectionStats(result?: AgentResult) {
+  const summary = result?.metadata?.validation_correction_summary || {};
+  return {
+    attempts: Number(summary.attempts || 0),
+    exhausted: Boolean(summary.exhausted),
+  };
+}
+
 type TrackingSummary = NonNullable<AgentResult["metadata"]["tracking_summary"]>;
 type TrackingEvent = NonNullable<AgentResult["metadata"]["tracking_events"]>[number];
 
@@ -1437,12 +1445,13 @@ const ResultInline = React.memo(function ResultInline({
   const hasFailedTool = ((result?.tool_calls) ?? []).some((tc) => !tc.ok);
   const finalText = (result?.final_response || fallbackText || "").trim();
   const retry = retryStats(result);
+  const validationCorrection = validationCorrectionStats(result);
   const tracking = trackingStats(result);
   const toolCalls = result?.tool_calls ?? [];
   const actionCount = toolCalls.length;
   const failedToolCount = toolCalls.filter((tc) => !tc.ok).length;
   const successToolCount = toolCalls.filter((tc) => tc.ok).length;
-  const showActionTrace = !!result && (actionCount > 0 || retry.events.length > 0 || tracking.taskId || isFailed);
+  const showActionTrace = !!result && (actionCount > 0 || retry.events.length > 0 || validationCorrection.attempts > 0 || tracking.taskId || isFailed);
 
   // Nothing to show — no result and no fallback text
   if (!result && !fallbackText) return null;
@@ -1546,6 +1555,11 @@ const ResultInline = React.memo(function ResultInline({
             <span className="action-trace-pill ok">{successToolCount} 成功</span>
             {failedToolCount > 0 && <span className="action-trace-pill danger">{failedToolCount} 需关注</span>}
             {retry.attempts > 0 && <span className="action-trace-pill warn">{retry.attempts} 次自动重试</span>}
+            {validationCorrection.attempts > 0 && (
+              <span className={`action-trace-pill ${validationCorrection.exhausted ? "danger" : "ok"}`}>
+                {validationCorrection.attempts} 次参数自纠
+              </span>
+            )}
             {retry.blocked > 0 && <span className="action-trace-pill muted">{retry.blocked} 次未重试</span>}
           </div>
           {retry.events.length > 0 ? (
@@ -1572,6 +1586,12 @@ const ResultInline = React.memo(function ResultInline({
           ) : (
             <div className="action-trace-note">
               本轮失败发生在工具调用前，未触发可重试动作。
+            </div>
+          )}
+          {validationCorrection.attempts > 0 && (
+            <div className="action-trace-note">
+              工具参数校验未通过后已交由模型修正
+              {validationCorrection.exhausted ? "，达到上限后停止，未执行无效调用。" : "，无效调用未进入执行器。"}
             </div>
           )}
           {tracking.taskId && (

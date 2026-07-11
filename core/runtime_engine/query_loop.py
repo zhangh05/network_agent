@@ -496,55 +496,77 @@ class StreamingToolExecutor:
         from .contracts import get_contract
         from .tool_retry_policy import should_retry_tool_failure
 
-        error_code = (original_result.error_code or "").strip().upper()
-        if not error_code:
-            err = (original_result.error or "").lower()
-            if "timeout" in err or "timed out" in err:
-                error_code = "TOOL_TIMEOUT"
-            elif "rate" in err and "limit" in err:
-                error_code = "RATE_LIMITED"
-            elif "connection" in err and "reset" in err:
-                error_code = "CONNECTION_RESET"
-            else:
-                error_code = "TOOL_EXCEPTION"
-
         contract = get_contract(node.tool)
-        budget_ok = bool(budget.check_execution().ok) if budget is not None else True
-        decision = should_retry_tool_failure(
-            node=node,
-            tool_contract=contract,
-            error_code=error_code,
-            error_message=original_result.error or "",
-            config_max_retries=(
-                int(getattr(contract, "max_retries", 0) or 0)
-                if contract is not None else 0
-            ),
-            global_max_retries_per_node=self._config.max_retries_per_node,
-            budget_ok=budget_ok,
-        )
-        self._record_retry_decision(ctx, node, decision)
+        current_result = original_result
+        total_latency_ms = float(original_result.latency_ms or 0.0)
 
-        if not decision.retry_allowed:
-            return original_result
+        while not current_result.success:
+            error_code = self._retry_error_code(current_result)
+            budget_ok = bool(budget.check_execution().ok) if budget is not None else True
+            decision = should_retry_tool_failure(
+                node=node,
+                tool_contract=contract,
+                error_code=error_code,
+                error_message=current_result.error or "",
+                config_max_retries=(
+                    int(getattr(contract, "max_retries", 0) or 0)
+                    if contract is not None else 0
+                ),
+                global_max_retries_per_node=self._config.max_retries_per_node,
+                budget_ok=budget_ok,
+            )
+            event_index = self._record_retry_decision(ctx, node, decision)
+            if not decision.retry_allowed:
+                return current_result
 
-        await asyncio.sleep(decision.backoff_ms / 1000.0)
-        node.retry_count += 1
-        retry_result = await self._runtime.execute_node(node, ctx, {})
-        retry_result.retry_count = node.retry_count
-        retry_result.metadata = dict(retry_result.metadata or {})
-        retry_result.metadata.update({
-            "retried": True,
-            "retry_count": node.retry_count,
-            "retry_reason": decision.reason,
-            "retry_backoff_ms": decision.backoff_ms,
-            "retry_error_code": decision.error_code,
-            "retry_original_error": decision.notes.get("original_error", ""),
-        })
-        self._record_retry_result(ctx, node, retry_result)
-        return retry_result
+            await asyncio.sleep(decision.backoff_ms / 1000.0)
+            # A retry that was legal before backoff may no longer fit in the
+            # request budget afterwards. Never start it once the deadline has
+            # elapsed.
+            if budget is not None and not budget.check_execution().ok:
+                self._record_retry_aborted(ctx, event_index, "budget_exceeded_after_backoff")
+                return current_result
+
+            node.retry_count += 1
+            retry_started = time.monotonic()
+            current_result = await self._runtime.execute_node(node, ctx, {})
+            retry_duration_ms = (time.monotonic() - retry_started) * 1000
+            total_latency_ms += retry_duration_ms + float(decision.backoff_ms)
+            current_result.retry_count = node.retry_count
+            current_result.metadata = dict(current_result.metadata or {})
+            current_result.metadata.update({
+                "retried": True,
+                "retry_count": node.retry_count,
+                "retry_reason": decision.reason,
+                "retry_backoff_ms": decision.backoff_ms,
+                "retry_error_code": decision.error_code,
+                "retry_original_error": decision.notes.get("original_error", ""),
+                "retry_total_latency_ms": total_latency_ms,
+            })
+            self._record_retry_result(
+                ctx, node, current_result,
+                event_index=event_index,
+                duration_ms=retry_duration_ms,
+            )
+
+        return current_result
 
     @staticmethod
-    def _record_retry_decision(ctx: StatelessContext, node: ExecutionNode, decision) -> None:
+    def _retry_error_code(result: ToolResult) -> str:
+        error_code = (result.error_code or "").strip().upper()
+        if error_code:
+            return error_code
+        err = (result.error or "").lower()
+        if "timeout" in err or "timed out" in err:
+            return "TOOL_TIMEOUT"
+        if "rate" in err and "limit" in err:
+            return "RATE_LIMITED"
+        if "connection" in err and "reset" in err:
+            return "CONNECTION_RESET"
+        return "TOOL_EXCEPTION"
+
+    @staticmethod
+    def _record_retry_decision(ctx: StatelessContext, node: ExecutionNode, decision) -> int:
         events = list(ctx.extras.get("retry_events") or [])
         events.append({
             **decision.to_dict(),
@@ -562,9 +584,17 @@ class StreamingToolExecutor:
         if not decision.retry_allowed:
             summary["retry_blocked"] = int(summary.get("retry_blocked", 0) or 0) + 1
         ctx.extras["retry_summary"] = summary
+        return len(events) - 1
 
     @staticmethod
-    def _record_retry_result(ctx: StatelessContext, node: ExecutionNode, result: ToolResult) -> None:
+    def _record_retry_result(
+        ctx: StatelessContext,
+        node: ExecutionNode,
+        result: ToolResult,
+        *,
+        event_index: int,
+        duration_ms: float,
+    ) -> None:
         summary = dict(ctx.extras.get("retry_summary") or {
             "retry_attempts": 0,
             "retried_nodes": [],
@@ -581,6 +611,32 @@ class StreamingToolExecutor:
             summary["retry_succeeded"] = int(summary.get("retry_succeeded", 0) or 0) + 1
         else:
             summary["retry_failed"] = int(summary.get("retry_failed", 0) or 0) + 1
+        ctx.extras["retry_summary"] = summary
+        events = list(ctx.extras.get("retry_events") or [])
+        if 0 <= event_index < len(events):
+            events[event_index] = {
+                **events[event_index],
+                "attempt": node.retry_count,
+                "final_status": "succeeded" if result.success else "failed",
+                "duration_ms": round(float(duration_ms or 0.0), 3),
+                "result_error_code": result.error_code or "",
+            }
+            ctx.extras["retry_events"] = events
+
+    @staticmethod
+    def _record_retry_aborted(ctx: StatelessContext, event_index: int, reason: str) -> None:
+        events = list(ctx.extras.get("retry_events") or [])
+        if 0 <= event_index < len(events):
+            events[event_index] = {
+                **events[event_index],
+                "retry_allowed": False,
+                "blocked_by_policy": False,
+                "final_status": "aborted",
+                "reason": reason,
+            }
+            ctx.extras["retry_events"] = events
+        summary = dict(ctx.extras.get("retry_summary") or {})
+        summary["retry_blocked"] = int(summary.get("retry_blocked", 0) or 0) + 1
         ctx.extras["retry_summary"] = summary
 
     @staticmethod
@@ -833,8 +889,8 @@ class QueryLoop:
                         )
                     # Soft validation errors (e.g. missing_required_arg) —
                     # feed back to LLM as tool results so it can correct itself.
-                    validation_correction_attempts += 1
-                    if validation_correction_attempts > MAX_VALIDATION_CORRECTION_ROUNDS:
+                    if validation_correction_attempts >= MAX_VALIDATION_CORRECTION_ROUNDS:
+                        ctx.extras["validation_correction_exhausted"] = True
                         return finish(
                             final_response=(
                                 "工具参数连续校验失败，已停止自动修正。\n"
@@ -848,6 +904,7 @@ class QueryLoop:
                             errors=list(gate.get("errors") or []),
                             risk_level="low",
                         )
+                    validation_correction_attempts += 1
                     if self._emitter:
                         self._emitter.emit("tool_validation_failed", {
                             "errors": gate.get("errors", []),

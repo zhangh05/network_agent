@@ -450,6 +450,14 @@ export const useWorkbenchStore = create<WorkbenchState>()(
                 retry_events: (metadata.retry_events as AgentResult["metadata"]["retry_events"])
                   || (runtimeMetadata.retry_events as AgentResult["metadata"]["retry_events"])
                   || [],
+                validation_correction_summary:
+                  (metadata.validation_correction_summary as AgentResult["metadata"]["validation_correction_summary"])
+                  || (runtimeMetadata.validation_correction_summary as AgentResult["metadata"]["validation_correction_summary"])
+                  || undefined,
+                validation_correction_events:
+                  (metadata.validation_correction_events as AgentResult["metadata"]["validation_correction_events"])
+                  || (runtimeMetadata.validation_correction_events as AgentResult["metadata"]["validation_correction_events"])
+                  || [],
                 source_count: 0,
                 workspace_id,
               },

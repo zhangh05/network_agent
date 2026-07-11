@@ -394,7 +394,8 @@ def should_retry_tool_failure(
             notes=notes,
         )
 
-    # All checks pass — retry once with a small backoff.
+    # All checks pass — permit the next bounded attempt. The caller repeats
+    # this decision after each failure until effective_max is exhausted.
     backoff_ms = backoff_for_attempt(attempted)
     return RetryDecision(
         retry_allowed=True,
@@ -413,8 +414,7 @@ def should_retry_tool_failure(
 def backoff_for_attempt(attempt: int) -> int:
     """Return backoff in milliseconds for a given attempt index (0-based).
 
-    v3.10: max 1 retry, so attempt=0 → 200ms. The table is here for
-    future extension (attempt=1 → 500ms, attempt>=2 → 1000ms).
+    attempt=0 → 200ms, attempt=1 → 500ms, attempt>=2 → 1000ms.
     """
     if attempt <= 0:
         return 200

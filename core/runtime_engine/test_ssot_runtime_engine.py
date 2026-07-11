@@ -1203,7 +1203,88 @@ class TestSSOTRuntimePipeline:
 
         assert result.error == "validation_correction_exhausted"
         assert calls == {"llm": 4, "tool": 0}
-        assert result.metrics["validation_corrections"] == 4
+        # Three correction payloads were returned to the model; the fourth
+        # invalid call only exhausts the bound and is not itself a correction.
+        assert result.metrics["validation_corrections"] == 3
+
+    @pytest.mark.asyncio
+    async def test_query_loop_retry_event_records_recovered_status(self, config):
+        """The frontend must see the outcome, not only the retry decision."""
+        from agent.llm.schemas import LLMToolCall
+        from core.runtime_engine.budget_controller import BudgetController
+        from core.runtime_engine.query_loop import StreamingToolExecutor
+
+        runtime = ToolRuntime(config)
+        calls = {"count": 0}
+
+        async def fail_once(_args):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise ConnectionResetError("temporary reset")
+            return {"ok": True, "items": ["recovered"]}
+
+        runtime.register("knowledge.manage", fail_once)
+        executor = StreamingToolExecutor(runtime, config)
+        ctx = StatelessContext("default", "s1", "r1", "search knowledge")
+        results = await executor.execute(
+            [LLMToolCall(id="call_1", name="knowledge.manage", arguments={"action": "search"})],
+            ctx=ctx,
+            budget=BudgetController(config),
+        )
+
+        assert calls["count"] == 2
+        assert results[0].ok is True
+        assert ctx.extras["retry_summary"] == {
+            "retry_attempts": 1,
+            "retried_nodes": ["call_1"],
+            "retry_succeeded": 1,
+            "retry_failed": 0,
+            "retry_blocked": 0,
+        }
+        event = ctx.extras["retry_events"][0]
+        assert event["retry_allowed"] is True
+        assert event["attempt"] == 1
+        assert event["final_status"] == "succeeded"
+        assert event["duration_ms"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_query_loop_honors_effective_retry_cap(self, config, monkeypatch):
+        """Execution repeats until recovery or the declared cap, not just once."""
+        from agent.llm.schemas import LLMToolCall
+        from core.runtime_engine.budget_controller import BudgetController
+        from core.runtime_engine.contracts import get_contract
+        from core.runtime_engine.query_loop import StreamingToolExecutor
+
+        contract = get_contract("knowledge.manage")
+        assert contract is not None
+        monkeypatch.setattr(contract, "max_retries", 2)
+        config.max_retries_per_node = 2
+        runtime = ToolRuntime(config)
+        calls = {"count": 0}
+
+        async def fail_twice(_args):
+            calls["count"] += 1
+            if calls["count"] <= 2:
+                raise TimeoutError("temporary provider timeout")
+            return {"ok": True, "items": ["recovered"]}
+
+        runtime.register("knowledge.manage", fail_twice)
+        executor = StreamingToolExecutor(runtime, config)
+        ctx = StatelessContext("default", "s1", "r1", "search knowledge")
+        results = await executor.execute(
+            [LLMToolCall(id="call_1", name="knowledge.manage", arguments={"action": "search"})],
+            ctx=ctx,
+            budget=BudgetController(config),
+        )
+
+        assert calls["count"] == 3
+        assert results[0].ok is True
+        assert [event["final_status"] for event in ctx.extras["retry_events"]] == [
+            "failed", "succeeded",
+        ]
+        assert ctx.extras["retry_summary"]["retry_attempts"] == 2
+        assert ctx.extras["retry_summary"]["retry_failed"] == 1
+        assert ctx.extras["retry_summary"]["retry_succeeded"] == 1
 
     def test_query_loop_tracking_polls_are_not_provider_tool_messages(self, config):
         """Internal get polls must not create unmatched tool_call_id messages."""

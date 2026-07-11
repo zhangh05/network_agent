@@ -107,6 +107,8 @@ const ResultBody: React.FC<{ result: AgentResult }> = React.memo(({ result }) =>
   const retrySummary = result.metadata?.retry_summary || {};
   const retryEvents = result.metadata?.retry_events || [];
   const retryAttempts = Number(retrySummary.retry_attempts || 0);
+  const validationCorrectionSummary = result.metadata?.validation_correction_summary || {};
+  const validationCorrectionAttempts = Number(validationCorrectionSummary.attempts || 0);
   const trackingSummary = (result.metadata?.tracking_summary || {}) as Record<string, any>;
   const trackingTaskId = String(trackingSummary.task_id || "");
   const trackingStatus = String(trackingSummary.status || "");
@@ -157,6 +159,15 @@ const ResultBody: React.FC<{ result: AgentResult }> = React.memo(({ result }) =>
               </span>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {validationCorrectionAttempts > 0 ? (
+        <div className="rt-retry-summary">
+          <span className="rt-art-label">参数自纠 · {validationCorrectionAttempts}</span>
+          <span className={`rt-retry-chip ${validationCorrectionSummary.exhausted ? "muted" : "ok"}`}>
+            {validationCorrectionSummary.exhausted ? "达到上限，已停止" : "已修正后继续"}
+          </span>
         </div>
       ) : null}
 

@@ -28,7 +28,7 @@ from .models import (
     StatelessContext,
     ToolResult,
 )
-from .query_loop import QueryLoop, QueryLoopResult
+from .query_loop import MAX_VALIDATION_CORRECTION_ROUNDS, QueryLoop, QueryLoopResult
 from .runtime_contracts import ExecutionContract
 from .stage_events import (
     EXECUTION_COMPLETED,
@@ -678,6 +678,12 @@ class SSOTRuntimeEngine:
                     "retry_blocked": 0,
                 }),
                 "retry_events": ctx.extras.get("retry_events", []),
+                "validation_correction_summary": {
+                    "attempts": len(ctx.extras.get("validation_correction_events", [])),
+                    "max_attempts": MAX_VALIDATION_CORRECTION_ROUNDS,
+                    "exhausted": bool(ctx.extras.get("validation_correction_exhausted", False)),
+                },
+                "validation_correction_events": ctx.extras.get("validation_correction_events", []),
                 "tracking_summary": ctx.extras.get("tracking_summary", {}),
                 "tracking_events": ctx.extras.get("tracking_events", []),
             },
