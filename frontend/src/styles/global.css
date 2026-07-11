@@ -130,6 +130,19 @@ body,
   --sh-2: none;
   --sh-3: var(--shadow-menu);
   --sh-inset: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+
+  /* Legacy aliases used by downstream components; keep until refactor. */
+  --brand: var(--accent);
+  --brand-soft: var(--accent-soft);
+  --border-1: var(--line-2);
+  --border-2: var(--line);
+  --primary: var(--accent);
+  --line-1: var(--line);
+  --text-hint: var(--text-4);
+  --text-soft: var(--text-3);
+  --text-5: var(--text-4);
+  --fs-28: 28px;
+  --fg-muted: var(--text-3);
 }
 
 [data-theme="dark"] {
@@ -2194,6 +2207,21 @@ details.collapse[open] summary::before {
   white-space: nowrap;
 }
 
+/* Two-column markdown tables: keep label column narrow and give value column
+   the full remaining width so content lays out horizontally. */
+.markdown-body table:has(thead tr th:nth-child(2):last-child) {
+  table-layout: fixed;
+}
+.markdown-body table:has(thead tr th:nth-child(2):last-child) th:first-child,
+.markdown-body table:has(thead tr th:nth-child(2):last-child) td:first-child {
+  width: 120px;
+  white-space: normal;
+}
+.markdown-body table:has(thead tr th:nth-child(2):last-child) th:nth-child(2),
+.markdown-body table:has(thead tr th:nth-child(2):last-child) td:nth-child(2) {
+  width: 100%;
+}
+
 .markdown-body tr:nth-child(even) td {
   background: color-mix(in srgb, var(--surface-2) 58%, transparent);
 }
@@ -2240,6 +2268,15 @@ details.collapse[open] summary::before {
   border-radius: 6px;
 }
 
+/* Two-column pipe-cards: body should take the full remaining width, not the
+   narrow middle column. */
+.markdown-body .pipe-card:has(.pipe-card-title + .pipe-card-body) {
+  grid-template-columns: minmax(92px, max-content) minmax(0, 1fr);
+}
+.markdown-body .pipe-card:has(.pipe-card-title + .pipe-card-body) .pipe-card-body {
+  grid-column: 2;
+}
+
 .markdown-body .pipe-card-title {
   font-weight: 600;
   color: var(--text);
@@ -2276,7 +2313,7 @@ details.collapse[open] summary::before {
 
 .markdown-body .report-card-head {
   display: grid;
-  grid-template-columns: minmax(120px, 0.42fr) auto;
+  grid-template-columns: minmax(120px, max-content) minmax(0, 1fr);
   gap: 8px 12px;
   align-items: baseline;
   margin-bottom: 4px;
@@ -3513,9 +3550,14 @@ details.collapse[open] summary::before {
   .settings-row-grid,
   .review-empty-steps,
   .markdown-body .pipe-card,
+  .markdown-body .pipe-card:has(.pipe-card-title + .pipe-card-body),
   .markdown-body .report-card-head,
   .markdown-body .insight-item {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .markdown-body .pipe-card:has(.pipe-card-title + .pipe-card-body) .pipe-card-body {
+    grid-column: auto;
   }
 
   .markdown-body .pipe-card-meta,
@@ -3762,7 +3804,7 @@ details.collapse[open] summary::before {
 
 .markdown-body .code-block-wrap {
   position: relative;
-  margin: 12px 0 16px;
+  margin: 10px 0 12px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -3772,12 +3814,12 @@ details.collapse[open] summary::before {
 .markdown-body .code-block-wrap pre > code {
   display: block;
   min-width: max-content;
-  padding: 13px 15px;
+  padding: 9px 12px;
   border: 0;
   border-radius: 0 !important;
   font-family: var(--font-mono);
   font-size: 0.86em;
-  line-height: 1.62;
+  line-height: 1.55;
   white-space: pre;
 }
 .code-block-header {

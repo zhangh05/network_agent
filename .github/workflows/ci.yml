@@ -48,6 +48,9 @@ jobs:
       - name: Lint with ruff
         run: |
           ruff check . --ignore=E501,W291 --exclude=__pycache__,.git,venv,node_modules || true
+      - name: Check CSS tokens
+        run: |
+          python scripts/check_css_tokens.py
 
       - name: Check imports
         run: |
