@@ -422,12 +422,22 @@ def test_memory_retrieval_only_returns_governed_active_records():
 
     retriever = object.__new__(UnifiedRetriever)
     retriever.workspace_id = "default"
-    retriever.search = lambda *args, **kwargs: [
+
+    all_items = [
         {"item_id": "active", "status": "active", "scope": "workspace", "workspace_id": "default"},
         {"item_id": "pending", "memory_status": "pending", "scope": "workspace", "workspace_id": "default"},
         {"item_id": "rejected", "status": "rejected", "scope": "workspace", "workspace_id": "default"},
         {"item_id": "confirmed", "memory_status": "confirmed", "scope": "workspace", "workspace_id": "default"},
     ]
+
+    def _search(*args, **kwargs):
+        result_filter = kwargs.get("result_filter")
+        if result_filter is not None:
+            return [item for item in all_items if result_filter(item)]
+        return all_items
+
+    retriever.search = _search
+    retriever._memory_scope_visible = lambda hit, **kw: True
 
     hits = UnifiedRetriever.search_memory(retriever, "router", top_k=5)
     assert [hit["item_id"] for hit in hits] == ["active", "confirmed"]
