@@ -412,7 +412,7 @@ tool_handler_import = _build_handler(
 )
 tool_handler_list = _build_handler(
     _knowledge_service.list_sources, "knowledge.manage.list",
-    passthrough_keys=("workspace_id", "include_disabled", "include_deleted"),
+    passthrough_keys=("workspace_id", "include_disabled", "include_deleted", "query"),
 )
 tool_handler_read = _build_handler(
     _knowledge_service.read_source, "knowledge.manage.read",

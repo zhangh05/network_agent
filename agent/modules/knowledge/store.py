@@ -206,23 +206,32 @@ def list_sources(
     workspace_id: str,
     include_disabled: bool = False,
     include_deleted: bool = False,
+    query: str = "",
 ) -> dict:
-    """List knowledge sources."""
+    """List knowledge sources, optionally filtered by title/source substring."""
     store = get_context_store(workspace_id)
     items = store.list_items(item_type="knowledge_source", limit=999)
 
+    query_str = (query or "").strip().lower()
     sources = []
     for item in items:
         if item.get("deleted") and not include_deleted:
             continue
         if item.get("disabled") and not include_disabled:
             continue
+        if query_str:
+            title = (item.get("title") or "").lower()
+            meta = item.get("metadata", {}) or {}
+            origin = (meta.get("origin_source") or "").lower()
+            if query_str not in title and query_str not in origin:
+                continue
         sources.append(_public_view(item))
 
     return {
         "ok": True,
         "sources": sources,
         "total": len(sources),
+        "query": query_str,
     }
 
 

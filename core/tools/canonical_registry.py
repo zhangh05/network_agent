@@ -2311,7 +2311,15 @@ def _ordered_unique(items) -> list[str]:
 
 def _k_source_list(inv: ToolInvocation) -> dict:
     from agent.modules.knowledge.tools import tool_handler_list
-    r = tool_handler_list({"workspace_id": _inv_workspace(inv)}, {})
+    args = inv.arguments or {}
+    kwargs = {"workspace_id": _inv_workspace(inv)}
+    if "query" in args:
+        kwargs["query"] = str(args["query"])
+    if "include_disabled" in args:
+        kwargs["include_disabled"] = bool(args["include_disabled"])
+    if "include_deleted" in args:
+        kwargs["include_deleted"] = bool(args["include_deleted"])
+    r = tool_handler_list(kwargs, {})
     return _module_result_to_dict(r)
 
 def _k_chunk_list(inv: ToolInvocation) -> dict:

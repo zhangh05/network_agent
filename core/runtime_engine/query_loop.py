@@ -103,12 +103,12 @@ def _build_cached_tool_definitions(tool_registry: dict) -> List[dict]:
     return tools
 
 
-TOOL_MESSAGE_MAX_CHARS = 6000     # Per-tool output cap fed to LLM; balances article coverage vs context pressure
-ARTIFACT_ANALYSIS_MAX_CHARS = 28_000
-FINALIZER_TOOL_MAX_CHARS = 3000
-FALLBACK_TOOL_MAX_CHARS = 1600
-MAX_INLINE_STRING_CHARS = 3000    # Per-string-value cap in compacted output
-MAX_INLINE_LIST_ITEMS = 8
+TOOL_MESSAGE_MAX_CHARS = 50_000    # Per-tool output cap fed to LLM; balances article coverage vs context pressure
+ARTIFACT_ANALYSIS_MAX_CHARS = 100_000
+FINALIZER_TOOL_MAX_CHARS = 5000
+FALLBACK_TOOL_MAX_CHARS = 2000
+MAX_INLINE_STRING_CHARS = 20_000  # Per-string-value cap in compacted output
+MAX_INLINE_LIST_ITEMS = 500       # Allow large result sets (e.g. 66 knowledge sources) to pass through
 MAX_VALIDATION_CORRECTION_ROUNDS = 3
 
 _PRIORITY_OUTPUT_KEYS = (

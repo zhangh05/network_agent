@@ -141,7 +141,8 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         description=(
             "Unified knowledge tool. action=search, read, source_list, "
             "chunk_list, not_found_explain (reads); "
-            "action=import, source_manage, source_reindex (writes)."
+            "action=import, source_manage, source_reindex (writes). "
+            "source_list supports `query` param to filter by title/source."
         ),
         # v3.9.2: visibility treats this as "read" because the canonical
         # knowledge query path is read. Write sub-actions (import/manage/

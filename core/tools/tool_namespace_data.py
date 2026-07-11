@@ -160,7 +160,8 @@ NS_DATA = [
      'Unified knowledge tool. action=search (query the KB), '
      'action=read (level=chunk|source|parent by id), '
      'action=import (file or artifact_id), action=not_found_explain, '
-     'action=source_list, action=source_manage (disable/delete/reindex), '
+     'action=source_list (query param filters by title/source), '
+     'action=source_manage (disable/delete/reindex), '
      'action=source_reindex, action=chunk_list. '
      'Do not return unredacted full text or secrets.',
      'knowledge search read import chunk source reindex explain', 'knowledge.manage'),
