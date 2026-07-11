@@ -22,16 +22,13 @@ from agent.hooks_integration import register_hook
 
 _log = logging.getLogger("default_hooks")
 
-# ── Injection patterns (subset of rag_injection_scan HIGH_RISK_PATTERNS) ──
+# ── Secret patterns ────────────────────────────────────────────────────
+# Command risk is owned by ToolPolicy/RiskPolicyEngine so destructive
+# commands reach the unified approval flow. Duplicating command policy here
+# previously turned approvable operations into hard denials and also blocked
+# harmless code/search text containing words such as ``subprocess``.
 
 _ARGUMENT_SCAN_PATTERNS = [
-    # High-risk command patterns
-    (re.compile(r'(rm\s+-rf|sudo\s+rm|format\s+[A-Z]:|del\s+/[FSQ])', re.I),
-     "dangerous_command"),
-    (re.compile(r'(curl|wget).*(\.env|/etc/passwd|/etc/shadow)', re.I),
-     "credential_exfiltration"),
-    (re.compile(r'(eval|exec|system|subprocess|__import__)\s*\(', re.I),
-     "code_execution"),
     (re.compile(r'(token|api_key|password|secret|credential)\s*[=:]\s*[\'"][^\'"]+[\'"]', re.I),
      "credential_in_argument"),
 ]
@@ -61,26 +58,30 @@ def _safe_reason(pattern_name: str, match_text: str) -> str:
 # ═══════════════════════════════════════════════════════════════════
 
 def _pre_tool_use_handler(state: dict, payload: dict) -> HookResult:
-    """Scan tool arguments for injection patterns. Block high-risk calls."""
+    """Reject literal credentials; command risk is handled by policy gates."""
     arguments = payload.get("arguments", {})
     if not arguments:
         return HookResult()
 
-    arg_text = ""
-    try:
-        import json
-        arg_text = json.dumps(arguments, ensure_ascii=False)
-    except Exception:
-        arg_text = str(arguments)
+    def iter_strings(value):
+        if isinstance(value, dict):
+            for nested in value.values():
+                yield from iter_strings(nested)
+        elif isinstance(value, (list, tuple)):
+            for nested in value:
+                yield from iter_strings(nested)
+        elif isinstance(value, str):
+            yield value
 
-    for pattern, name in _ARGUMENT_SCAN_PATTERNS:
-        m = pattern.search(arg_text)
-        if m:
-            _log.warning("PreToolUse blocked: %s tool=%s", name, payload.get("tool_id", "?"))
-            return HookResult(
-                decision=HookDecision.DENY,
-                reason=_safe_reason(name, m.group(0)),
-            )
+    for arg_text in iter_strings(arguments):
+        for pattern, name in _ARGUMENT_SCAN_PATTERNS:
+            m = pattern.search(arg_text)
+            if m:
+                _log.warning("PreToolUse blocked: %s tool=%s", name, payload.get("tool_id", "?"))
+                return HookResult(
+                    decision=HookDecision.DENY,
+                    reason=_safe_reason(name, m.group(0)),
+                )
 
     return HookResult()
 

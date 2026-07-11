@@ -34,20 +34,29 @@ _MAX_WS_METADATA_JSON = 16384
 
 # v3.16: Global connection registry for broadcasting system events
 # (job_updated, inspection_progress, run_status) to all active clients.
-_active_ws_connections: dict[str, object] = {}  # ws_key → ws connection
+_active_ws_connections: dict[str, tuple[str, object]] = {}  # ws_key → (workspace_id, ws)
 _active_ws_lock = threading.Lock()
 
 
 def broadcast_ws_event(event: dict) -> None:
-    """Push a system event to all connected WebSocket clients."""
+    """Push a system event only to clients in the owning workspace."""
+    data = event.get("data") if isinstance(event.get("data"), dict) else {}
+    workspace_id = str(data.get("workspace_id") or "").strip()
+    if not workspace_id:
+        _log.warning("Dropped WebSocket broadcast without workspace_id: %s", event.get("name"))
+        return
     payload = json.dumps({"type": "event", "name": event["name"], "data": event.get("data", {})}, ensure_ascii=True, default=str)
     dead: list[str] = []
     with _active_ws_lock:
-        for key, ws in list(_active_ws_connections.items()):
-            try:
-                ws.send(payload)
-            except Exception:
-                dead.append(key)
+        recipients = [
+            (key, ws) for key, (ws_id, ws) in _active_ws_connections.items()
+            if ws_id == workspace_id
+        ]
+    for key, ws in recipients:
+        try:
+            ws.send(payload)
+        except Exception:
+            dead.append(key)
     for key in dead:
         with _active_ws_lock:
             _active_ws_connections.pop(key, None)
@@ -66,6 +75,7 @@ def register_ws_routes(app):
 
         # When auth is enabled, enforce token on the first message
         _auth_checked = False
+        ws_key = ""
 
         try:
             while True:
@@ -79,28 +89,36 @@ def register_ws_routes(app):
                     ws.send(json.dumps({"type": "error", "message": "Invalid JSON"}, ensure_ascii=True))
                     continue
 
+                # WebSocket routes are outside /api, so the Flask auth
+                # middleware does not protect them. Authenticate the first
+                # frame regardless of whether it is a ping or an agent turn.
+                if not _auth_checked:
+                    from backend.core.auth import _is_auth_enabled, _get_api_token
+                    import hmac as _hmac
+                    if _is_auth_enabled() and _get_api_token():
+                        if not _hmac.compare_digest(str(msg.get("auth_token", "")), _get_api_token()):
+                            ws.send(json.dumps({"type": "error", "message": "unauthorized"}))
+                            return
+                    _auth_checked = True
+
                 # System WebSocket — register for broadcasts, skip agent turn
                 if msg.get("type") == "ping":
+                    workspace_id = str(msg.get("workspace_id") or "").strip()
+                    try:
+                        from workspace.ids import validate_workspace_id
+                        workspace_id = validate_workspace_id(workspace_id)
+                    except ValueError:
+                        ws.send(json.dumps({"type": "error", "message": "invalid_workspace_id"}))
+                        continue
                     ws_key = f"{id(ws)}_{threading.current_thread().ident}"
                     with _active_ws_lock:
-                        _active_ws_connections[ws_key] = ws
+                        _active_ws_connections[ws_key] = (workspace_id, ws)
                     ws.send(json.dumps({"type": "pong", "message": "connected"}, ensure_ascii=True))
                     continue
 
                 if msg.get("type") != "message":
                     ws.send(json.dumps({"type": "error", "message": f"Unknown type: {msg.get('type')}"}, ensure_ascii=True))
                     continue
-
-                # P0-16: token in message field (not header), checked once per connection.
-                # Origin check bypassed when token is valid (CSRF double-track).
-                if not _auth_checked:
-                    from backend.core.auth import _is_auth_enabled, _get_api_token
-                    import hmac as _hmac
-                    if _is_auth_enabled() and _get_api_token():
-                        if not _hmac.compare_digest(str(msg.get("auth_token", "")), _get_api_token()):
-                            ws.send(json.dumps({"type": "error", "message": "unauthorized"}, ensure_ascii=True))
-                            return
-                    _auth_checked = True
 
                 user_input = msg.get("user_input", msg.get("message", ""))
                 if not user_input:
@@ -185,12 +203,10 @@ def register_ws_routes(app):
                 ws.send(json.dumps({"type": "error", "message": f"WebSocket error: {str(e)[:200]}"}, ensure_ascii=True))
             except Exception:
                 pass
-            finally:
-                try:
-                    from agent.runtime.query_engine import StreamEmitter
-                    StreamEmitter.clear_realtime_callback()
-                except Exception:
-                    pass
+        finally:
+            if ws_key:
+                with _active_ws_lock:
+                    _active_ws_connections.pop(ws_key, None)
 
     return app
 

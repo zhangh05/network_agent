@@ -285,6 +285,20 @@ class _BM25:
         return ranked[:top_k]
 
 
+def rank_documents(query: str, documents: list[dict], top_k: int = 10) -> list[dict]:
+    """Rank an explicit document set with the shared BM25 implementation.
+
+    Lifecycle management screens use this for pending/conflict records that
+    intentionally do not exist in the active ContextStore projection.
+    """
+    if not str(query or "").strip() or not documents:
+        return documents[:max(0, int(top_k))]
+    engine = _BM25()
+    engine.fit(documents)
+    ranked = engine.score(expand_query(str(query)), top_k=max(1, int(top_k)))
+    return [dict(documents[index], _score=round(score, 4)) for index, score in ranked]
+
+
 # ---------------------------------------------------------------------------
 # UnifiedRetriever
 # ---------------------------------------------------------------------------
@@ -298,13 +312,23 @@ class UnifiedRetriever:
         self._bm25 = _BM25()
         self._indexed_count = 0
         self._last_index_time = 0.0
+        self._indexed_signature: tuple[int, int] = (-1, -1)
         self._lock = threading.RLock()
+
+    def _store_signature(self) -> tuple[int, int]:
+        path = self._store._items_path
+        try:
+            stat = path.stat()
+            return stat.st_mtime_ns, stat.st_size
+        except OSError:
+            return 0, 0
 
     def _maybe_reindex(self):
         """Rebuild BM25 index if store has changed."""
         items = self._store.all_items()
         count = len(items)
-        if count != self._indexed_count or (
+        signature = self._store_signature()
+        if signature != self._indexed_signature or count != self._indexed_count or (
             time.time() - self._last_index_time > 30
         ) or (count > 0 and not self._bm25._built):
             with self._lock:
@@ -312,6 +336,7 @@ class UnifiedRetriever:
                 items = self._store.all_items()
                 self._bm25.fit(items)
                 self._indexed_count = len(items)
+                self._indexed_signature = self._store_signature()
                 self._last_index_time = time.time()
 
     def search(
@@ -359,6 +384,9 @@ class UnifiedRetriever:
             if score < min_score:
                 continue
             doc = self._bm25.docs[idx]
+
+            if doc.get("disabled") is True:
+                continue
 
             # Type filter
             if types_filter and doc.get("item_type") not in types_filter:

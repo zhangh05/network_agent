@@ -42,12 +42,16 @@ def validate_module(spec: ModuleSpec, module_path: str = "") -> ValidationResult
     if spec.no_module_private_llm and spec.requires_llm:
         v.add_error("no_module_private_llm conflicts with requires_llm=true")
 
-    # Check module doesn't import agent.llm
+    # Check deterministic business modules do not invoke a private LLM. Shared
+    # schema and output-sanitizer imports are allowed; they do not create a
+    # second reasoning path.
     if spec.no_module_private_llm and spec.is_enabled():
         mp = ROOT / spec.module_path
         for py_file in mp.rglob("*.py"):
             content = py_file.read_text()
-            if "agent.llm" in content or "from agent.llm" in content:
+            if any(pattern in content for pattern in (
+                "invoke_llm(", "safe_generate(", "LLMProvider(",
+            )):
                 v.add_error(f"module imports agent.llm: {py_file}")
 
     # No retired frontend

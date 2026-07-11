@@ -50,6 +50,8 @@ def normalize_tracking_payload(tracking: dict[str, Any]) -> dict[str, Any]:
         "stall_risk": bool(tracking.get("stall_risk")),
         "next_poll_seconds": int(tracking.get("next_poll_seconds") or 0),
         "suggested_next_action": tracking.get("suggested_next_action", ""),
+        "poll_action": tracking.get("poll_action", "get"),
+        "poll_arguments": dict(tracking.get("poll_arguments") or {}),
         "progress": progress,
         "summary": summary,
         "raw": tracking,

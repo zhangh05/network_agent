@@ -6,7 +6,7 @@ written first and are the SSOT for memory write acceptance.
 """
 
 from __future__ import annotations
-import json, time as _time, hashlib, logging, uuid
+import json, time as _time, hashlib, logging, re, uuid
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional, Literal
@@ -32,6 +32,7 @@ _VALID_MEMORY_TYPES = {
     "user_preference", "task_pattern", "tool_learning", "error_lesson",
     "artifact_summary", "operational_fact", "device_state", "profile", "knowledge_note",
 }
+_MEMORY_ID_RE = re.compile(r"^mem-[a-f0-9]{12}$")
 
 def _now(): return now_iso()
 def _mid(): return f"mem-{uuid.uuid4().hex[:12]}"
@@ -97,6 +98,9 @@ class MemoryStore:
         return WS_ROOT / self._validated_ws_id(ws_id) / "memory"
 
     def _path(self, ws_id: str, memory_id: str) -> Path:
+        memory_id = str(memory_id or "")
+        if not _MEMORY_ID_RE.fullmatch(memory_id):
+            raise ValueError("invalid_memory_id")
         return self._dir(ws_id) / f"{memory_id}.json"
 
     def _save(self, record: MemoryRecord):
@@ -170,7 +174,10 @@ class MemoryStore:
         """Physically delete a memory record file."""
         ws_id = self._validated_ws_id(ws_id)
         record = self.get(ws_id, memory_id)
-        p = self._path(ws_id, memory_id)
+        try:
+            p = self._path(ws_id, memory_id)
+        except ValueError:
+            return False
         if p.exists():
             from core.graph.projection_events import append_memory_deleted
             append_memory_deleted(
@@ -193,7 +200,10 @@ class MemoryStore:
         return False
 
     def get(self, ws_id: str, memory_id: str) -> Optional[MemoryRecord]:
-        p = self._path(ws_id, memory_id)
+        try:
+            p = self._path(ws_id, memory_id)
+        except ValueError:
+            return None
         if not p.exists(): return None
         try: return MemoryRecord.from_dict(json.loads(p.read_text()))
         except Exception: return None
@@ -229,13 +239,14 @@ class MemoryStore:
         return [r.to_dict() for r in results]
 
     def search(self, ws_id: str, query: str, limit: int = 10) -> list[dict]:
-        """Search the active retrieval projection using the shared BM25 engine."""
+        """Search all lifecycle records for the memory-management surface."""
         ws_id = self._validated_ws_id(ws_id)
         limit = max(1, min(int(limit), 100))
+        records = [record.to_dict() for record in self.list_all(ws_id)]
         if not str(query or "").strip():
-            return self.list_retrievable(ws_id, limit=limit)
-        from core.context.unified_retriever import get_retriever
-        return get_retriever(ws_id).search_memory(str(query), top_k=limit)
+            return records[:limit]
+        from core.context.unified_retriever import rank_documents
+        return rank_documents(str(query), records, top_k=limit)
 
     def find_conflicts(self, record: MemoryRecord) -> list[MemoryRecord]:
         """Find conflicting records with same scope+type+similar content."""

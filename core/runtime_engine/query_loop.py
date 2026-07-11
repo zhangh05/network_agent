@@ -410,20 +410,20 @@ class StreamingToolExecutor:
         Returns results in the ORIGINAL tool_calls order so callers can
         safely zip(results, tool_calls) for idempotent-key tracking.
         """
-        # Build result map keyed by call_id so we can return in original order
+        # Build result map keyed by call_id so we can return in original order.
+        # Consecutive reads may run together, but every write is an ordering
+        # barrier. Executing all reads before all writes changes semantics for
+        # batches such as [read, write, read].
         result_by_id: dict[str, StreamingToolResult] = {}
 
-        # --- Parallel read-only ---
-        read_only = [tc for tc in tool_calls if self._is_read_only_call(tc)]
-        self.max_parallel_width = max(
-            self.max_parallel_width,
-            len(read_only) if read_only else (1 if tool_calls else 0),
-        )
-        if read_only:
-            tasks = [self._execute_one(tc, ctx=ctx, budget=budget) for tc in read_only]
+        async def execute_read_group(group: list[LLMToolCall]) -> None:
+            if not group:
+                return
+            self.max_parallel_width = max(self.max_parallel_width, len(group))
+            tasks = [self._execute_one(tc, ctx=ctx, budget=budget) for tc in group]
             # return_exceptions=True: collect every result, even if some fail
             ro_results = await asyncio.gather(*tasks, return_exceptions=True)
-            for tc, r in zip(read_only, ro_results):
+            for tc, r in zip(group, ro_results):
                 if isinstance(r, Exception):
                     result_by_id[tc.id] = StreamingToolResult(
                         tool_name=tc.name,
@@ -435,9 +435,16 @@ class StreamingToolExecutor:
                 else:
                     result_by_id[tc.id] = r
 
-        # --- Serial writes ---
-        for tc in (tc for tc in tool_calls if not self._is_read_only_call(tc)):
+        read_group: list[LLMToolCall] = []
+        for tc in tool_calls:
+            if self._is_read_only_call(tc):
+                read_group.append(tc)
+                continue
+            await execute_read_group(read_group)
+            read_group = []
+            self.max_parallel_width = max(self.max_parallel_width, 1)
             result_by_id[tc.id] = await self._execute_one(tc, ctx=ctx, budget=budget)
+        await execute_read_group(read_group)
 
         # Return in original order
         return [result_by_id[tc.id] for tc in tool_calls]
@@ -995,15 +1002,16 @@ class QueryLoop:
 
         # Max iterations exhausted
         return finish(
-            final_response="已达到最大迭代次数，请检查结果。",
+            final_response=(
+                self._build_tool_result_fallback(ctx, all_results)
+                if all_results else "已达到最大迭代次数，请缩小任务范围后重试。"
+            ),
             tool_results=all_results,
             iterations=iterations,
             total_tool_calls=len(all_results),
             llm_calls=llm_calls,
             error="max_iterations",
         )
-
-    # ── Private helpers ──────────────────────────────────────────────────
 
     # ── Private helpers ──────────────────────────────────────────────────
 
@@ -1651,10 +1659,13 @@ class QueryLoop:
 
                 poll_index += 1
                 poll_call_id = f"{r.call_id}_track_{poll_index}"
+                poll_arguments = dict(tracking.get("poll_arguments") or {})
+                poll_arguments.setdefault("task_id", task_id)
+                poll_arguments.setdefault("action", str(tracking.get("poll_action") or "get"))
                 poll_call = LLMToolCall(
                     id=poll_call_id,
                     name=tool_name,
-                    arguments={"action": "get", "task_id": task_id},
+                    arguments=poll_arguments,
                 )
                 try:
                     poll_result = await self._executor._execute_one(

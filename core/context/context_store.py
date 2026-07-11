@@ -182,19 +182,16 @@ class ContextStore:
 
     def count(self, item_type: Optional[str] = None) -> int:
         """Count live (non-deleted) items."""
-        seen: set[str] = set()
-        deleted: set[str] = set()
+        live: dict[str, dict] = {}
         for item in self._iter_raw():
             iid = item.get("item_id", "")
             if item.get("deleted"):
-                deleted.add(iid)
-                seen.discard(iid)
+                live.pop(iid, None)
             else:
-                if item_type and item.get("item_type") != item_type:
-                    continue
-                if iid not in deleted:
-                    seen.add(iid)
-        return len(seen)
+                live[iid] = item
+        if item_type:
+            return sum(1 for item in live.values() if item.get("item_type") == item_type)
+        return len(live)
 
     def all_items(self, item_type: Optional[str] = None) -> list[dict]:
         """Return all live items (for indexing)."""
@@ -263,15 +260,17 @@ class ContextStore:
         """Rewrite items.jsonl, removing tombstones and superseded versions."""
         with self._lock:
             live: dict[str, dict] = {}
-            deleted: set[str] = set()
+            raw_count = 0
             for item in self._iter_raw():
+                raw_count += 1
                 iid = item.get("item_id", "")
                 if item.get("deleted"):
-                    deleted.add(iid)
                     live.pop(iid, None)
                 else:
-                    if iid not in deleted:
-                        live[iid] = item
+                    # Append-only storage is strict last-write-wins. A later
+                    # put with the same item_id intentionally revives a prior
+                    # tombstone (for example, a rebuilt knowledge chunk).
+                    live[iid] = item
 
             # Atomic rewrite: write to a sibling tmp file, fsync, then
             # os.replace() into place. On failure the original file is
@@ -330,9 +329,9 @@ class ContextStore:
                 raise
 
         return {
-            "before": len(live) + len(deleted),
+            "before": raw_count,
             "after": len(live),
-            "removed": len(deleted),
+            "removed": max(0, raw_count - len(live)),
             "backup": str(bak),
         }
 

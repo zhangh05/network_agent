@@ -45,6 +45,12 @@ export const apiClient: AxiosInstance = axios.create({
   },
 });
 
+export function getApiAccessToken(): string {
+  return import.meta.env.VITE_API_TOKEN
+    || (typeof window !== "undefined" ? window.localStorage.getItem("NA_API_TOKEN") : "")
+    || "";
+}
+
 let requestSeq = 0;
 function nextRequestId(): string {
   requestSeq += 1;
@@ -55,8 +61,7 @@ apiClient.interceptors.request.use((config) => {
   config.headers = config.headers ?? {};
   (config.headers as Record<string, string>)["X-Request-Id"] = nextRequestId();
   // Inject auth header if token is configured
-  const token = import.meta.env.VITE_API_TOKEN
-    || (typeof window !== 'undefined' ? window.localStorage.getItem('NA_API_TOKEN') : null);
+  const token = getApiAccessToken();
   if (token) {
     (config.headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
   }

@@ -367,15 +367,15 @@ def _project_runtime_modules() -> list:
             category=first.get("capability_id", ""),
             status="enabled" if enabled else "planned",
             maturity="beta_ready" if enabled else "planned",
-            module_path=f"agent/modules/{module_id}",
+            module_path=_runtime_module_path(module_id),
             api_base=f"/api/modules/{module_id}",
             primary_endpoint="runtime",
             health_endpoint=f"/api/modules/{module_id}/health",
             has_ui=enabled,
             ui_route=f"/capabilities/{first.get('capability_id', module_id)}",
-            requires_llm=False,
-            llm_allowed=False,
-            deterministic=True,
+            requires_llm=module_id == "runtime",
+            llm_allowed=module_id == "runtime",
+            deterministic=module_id != "runtime",
             can_generate_deployable=_catalog_requires_review(module_caps),
             deployable_output_field="deployable_config" if _catalog_requires_review(module_caps) else "",
             risk_level=risk,
@@ -386,6 +386,7 @@ def _project_runtime_modules() -> list:
             artifact_output_policy="sensitive_artifact_allowed" if _catalog_requires_review(module_caps) else "none",
             trace_enabled=True,
             trace_policy="sanitized_metadata_only",
+            no_module_private_llm=module_id != "runtime",
         ))
     return modules
 
@@ -423,7 +424,7 @@ def _project_runtime_skills() -> list:
             calls_http_self=False,
             adapter_required=False,
             requires_adapter=False,
-            red_lines=list(cap.get("safety_notes") or []),
+            red_lines=_skill_red_lines(list(cap.get("safety_notes") or [])),
             trace_record_capability_call=True,
             trace_record_module_call=True,
             memory_write_run_summary=True,
@@ -505,6 +506,15 @@ def _catalog_requires_review(caps: list[dict]) -> bool:
 
 def _title_from_id(value: str) -> str:
     return str(value or "").replace("_", " ").replace(".", " ").title()
+
+
+def _runtime_module_path(module_id: str) -> str:
+    """Resolve logical capability modules to their actual code owners."""
+    return {
+        "memory": "workspace",
+        "runtime": "core/runtime_engine",
+        "workspace": "workspace",
+    }.get(module_id, f"agent/modules/{module_id}")
 
 
 def _skill_red_lines(safety_rules: list) -> list:

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, memo } from "react";
 import { agentApi, knowledgeApi, memoryApi, sessionsApi, settingsApi, sseApi } from "../../api";
-import { apiRequest } from "../../api/client";
+import { apiRequest, getApiAccessToken } from "../../api/client";
 import { useSessionStore } from "../../stores/session";
 import { useWorkbenchStore } from "../../stores/workbench";
 import { useToastStore } from "../../stores/toast";
@@ -280,7 +280,13 @@ export function TaskWorkbench() {
       systemWsRef.current = ws;
       ws.onopen = () => {
         retryDelay = 1000; // reset on successful connection
-        try { ws?.send(JSON.stringify({ type: "ping", workspace_id: currentWorkspaceId || "default" })); } catch {}
+        try {
+          ws?.send(JSON.stringify({
+            type: "ping",
+            workspace_id: currentWorkspaceId || "default",
+            auth_token: getApiAccessToken(),
+          }));
+        } catch {}
       };
       ws.onmessage = (event) => {
         try {
@@ -640,6 +646,7 @@ export function TaskWorkbench() {
         session_id: currentSessionId,
         workspace_id: currentWorkspaceId,
         metadata: turnMetadata,
+        auth_token: getApiAccessToken(),
       }));
 
       // Receive streaming events

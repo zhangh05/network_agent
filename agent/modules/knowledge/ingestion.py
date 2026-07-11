@@ -374,6 +374,8 @@ def import_file(
         "normalized_title": doc.title,
         "warnings": list(doc.warnings or []),
     })
+    if source_file_id:
+        source_meta["source_file_id"] = source_file_id
     saved = _store.import_document(
         workspace_id=workspace_id,
         title=full_title,
@@ -428,29 +430,7 @@ def import_file(
         )
 
     # 6. Write normalized markdown as FileRecord BEFORE chunk persistence
-    normalized_file_id = ""
-    try:
-        from storage.file_store import write_agent_output
-        nm = getattr(doc, "content", "") or getattr(doc, "body_text", "") or ""
-        if nm:
-            normalized_rec = write_agent_output(
-                workspace_id=workspace_id,
-                content=nm,
-                logical_type="knowledge_normalized",
-                file_kind="markdown",
-                title=f"normalized_{source_id}",
-                ext="md",
-                source="knowledge_import",
-                sensitivity="internal",
-                metadata={
-                    "source_id": source_id,
-                    "source_file_id": source_file_id,
-                    "storage_managed": True,
-                },
-            )
-            normalized_file_id = normalized_rec.file_id
-    except Exception:
-        pass
+    normalized_file_id = str(saved.get("normalized_file_id") or "")
 
     # 7. Add file refs to chunk metadata before persistence
     if normalized_file_id:

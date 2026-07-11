@@ -62,7 +62,7 @@ def load_all_chunks(workspace_id: str) -> List[KnowledgeChunk]:
     """Load all enabled chunks as KnowledgeChunk objects."""
     store = get_context_store(workspace_id)
     items = store.list_items(item_type="knowledge_chunk", limit=99999)
-    return [_item_to_chunk(it) for it in items]
+    return [_item_to_chunk(it) for it in items if it.get("disabled") is not True]
 
 
 def list_chunks(
@@ -80,6 +80,9 @@ def list_chunks(
         source_id=source_id if source_id else None,
         limit=limit + offset,
     )
+
+    if enabled:
+        items = [it for it in items if it.get("disabled") is not True]
 
     # Apply chunk_type filter
     if chunk_type:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import uuid
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -18,7 +19,7 @@ from agent.runtime.utils import now_iso
 
 
 SOURCE_ID_PREFIX = "ksrc_"
-MAX_CONTENT_LENGTH = 200_000
+_LOG = logging.getLogger("knowledge.store")
 
 
 def _now_iso() -> str:
@@ -72,16 +73,54 @@ def import_document(
 ) -> dict:
     """Import a document as a knowledge source into ContextStore."""
     content = str(content or "")
-    if len(content) > MAX_CONTENT_LENGTH:
-        return {
-            "ok": False,
-            "errors": [f"Content too large: {len(content)} > {MAX_CONTENT_LENGTH}"],
-        }
+    if not content.strip():
+        return {"ok": False, "errors": ["empty_document"]}
+    preview = content[:1000]  # Full text lives in managed workspace storage.
 
     source_id = _generate_source_id()
     meta = dict(metadata or {})
     meta["origin_source"] = _sanitize_source_label(source)
     meta["updated_at"] = _now_iso()
+    meta["content_length"] = len(content)
+
+    # Source records stay lightweight, while the complete normalized text is
+    # kept in managed workspace storage. This preserves read/reindex semantics
+    # without duplicating multi-megabyte documents in ContextStore JSONL.
+    try:
+        source_file_id = str(meta.get("source_file_id") or "")
+        source_format = str(meta.get("format") or "").lower()
+        source_file_type = ""
+        if source_file_id:
+            from storage.file_store import get_file_record
+            source_file_type = str((get_file_record(workspace_id, source_file_id) or {}).get("logical_type") or "")
+        if (
+            source_file_id
+            and source_file_type == "knowledge_source"
+            and source_format in {"md", "markdown", "txt", "text"}
+        ):
+            normalized_file_id = source_file_id
+        else:
+            from storage.file_store import write_agent_output
+            normalized = write_agent_output(
+                workspace_id=workspace_id,
+                content=content,
+                logical_type="knowledge_normalized",
+                file_kind="markdown",
+                title=f"normalized_{source_id}",
+                ext="md",
+                source="knowledge_import",
+                sensitivity="internal",
+                metadata={"source_id": source_id, "storage_managed": True},
+            )
+            normalized_file_id = normalized.file_id
+        meta["normalized_file_id"] = normalized_file_id
+        meta["storage_managed"] = True
+    except Exception as exc:
+        return {
+            "ok": False,
+            "errors": ["normalized_content_store_failed"],
+            "summary": str(exc)[:200],
+        }
 
     item = {
         "item_id": source_id,
@@ -89,8 +128,8 @@ def import_document(
         "source": "knowledge_import",
         "source_id": source_id,
         "title": title.strip()[:200],
-        "summary": content[:200],
-        "content": content,
+        "summary": preview,
+        "content": preview,  # Store preview only; full content in chunks
         "scope": meta.pop("scope", "workspace"),
         "sensitivity": "internal",
         "tags": meta.pop("tags", []),
@@ -98,18 +137,29 @@ def import_document(
     }
 
     store = get_context_store(workspace_id)
-    store.put(item)
-
-    # Also create basic chunks for searchability
     try:
+        store.put(item)
+        # Direct text imports receive basic search chunks. File-ingestion
+        # callers may replace these with richer structural chunks afterwards.
         _create_basic_chunks(workspace_id, source_id, title.strip()[:200], content, meta)
-    except Exception:
-        pass
+    except Exception as exc:
+        try:
+            delete_source(workspace_id, source_id)
+            from storage.file_store import soft_delete_file
+            soft_delete_file(workspace_id, str(meta.get("normalized_file_id") or ""))
+        except Exception:
+            _LOG.warning("failed to roll back knowledge source %s", source_id, exc_info=True)
+        return {
+            "ok": False,
+            "errors": ["knowledge_chunk_store_failed"],
+            "summary": str(exc)[:200],
+        }
 
     return {
         "ok": True,
         "source_id": source_id,
         "title": item["title"],
+        "normalized_file_id": meta["normalized_file_id"],
         "summary": f"Imported: {item['title']} ({len(content)} chars)",
     }
 
@@ -182,7 +232,17 @@ def read_source(workspace_id: str, source_id: str) -> Optional[dict]:
     item = store.get(source_id)
     if not item or item.get("item_type") != "knowledge_source":
         return None
-    return _public_view(item, include_content=True)
+    out = _public_view(item, include_content=True)
+    normalized_file_id = str((item.get("metadata") or {}).get("normalized_file_id") or "")
+    if normalized_file_id:
+        try:
+            from storage.file_store import read_file_content
+            full_content = read_file_content(workspace_id, normalized_file_id)
+            out["content"] = full_content
+            out["normalized_markdown"] = full_content
+        except (FileNotFoundError, OSError, ValueError):
+            out.setdefault("warnings", []).append("normalized_content_unavailable")
+    return out
 
 
 def disable_source(
@@ -201,18 +261,37 @@ def disable_source(
     item["metadata"] = meta
     store.put(item)
 
+    chunks = store.list_items(
+        item_type="knowledge_chunk",
+        source_id=source_id,
+        include_deleted=False,
+        limit=999_999,
+    )
+    if chunks:
+        for chunk in chunks:
+            chunk["disabled"] = disabled
+        store.put_many(chunks)
+
     return _public_view(item)
 
 
 def delete_source(workspace_id: str, source_id: str) -> bool:
     """Physically delete a source and its chunks — purge from ContextStore."""
     store = get_context_store(workspace_id)
+    source = store.get(source_id)
+    normalized_file_id = str((source or {}).get("metadata", {}).get("normalized_file_id") or "")
     # Collect source + all associated chunk IDs
     ids_to_purge = {source_id}
     chunks = store.list_items(item_type="knowledge_chunk", source_id=source_id, include_deleted=True, limit=999_999)
     for chunk in chunks:
         ids_to_purge.add(chunk["item_id"])
     store.purge(ids_to_purge)
+    if normalized_file_id:
+        try:
+            from storage.file_store import soft_delete_file
+            soft_delete_file(workspace_id, normalized_file_id)
+        except Exception:
+            _LOG.warning("failed to retire normalized content for %s", source_id, exc_info=True)
     return True
 
 

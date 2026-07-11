@@ -158,6 +158,7 @@ def import_file(
     language: str = "zh",
     tags: Optional[List[str]] = None,
     metadata: Optional[dict] = None,
+    file_id: str = "",
 ) -> dict:
     from agent.modules.knowledge.ingestion import import_file as _impl
     return _impl(
@@ -165,7 +166,7 @@ def import_file(
         source=source,
         title=title, author=author, edition=edition,
         source_type=source_type, scope=scope, language=language,
-        tags=tags, metadata=metadata,
+        tags=tags, metadata=metadata, file_id=file_id,
     )
 
 

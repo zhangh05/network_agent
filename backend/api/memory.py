@@ -109,7 +109,7 @@ def handle_memory_search():
         return jsonify({"ok": False, "error": err}), 400
 
     try:
-        limit = min(int(data.get("limit", 10)), 100)
+        limit = max(1, min(int(data.get("limit", 10)), 100))
     except (ValueError, TypeError):
         return jsonify({"ok": False, "error": "invalid_limit"}), 400
 

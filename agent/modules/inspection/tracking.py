@@ -74,6 +74,8 @@ def ensure_tracking(task: InspectionTask, *, source: str = "inspection") -> dict
     tracking["progress"] = _progress(task)
     tracking["summary"] = task_summary(task)
     tracking["suggested_next_action"] = _suggested_next_action(task)
+    tracking["poll_action"] = "get"
+    tracking["poll_arguments"] = {"task_id": getattr(task, "task_id", "")}
     task.tracking = tracking
     return tracking
 

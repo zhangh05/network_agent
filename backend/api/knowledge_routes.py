@@ -108,6 +108,7 @@ def register_knowledge_routes(app):
         result = import_file(
             workspace_id=ws_id,
             source=str(target),
+            file_id=file_record.file_id,
             title=request.form.get("title", "") or uploaded.filename,
             source_type=request.form.get("source_type", "project_doc") or "project_doc",
             scope=request.form.get("scope", "workspace") or "workspace",
