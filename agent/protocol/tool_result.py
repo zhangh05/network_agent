@@ -39,7 +39,7 @@ def _safe_truncate_utf8(text: str, max_chars: int) -> str:
 
 # Max serialized length of `content` when it is a string. This is only
 # a preview; structured data/raw remain the source of truth.
-CONTENT_PREVIEW_MAX_LEN = 12000
+# No truncation here — query_loop applies a single cap before LLM injection.
 
 
 @dataclass
@@ -100,8 +100,6 @@ class ToolResult:
         tool_id: str,
         call_id: str,
         module_result: "ModuleResult",
-        *,
-        content_max_len: int = CONTENT_PREVIEW_MAX_LEN,
     ) -> "ToolResult":
         """Build a ToolResult from a ModuleResult.
 
@@ -147,10 +145,7 @@ class ToolResult:
             preview_payload["errors"] = list(mr.errors)[:5]
         if mr.warnings:
             preview_payload["warnings"] = list(mr.warnings)[:5]
-        content_str = _safe_truncate_utf8(
-            json.dumps(preview_payload, ensure_ascii=False),
-            content_max_len,
-        )
+        content=json.dumps(preview_payload, ensure_ascii=False),
 
         return cls(
             call_id=call_id,
@@ -182,10 +177,7 @@ class ToolResult:
             call_id=call_id,
             tool_id=tool_id,
             ok=bool(d.get("ok", False)),
-            summary=str(d.get("summary", ""))[:CONTENT_PREVIEW_MAX_LEN],
-            content=str(d.get("content", ""))[:CONTENT_PREVIEW_MAX_LEN]
-                    if not isinstance(d.get("content"), (dict, list))
-                    else json.dumps(d.get("content"), ensure_ascii=False)[:CONTENT_PREVIEW_MAX_LEN],
+            content=str(d.get("summary", "")),
             data=(d.get("data") if isinstance(d.get("data"), dict)
                   else (d.get("content") if isinstance(d.get("content"), dict)
                         else {})),

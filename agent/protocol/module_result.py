@@ -39,7 +39,8 @@ from typing import Iterable
 
 # Maximum length for the `summary` field. Long enough for a real
 # description, short enough to never bloat LLM context windows.
-SUMMARY_MAX_LEN = 1000
+# No truncation — data flows intact to query_loop which applies a single
+# cap at the LLM injection point.
 
 
 @dataclass
@@ -68,7 +69,7 @@ class ModuleResult:
         """Build a success ModuleResult. errors is empty by definition."""
         return cls(
             ok=True,
-            summary=(summary or "")[:SUMMARY_MAX_LEN],
+            summary=summary or "",
             data=dict(data or {}),
             artifacts=list(artifacts or []),
             warnings=list(warnings or []),
@@ -91,7 +92,7 @@ class ModuleResult:
             errs = ["unknown_error"]
         return cls(
             ok=False,
-            summary=(summary or "")[:SUMMARY_MAX_LEN],
+            summary=summary or "",
             data=dict(data or {}),
             artifacts=[],
             warnings=list(warnings or []),
@@ -125,7 +126,7 @@ class ModuleResult:
             ok = False
         return cls(
             ok=ok,
-            summary=str(d.get("summary", ""))[:SUMMARY_MAX_LEN],
+            summary=str(d.get("summary", "")),
             data=dict(d.get("data") or {}),
             artifacts=list(d.get("artifacts") or []),
             warnings=list(d.get("warnings") or []),

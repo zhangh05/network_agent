@@ -135,11 +135,8 @@ class Finalizer:
         # ── Conversation history block ──
         context_block = ctx.extras.get("conversation_history_block") or ""
 
-        # Truncate merged results to avoid blowing context window
-        _MAX_RESULTS_CHARS = 12000
+        # No hard cap here — query_loop applies the single context budget gate.
         results_json = json.dumps(merged, ensure_ascii=False, default=str, indent=2)
-        if len(results_json) > _MAX_RESULTS_CHARS:
-            results_json = results_json[:_MAX_RESULTS_CHARS] + "\n...[results truncated to fit context budget]"
 
         # ── v3.14: normalized_content for analysis tools ────────────
         nc_block = ""

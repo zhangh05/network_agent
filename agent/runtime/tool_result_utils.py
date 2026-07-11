@@ -122,13 +122,16 @@ def enrich_metadata(metadata: dict, context) -> dict:
 
 
 def build_tool_message_payload(result) -> dict:
-    """Project a ToolResult into the safe payload the LLM sees next."""
+    """Project a ToolResult into the payload the LLM sees next.
+
+    No truncation here — query_loop applies a single cap before LLM injection.
+    """
     summary = _safe_get(result, "summary", "") or ""
     if not summary:
         summary = _auto_summary(result)
     payload = {
         "ok": bool(_safe_get(result, "ok", False)),
-        "summary": _safe_prompt_text(summary, 1200),
+        "summary": summary,
     }
     for key in ("source_count", "manual_review_count"):
         value = _safe_get(result, key, None)
@@ -138,9 +141,9 @@ def build_tool_message_payload(result) -> dict:
     errors = _safe_get(result, "errors", []) or []
     warnings = _safe_get(result, "warnings", []) or []
     if errors:
-        payload["errors"] = [_safe_prompt_text(e, 240) for e in list(errors)[:3]]
+        payload["errors"] = errors
     if warnings:
-        payload["warnings"] = [_safe_prompt_text(w, 240) for w in list(warnings)[:3]]
+        payload["warnings"] = warnings
 
     artifacts = _safe_get(result, "artifacts", []) or []
     if artifacts:
@@ -149,16 +152,16 @@ def build_tool_message_payload(result) -> dict:
             {
                 "artifact_id": a.get("artifact_id", ""),
                 "artifact_type": a.get("artifact_type", ""),
-                "title": _safe_prompt_text(a.get("title", ""), 160),
+                "title": a.get("title", ""),
             }
-            for a in list(artifacts)[:3]
+            for a in artifacts
             if isinstance(a, dict)
         ]
 
     for source_key in ("source_summary",):
         value = _safe_get(result, source_key, None)
         if value:
-            payload[source_key] = _safe_tool_value(value)
+            payload[source_key] = value
 
     raw = _safe_get(result, "raw", {}) or {}
     data = _safe_get(result, "data", {}) or {}
@@ -170,7 +173,8 @@ def build_tool_message_payload(result) -> dict:
 
 
 def _merge_llm_safe_tool_fields(payload: dict, source: dict) -> None:
-    """Merge fields from source (data/raw) into payload, skipping forbidden keys."""
+    """Merge fields from source into payload, skipping forbidden keys.
+    No upper-bound cap here — query_loop is the single truncation gate."""
     for key, value in source.items():
         if _is_forbidden_prompt_key(str(key)):
             continue
@@ -179,7 +183,7 @@ def _merge_llm_safe_tool_fields(payload: dict, source: dict) -> None:
         target_key = key
         if key in payload and key not in ("ok",):
             target_key = f"result_{key}"
-        payload[target_key] = _safe_tool_value(value, key_hint=target_key)
+        payload[target_key] = value
 
 
 _OUTPUT_TEXT_KEYS = {
@@ -189,18 +193,16 @@ _OUTPUT_TEXT_KEYS = {
 }
 
 
-def _safe_tool_value(value, *, max_text: int = 8000, key_hint: str = ""):
+def _safe_tool_value(value, *, max_text: int = 20_000, key_hint: str = ""):
     key_lower = str(key_hint or "").lower()
-    if key_lower in _OUTPUT_TEXT_KEYS or key_lower.endswith(("_stdout", "_stderr", "_output")):
-        max_text = max(max_text, 12000)
     if isinstance(value, dict):
         return {
-            str(k): _safe_tool_value(v, max_text=4000, key_hint=str(k))
-            for k, v in list(value.items())[:20]
+            str(k): _safe_tool_value(v, max_text=max_text, key_hint=str(k))
+            for k, v in value.items()
             if not _is_forbidden_prompt_key(str(k))
         }
     if isinstance(value, (list, tuple)):
-        return [_safe_tool_value(v, max_text=4000, key_hint=key_hint) for v in list(value)[:30]]
+        return [_safe_tool_value(v, max_text=max_text, key_hint=key_hint) for v in value]
     return _safe_prompt_text(value, max_text)
 
 

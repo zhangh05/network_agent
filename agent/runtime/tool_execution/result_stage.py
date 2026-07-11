@@ -33,31 +33,11 @@ def append_tool_result(result, tool_call, tc, all_tool_results, messages):
     except Exception:
         pass
 
-    _has_large = any(k in tool_msg_payload for k in (
-        "content", "preview", "diff", "rendered", "document",
-        "table", "markdown", "mermaid", "translated_config",
-        "stdout", "stderr", "output", "text", "results", "items",
-        "chunks", "hits", "result_stdout", "result_stderr",
-        "result_output", "result_text",
-    )) or len(json.dumps(tool_msg_payload, ensure_ascii=False)) > 8000
-    trunc_limit = 20000 if _has_large else 8000
     serialized_payload = json.dumps(tool_msg_payload, ensure_ascii=False)
     tool_msg = ToolResultMessage(
-        content=preserve_tool_payload_edges(serialized_payload, trunc_limit),
+        content=serialized_payload,
         tool_call_id=tc.id if hasattr(tc, 'id') else tc.get("id", ""),
     )
     messages.append(tool_msg.to_llm_message())
 
 
-def preserve_tool_payload_edges(text: str, limit: int) -> str:
-    """Truncate text while retaining useful content from both edges."""
-    if len(text) <= limit:
-        return text
-    from agent.protocol.tool_result import _safe_truncate_utf8
-    marker = f'\n"...[truncated middle, {len(text)} chars total]..."\n'
-    keep = max(0, limit - len(marker))
-    head = max(keep * 2 // 3, keep // 2)
-    tail = keep - head
-    head_str = _safe_truncate_utf8(text[:head] if head > 0 else "", head)
-    tail_str = _safe_truncate_utf8(text[-tail:] if tail > 0 else "", tail)
-    return head_str + marker + tail_str
