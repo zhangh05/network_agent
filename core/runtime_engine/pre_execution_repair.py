@@ -6,7 +6,7 @@ Handles recoverable semantic validation errors BEFORE execution fails.
 Repairable errors:
   - ARG_ENUM_INVALID        → action alias normalization
   - TOOL_NOT_FOUND + alias  → tool name correction
-  - MISSING_REQUIRED_ARG    → fill with defaults
+  - MISSING_REQUIRED_ARG    → return to the LLM for correction
   - PLAN_SCHEMA_INVALID     → deterministic patch
   - INVALID_ACTION_ALIAS    → normalize action/operation
   - NODE_ARG_NORMALIZABLE   → general arg fixing
@@ -185,7 +185,6 @@ class PreExecutionRepairEngine:
     Only handles safe, deterministic repairs:
       - Action alias normalization
       - Tool name alias correction
-      - Missing arg defaults
       - Enum value patching
 
     Rejects all security/policy errors, forwarding them as-is.
@@ -272,7 +271,11 @@ class PreExecutionRepairEngine:
                 repaired = self._repair_tool_not_found(node, event)
 
             elif code == "MISSING_REQUIRED_ARG":
-                repaired = self._repair_missing_required(node, event, message)
+                # Missing values encode user/model intent. Inventing defaults
+                # such as action=list or command="echo ok" can execute the
+                # wrong operation. Leave the graph unchanged so QueryLoop can
+                # return the structured error to the LLM for correction.
+                repaired = False
 
             elif code in ("INVALID_ACTION_ALIAS", "NODE_ARG_NORMALIZABLE"):
                 repaired = self._repair_action_alias(node, event)
@@ -432,34 +435,6 @@ class PreExecutionRepairEngine:
             event.normalized_action = node.tool
             event.validation_after = "pass"
             return True
-        return False
-
-    def _repair_missing_required(self, node, event: RepairEvent, message: str) -> bool:
-        """Fill missing required args with sensible defaults."""
-        # Try to extract which field is missing from the error message
-        # Common pattern: "Node 'X' missing required arg 'Y'"
-        import re
-        match = re.search(r"missing required arg '(\w+)'", message)
-        if not match:
-            return False
-
-        field_name = match.group(1)
-        # Provide defaults for known fields
-        defaults = {
-            "action": "list",
-            "operation": "get",
-            "query": "",
-            "path": ".",
-            "command": "echo ok",
-        }
-
-        if field_name in defaults:
-            node.args[field_name] = defaults[field_name]
-            event.original_action = f"missing:{field_name}"
-            event.normalized_action = defaults[field_name]
-            event.validation_after = "pass"
-            return True
-
         return False
 
     # ========================================================================

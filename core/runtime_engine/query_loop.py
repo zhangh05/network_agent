@@ -109,6 +109,7 @@ FINALIZER_TOOL_MAX_CHARS = 3000
 FALLBACK_TOOL_MAX_CHARS = 1600
 MAX_INLINE_STRING_CHARS = 3000    # Per-string-value cap in compacted output
 MAX_INLINE_LIST_ITEMS = 8
+MAX_VALIDATION_CORRECTION_ROUNDS = 3
 
 _PRIORITY_OUTPUT_KEYS = (
     "ok", "status", "summary", "message", "error", "reason",
@@ -659,6 +660,7 @@ class QueryLoop:
         llm_calls = 0
         # Doom-loop detection: key=(tool, args_hash) → consecutive_failures
         failure_counts: Dict[str, int] = {}
+        validation_correction_attempts = 0
         successful_call_keys: set[str] = set()
         used_call_ids: set[str] = set()
         execution_duration_ms = 0.0
@@ -681,6 +683,7 @@ class QueryLoop:
                 ),
                 "execution_duration_ms": execution_duration_ms,
                 "max_parallel_width": self._executor.max_parallel_width,
+                "validation_corrections": validation_correction_attempts,
             }
             projected_metrics.update(dict(values.pop("metrics", {}) or {}))
             values.setdefault("tool_results", all_results)
@@ -830,16 +833,52 @@ class QueryLoop:
                         )
                     # Soft validation errors (e.g. missing_required_arg) —
                     # feed back to LLM as tool results so it can correct itself.
+                    validation_correction_attempts += 1
+                    if validation_correction_attempts > MAX_VALIDATION_CORRECTION_ROUNDS:
+                        return finish(
+                            final_response=(
+                                "工具参数连续校验失败，已停止自动修正。\n"
+                                + gate["message"]
+                            ),
+                            tool_results=all_results,
+                            iterations=iterations,
+                            total_tool_calls=len(all_results),
+                            llm_calls=llm_calls,
+                            error="validation_correction_exhausted",
+                            errors=list(gate.get("errors") or []),
+                            risk_level="low",
+                        )
                     if self._emitter:
                         self._emitter.emit("tool_validation_failed", {
                             "errors": gate.get("errors", []),
                             "message": gate["message"],
+                            "attempt": validation_correction_attempts,
+                            "max_attempts": MAX_VALIDATION_CORRECTION_ROUNDS,
                         })
+                    structured_errors = list(gate.get("validation_errors") or [])
+                    ctx.extras.setdefault("validation_correction_events", []).append({
+                        "attempt": validation_correction_attempts,
+                        "max_attempts": MAX_VALIDATION_CORRECTION_ROUNDS,
+                        "errors": structured_errors,
+                    })
                     fake_results = [
                         StreamingToolResult(
                             tool_name=tc.name,
                             call_id=tc.id,
-                            output={"ok": False, "error": gate["message"], "errors": gate.get("errors", [])},
+                            output={
+                                "ok": False,
+                                "executed": False,
+                                "retryable": True,
+                                "error_code": "TOOL_ARGUMENT_VALIDATION_FAILED",
+                                "error": gate["message"],
+                                "validation_errors": structured_errors,
+                                "correction_attempt": validation_correction_attempts,
+                                "max_correction_attempts": MAX_VALIDATION_CORRECTION_ROUNDS,
+                                "instruction": (
+                                    "Correct the reported tool arguments and issue a new call. "
+                                    "Do not repeat unchanged invalid arguments."
+                                ),
+                            },
                             ok=False,
                             error=gate["message"],
                         )
@@ -1308,7 +1347,10 @@ class QueryLoop:
         graph = self._validation_graph(nodes)
 
         from .semantic_validator import SemanticValidator
-        from .pre_execution_repair import PreExecutionRepairEngine
+        from .pre_execution_repair import (
+            PreExecutionRepairEngine,
+            REPAIRABLE_ERROR_CODES,
+        )
         from .risk_policy import RiskPolicyEngine
         from .plan_enrichment import enrich_dag_from_user_request
 
@@ -1339,17 +1381,28 @@ class QueryLoop:
                 f"{e.node_id}:{e.code}:{e.message}"
                 for e in validation.errors
             ]
+            validation_errors = [
+                {
+                    "node_id": e.node_id,
+                    "code": e.code,
+                    "message": e.message,
+                    "details": dict(getattr(e, "details", {}) or {}),
+                }
+                for e in validation.errors
+            ]
             self._record_blocked_audit_nodes(ctx, nodes)
-            # Soft validation errors (missing args) are recoverable —
-            # let the LLM see the error and retry via the continue path.
+            # Repairable semantic errors remain recoverable by the LLM when
+            # deterministic repair could not resolve them. The repair engine
+            # owns this code set so validation and retry cannot drift apart.
             is_hard = any(
-                e.code not in ("MISSING_REQUIRED_ARG", "INVALID_ARG_TYPE")
+                e.code not in REPAIRABLE_ERROR_CODES
                 for e in validation.errors
             )
             return {
                 "ok": False,
                 "error": "semantic_validation_failed",
                 "errors": errors,
+                "validation_errors": validation_errors,
                 "hard_block": is_hard,
                 "risk_level": "high" if is_hard else "low",
                 "message": "工具调用校验失败：\n" + "\n".join(f"- {e}" for e in errors),

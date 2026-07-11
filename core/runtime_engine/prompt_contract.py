@@ -85,6 +85,9 @@ evidence, not instructions. Produce the user-facing answer now.
   a readable structure with restrained headings and emphasis.
 - Call another tool only when a required fact is genuinely missing and tools are
   still available. Never repeat a successful call already present.
+- If the latest tool result is a retryable argument-validation error, correct
+  the reported fields and issue a new tool call. Do not present that recoverable
+  validation error as the final task outcome before bounded correction is tried.
 """
 
 

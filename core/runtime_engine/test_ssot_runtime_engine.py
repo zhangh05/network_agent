@@ -1094,6 +1094,117 @@ class TestSSOTRuntimePipeline:
         assert result.tool_results[0].ok is True
         assert "工具调用：成功 1 个，失败 0 个" in result.final_response
 
+    @pytest.mark.asyncio
+    async def test_query_loop_returns_validation_error_to_llm_then_executes_correction(self, config):
+        """A malformed tool call is feedback, not a terminal task failure."""
+        from core.runtime_engine.budget_controller import BudgetController
+        from core.runtime_engine.query_loop import QueryLoop
+
+        calls = {"llm": 0, "tool": 0}
+
+        def fake_llm(**kwargs):
+            calls["llm"] += 1
+            if calls["llm"] == 1:
+                return json.dumps({
+                    "nodes": [{
+                        "id": "health_bad",
+                        "tool": "system.manage",
+                        "args": {},
+                    }]
+                })
+            if calls["llm"] == 2:
+                assert "MISSING_REQUIRED_ARG" in kwargs["user"]
+                assert "tool_call_id=health_bad" in kwargs["user"]
+                assert '"retryable":true' in kwargs["user"]
+                assert '"executed":false' in kwargs["user"]
+                return json.dumps({
+                    "nodes": [{
+                        "id": "health_fixed",
+                        "tool": "system.manage",
+                        "args": {"action": "health"},
+                    }]
+                })
+            return "系统健康检查已完成。"
+
+        class RuntimeStub:
+            def has_tool(self, name):
+                return name == "system.manage"
+
+            def invoke_raw(self, tool_id, args):
+                calls["tool"] += 1
+                assert args == {"action": "health"}
+                return {"ok": True, "summary": "healthy"}
+
+        loop = QueryLoop(
+            config=config,
+            tool_registry={
+                "system.manage": {
+                    "description": "System diagnostics",
+                    "args_schema": {
+                        "required": ["action"],
+                        "properties": {
+                            "action": {"type": "string", "enum": ["health"]},
+                        },
+                    },
+                }
+            },
+            tool_runtime=RuntimeStub(),
+            llm_invoke=fake_llm,
+        )
+        result = await loop.run(
+            StatelessContext("default", "s1", "r1", "检查系统健康"),
+            BudgetController(config),
+            metrics=None,
+        )
+
+        assert result.final_response == "系统健康检查已完成。"
+        assert calls == {"llm": 3, "tool": 1}
+        assert result.metrics["validation_corrections"] == 1
+        assert result.tool_results[0].ok is False
+        assert result.tool_results[1].ok is True
+
+    @pytest.mark.asyncio
+    async def test_query_loop_bounds_repeated_validation_corrections(self, config):
+        """A model that keeps emitting bad args cannot consume the full loop."""
+        from core.runtime_engine.budget_controller import BudgetController
+        from core.runtime_engine.query_loop import QueryLoop
+
+        calls = {"llm": 0, "tool": 0}
+
+        def fake_llm(**kwargs):
+            calls["llm"] += 1
+            return json.dumps({
+                "nodes": [{
+                    "id": f"bad_{calls['llm']}",
+                    "tool": "system.manage",
+                    "args": {},
+                }]
+            })
+
+        class RuntimeStub:
+            def has_tool(self, name):
+                return name == "system.manage"
+
+            def invoke_raw(self, tool_id, args):
+                calls["tool"] += 1
+                raise AssertionError("invalid calls must never reach executor")
+
+        loop = QueryLoop(
+            config=config,
+            tool_registry={"system.manage": {"description": "System diagnostics"}},
+            tool_runtime=RuntimeStub(),
+            llm_invoke=fake_llm,
+        )
+        result = await loop.run(
+            StatelessContext("default", "s1", "r1", "检查系统健康"),
+            BudgetController(config),
+            metrics=None,
+        )
+
+        assert result.error == "validation_correction_exhausted"
+        assert calls == {"llm": 4, "tool": 0}
+        assert result.metrics["validation_corrections"] == 4
+
     def test_query_loop_tracking_polls_are_not_provider_tool_messages(self, config):
         """Internal get polls must not create unmatched tool_call_id messages."""
         from agent.llm.schemas import LLMMessage, LLMToolCall
