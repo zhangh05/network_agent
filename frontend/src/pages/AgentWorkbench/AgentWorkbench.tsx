@@ -93,6 +93,14 @@ function validationCorrectionStats(result?: AgentResult) {
   };
 }
 
+function retryBlockedLabel(reason?: string): string {
+  const value = String(reason || "");
+  if (value === "non_idempotent" || value === "execute_command_not_retryable" || value.includes("side_effect_not_retryable")) {
+    return "未原样重放，避免重复副作用";
+  }
+  return `未自动重试：${value || "不满足安全重试条件"}`;
+}
+
 type TrackingSummary = NonNullable<AgentResult["metadata"]["tracking_summary"]>;
 type TrackingEvent = NonNullable<AgentResult["metadata"]["tracking_events"]>[number];
 
@@ -1446,12 +1454,13 @@ const ResultInline = React.memo(function ResultInline({
   const finalText = (result?.final_response || fallbackText || "").trim();
   const retry = retryStats(result);
   const validationCorrection = validationCorrectionStats(result);
+  const toolRecoveryEvents = result?.metadata?.tool_recovery_events || [];
   const tracking = trackingStats(result);
   const toolCalls = result?.tool_calls ?? [];
   const actionCount = toolCalls.length;
   const failedToolCount = toolCalls.filter((tc) => !tc.ok).length;
   const successToolCount = toolCalls.filter((tc) => tc.ok).length;
-  const showActionTrace = !!result && (actionCount > 0 || retry.events.length > 0 || validationCorrection.attempts > 0 || tracking.taskId || isFailed);
+  const showActionTrace = !!result && (actionCount > 0 || retry.events.length > 0 || validationCorrection.attempts > 0 || toolRecoveryEvents.length > 0 || tracking.taskId || isFailed);
 
   // Nothing to show — no result and no fallback text
   if (!result && !fallbackText) return null;
@@ -1560,6 +1569,7 @@ const ResultInline = React.memo(function ResultInline({
                 {validationCorrection.attempts} 次参数自纠
               </span>
             )}
+            {toolRecoveryEvents.length > 0 && <span className="action-trace-pill ok">{toolRecoveryEvents.length} 次改策略继续</span>}
             {retry.blocked > 0 && <span className="action-trace-pill muted">{retry.blocked} 次未重试</span>}
           </div>
           {retry.events.length > 0 ? (
@@ -1573,7 +1583,7 @@ const ResultInline = React.memo(function ResultInline({
                       ? ev.final_status === "succeeded"
                         ? " 首次失败后已恢复"
                         : " 已重试但仍失败"
-                      : ` 未重试：${ev.reason || "不满足安全重试条件"}`}
+                      : ` ${retryBlockedLabel(ev.reason)}`}
                   </span>
                   {ev.backoff_ms ? <span className="action-retry-meta">{ev.backoff_ms}ms</span> : null}
                 </div>
@@ -1592,6 +1602,11 @@ const ResultInline = React.memo(function ResultInline({
             <div className="action-trace-note">
               工具参数校验未通过后已交由模型修正
               {validationCorrection.exhausted ? "，达到上限后停止，未执行无效调用。" : "，无效调用未进入执行器。"}
+            </div>
+          )}
+          {toolRecoveryEvents.length > 0 && (
+            <div className="action-trace-note">
+              原调用未被盲目重复，模型已收到失败证据并继续选择安全替代方案。
             </div>
           )}
           {tracking.taskId && (

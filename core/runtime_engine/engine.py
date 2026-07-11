@@ -684,6 +684,7 @@ class SSOTRuntimeEngine:
                     "exhausted": bool(ctx.extras.get("validation_correction_exhausted", False)),
                 },
                 "validation_correction_events": ctx.extras.get("validation_correction_events", []),
+                "tool_recovery_events": ctx.extras.get("tool_recovery_events", []),
                 "tracking_summary": ctx.extras.get("tracking_summary", {}),
                 "tracking_events": ctx.extras.get("tracking_events", []),
             },

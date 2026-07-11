@@ -219,6 +219,12 @@ export interface AgentResult {
       max_attempts?: number;
       errors?: Array<Record<string, unknown>>;
     }>;
+    /** LLM-level replanning after a tool failure; distinct from replay retry. */
+    tool_recovery_events?: Array<{
+      iteration?: number;
+      failed_tools?: string[];
+      errors?: string[];
+    }>;
     /** Background task tracking surfaced from SSOT Runtime. Distinct from retry. */
     tracking_summary?: {
       kind?: string;

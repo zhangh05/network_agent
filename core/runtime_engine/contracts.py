@@ -17,7 +17,7 @@ scheduling, and rollback.
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 
@@ -471,6 +471,82 @@ def _sync_contracts_from_canonical_registry() -> None:
 
 
 _sync_contracts_from_canonical_registry()
+
+
+# Action-level execution semantics for merged tools. This is shared by
+# QueryLoop scheduling and retry policy so a read action cannot be serialized
+# as a write in one layer while being retried as a read in another.
+ALWAYS_READ_ONLY_TOOLS: frozenset[str] = frozenset({
+    "web.manage",
+    "data.manage",
+    "config.manage",
+    "pcap.manage",
+    "skill.manage",
+    "text.analyze",
+    "code.search",
+    "workspace.metadata.get",
+    "workspace.document.pdf.extract_text",
+})
+
+READ_ONLY_ACTIONS: dict[str, frozenset[str]] = {
+    "agent.manage": frozenset({"list", "get", "status"}),
+    "browser.manage": frozenset({"snapshot", "screenshot", "extract", "wait", "network", "console"}),
+    "device.manage": frozenset({"list", "get", "export"}),
+    "git.manage": frozenset({"status", "log", "diff"}),
+    "inspection.manage": frozenset({"list", "get"}),
+    "knowledge.manage": frozenset({"search", "read", "list", "chunk"}),
+    "memory.manage": frozenset({"search", "review", "profile_get"}),
+    "report.manage": frozenset({"diff"}),
+    "system.manage": frozenset({
+        "diagnostics", "health", "selfcheck", "local_info", "tasks",
+        "audit_log", "run_get", "session_get", "review_list",
+    }),
+    "workspace.artifact": frozenset({"list", "read"}),
+    "workspace.file": frozenset({"list", "read", "read_image", "glob"}),
+    "workspace.filestore": frozenset({"references"}),
+}
+
+
+def is_read_only_call(tool_name: str, arguments: dict[str, Any] | None = None) -> bool:
+    """Return whether this exact canonical tool action is side-effect free."""
+    normalized = str(tool_name or "").replace("__", ".")
+    if normalized in ALWAYS_READ_ONLY_TOOLS:
+        return True
+    action = str((arguments or {}).get("action") or "").lower().strip()
+    return action in READ_ONLY_ACTIONS.get(normalized, frozenset())
+
+
+def get_retry_contract(
+    tool_name: str,
+    arguments: dict[str, Any] | None = None,
+) -> ToolContract | None:
+    """Return a conservative action-specific retry contract.
+
+    Read-only actions get one bounded transient retry. Every other action is
+    forced non-idempotent even when the merged tool's base contract is broad.
+    This prevents writes such as knowledge.import, filestore.import and
+    system.session_checkpoint from inheriting a read action's retry policy.
+    """
+    contract = get_contract(tool_name)
+    if contract is None:
+        return None
+    if is_read_only_call(tool_name, arguments):
+        return replace(
+            contract,
+            side_effect="read",
+            idempotent=True,
+            max_retries=max(1, int(contract.max_retries or 0)),
+        )
+    return replace(
+        contract,
+        side_effect=(
+            contract.side_effect
+            if contract.side_effect not in {"read", "none", ""}
+            else "mutate_local"
+        ),
+        idempotent=False,
+        max_retries=0,
+    )
 
 
 def get_contract(tool_name: str) -> ToolContract | None:

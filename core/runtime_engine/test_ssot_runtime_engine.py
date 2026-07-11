@@ -1286,6 +1286,59 @@ class TestSSOTRuntimePipeline:
         assert ctx.extras["retry_summary"]["retry_failed"] == 1
         assert ctx.extras["retry_summary"]["retry_succeeded"] == 1
 
+    @pytest.mark.asyncio
+    async def test_query_loop_replans_after_non_retryable_tool_failure(self, config):
+        """A non-idempotent failure is not replayed, but the LLM gets recovery context."""
+        from core.runtime_engine.budget_controller import BudgetController
+        from core.runtime_engine.query_loop import QueryLoop
+
+        calls = {"llm": 0, "exec": 0, "knowledge": 0}
+
+        def fake_llm(**kwargs):
+            calls["llm"] += 1
+            if calls["llm"] == 1:
+                return json.dumps({"nodes": [{
+                    "id": "unsafe_python",
+                    "tool": "exec.run",
+                    "args": {"action": "shell", "command": "missing-command"},
+                }]})
+            if calls["llm"] == 2:
+                assert "[RUNTIME TOOL RECOVERY]" in str(kwargs.get("user") or "")
+                return json.dumps({"nodes": [{
+                    "id": "safe_alternative",
+                    "tool": "knowledge.manage",
+                    "args": {"action": "list"},
+                }]})
+            return "已改用安全的知识查询完成统计。"
+
+        class RuntimeStub:
+            def has_tool(self, name):
+                return name in {"exec.run", "knowledge.manage"}
+
+            def invoke_raw(self, tool_id, args):
+                if tool_id == "exec.run":
+                    calls["exec"] += 1
+                    return {"ok": False, "error": "command not found: missing-command"}
+                calls["knowledge"] += 1
+                return {"ok": True, "items": ["result"]}
+
+        loop = QueryLoop(
+            config=config,
+            tool_registry={
+                "exec.run": {"description": "Execute", "args_schema": {}},
+                "knowledge.manage": {"description": "Knowledge", "args_schema": {}},
+            },
+            tool_runtime=RuntimeStub(),
+            llm_invoke=fake_llm,
+        )
+        ctx = StatelessContext("default", "s1", "r1", "统计知识来源")
+        result = await loop.run(ctx, BudgetController(config), metrics=None)
+
+        assert result.final_response == "已改用安全的知识查询完成统计。"
+        assert calls == {"llm": 3, "exec": 1, "knowledge": 1}
+        assert len(ctx.extras["tool_recovery_events"]) == 1
+        assert ctx.extras["tool_recovery_events"][0]["failed_tools"] == ["exec.run"]
+
     def test_query_loop_tracking_polls_are_not_provider_tool_messages(self, config):
         """Internal get polls must not create unmatched tool_call_id messages."""
         from agent.llm.schemas import LLMMessage, LLMToolCall

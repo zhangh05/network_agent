@@ -458,6 +458,10 @@ export const useWorkbenchStore = create<WorkbenchState>()(
                   (metadata.validation_correction_events as AgentResult["metadata"]["validation_correction_events"])
                   || (runtimeMetadata.validation_correction_events as AgentResult["metadata"]["validation_correction_events"])
                   || [],
+                tool_recovery_events:
+                  (metadata.tool_recovery_events as AgentResult["metadata"]["tool_recovery_events"])
+                  || (runtimeMetadata.tool_recovery_events as AgentResult["metadata"]["tool_recovery_events"])
+                  || [],
                 source_count: 0,
                 workspace_id,
               },

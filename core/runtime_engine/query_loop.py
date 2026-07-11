@@ -348,30 +348,6 @@ class StreamingToolExecutor:
     Read-only tools run in parallel; write tools serialised.
     """
 
-    _ALWAYS_READ_ONLY_TOOLS = {
-        "code.search",
-        "text.analyze",
-        "skill.manage",
-        "workspace.metadata.get",
-        "workspace.document.pdf.extract_text",
-        "web.manage",
-    }
-    _READ_ONLY_ACTIONS = {
-        "agent.manage": {"list", "get", "status"},
-        "device.manage": {"list", "get", "export"},
-        "git.manage": {"status", "log", "diff"},
-        "inspection.manage": {"list", "get", "task_get", "profiles"},
-        "knowledge.manage": {"search", "read", "list", "chunk"},
-        "memory.manage": {"search", "review", "profile_get"},
-        "system.manage": {
-            "diagnostics", "health", "selfcheck", "local_info", "tasks",
-            "audit_log", "run_get", "session_get", "session_snapshot",
-            "review_list",
-        },
-        "workspace.artifact": {"list", "read"},
-        "workspace.file": {"list", "read", "read_image", "glob"},
-    }
-
     def __init__(self, tool_runtime, config: SSOTRuntimeConfig | None = None, emitter=None):
         self._runtime = tool_runtime
         self._config = config or SSOTRuntimeConfig()
@@ -384,11 +360,9 @@ class StreamingToolExecutor:
         Merged tools contain both read and write actions, so tool-id-only
         classification is unsafe. Unknown or missing actions are serialized.
         """
-        normalized = tool_call.name.replace("__", ".")
-        if normalized in self._ALWAYS_READ_ONLY_TOOLS:
-            return True
-        action = str((tool_call.arguments or {}).get("action") or "").lower()
-        return action in self._READ_ONLY_ACTIONS.get(normalized, set())
+        from .contracts import is_read_only_call
+
+        return is_read_only_call(tool_call.name, tool_call.arguments)
 
     async def execute(
         self,
@@ -493,10 +467,10 @@ class StreamingToolExecutor:
         original_result: ToolResult,
         budget,
     ) -> ToolResult:
-        from .contracts import get_contract
+        from .contracts import get_retry_contract
         from .tool_retry_policy import should_retry_tool_failure
 
-        contract = get_contract(node.tool)
+        contract = get_retry_contract(node.tool, node.args)
         current_result = original_result
         total_latency_ms = float(original_result.latency_ms or 0.0)
 
@@ -554,15 +528,34 @@ class StreamingToolExecutor:
     @staticmethod
     def _retry_error_code(result: ToolResult) -> str:
         error_code = (result.error_code or "").strip().upper()
-        if error_code:
+        # Generic handler failure carries no retry semantics. Infer only a
+        # narrow set of transient classes from the normalized error text.
+        if error_code and error_code != "TOOL_RETURNED_NOT_OK":
             return error_code
         err = (result.error or "").lower()
+        if any(token in err for token in ("authentication", "permission denied", "password", "credential")):
+            return "CREDENTIAL_ACCESS"
+        if any(token in err for token in (
+            "security check failed", "forbidden", "policy blocked",
+            "not allowed", "blocked:", "workspace_mismatch",
+        )):
+            return "POLICY_BLOCKED"
         if "timeout" in err or "timed out" in err:
             return "TOOL_TIMEOUT"
         if "rate" in err and "limit" in err:
             return "RATE_LIMITED"
         if "connection" in err and "reset" in err:
             return "CONNECTION_RESET"
+        for status in (429, 500, 502, 503, 504):
+            if f"http {status}" in err or f"status {status}" in err:
+                return f"HTTP_{status}"
+        if any(token in err for token in (
+            " is required", "invalid ", "unknown action", "unsupported ",
+            "not found", "no such ", "does not exist", "_not_found",
+            "not_found", "_required", "unsupported_", "unknown_",
+            "artifact_empty", "empty_document",
+        )):
+            return "ARGS_INVALID"
         return "TOOL_EXCEPTION"
 
     @staticmethod
@@ -964,6 +957,15 @@ class QueryLoop:
 
                 # Append assistant message (with tool_calls) + tool results
                 messages = self._append_tool_round(messages, tool_calls, results)
+                failed_results = [result for result in results if not result.ok]
+                if failed_results:
+                    recovery_nudge = self._build_tool_failure_recovery_nudge(failed_results)
+                    messages = self._append_turn_nudge(messages, recovery_nudge)
+                    ctx.extras.setdefault("tool_recovery_events", []).append({
+                        "iteration": iterations,
+                        "failed_tools": [result.tool_name for result in failed_results],
+                        "errors": [str(result.error or "")[:240] for result in failed_results],
+                    })
                 if self._has_complete_analysis_artifact(results):
                     messages = self._append_turn_nudge(
                         messages,
@@ -1603,6 +1605,32 @@ class QueryLoop:
         new_msgs = list(messages)
         new_msgs.append(LLMMessage(role="user", content=nudge_text))
         return new_msgs
+
+    @staticmethod
+    def _build_tool_failure_recovery_nudge(
+        failed_results: List[StreamingToolResult],
+    ) -> str:
+        """Tell the model to recover by replanning, never blind replay.
+
+        Mechanical retries are owned by ToolRetryPolicy and only apply to
+        idempotent reads. This instruction covers the separate LLM-level path:
+        use existing successful evidence, change arguments/tool/strategy when
+        useful, or explain a terminal blocker.
+        """
+        failures = []
+        for result in failed_results[:6]:
+            error = str(result.error or "tool returned failure").replace("\n", " ")[:240]
+            failures.append(f"- {result.tool_name}: {error}")
+        return (
+            "[RUNTIME TOOL RECOVERY]\n"
+            "One or more tool calls failed:\n"
+            + "\n".join(failures)
+            + "\nDo not repeat an unchanged failed call. Do not bypass security or approval policy. "
+            "First use any successful evidence already in the conversation. If the requested "
+            "outcome still needs work, issue a changed safe call using corrected arguments, a "
+            "more appropriate tool, or a different strategy. If no safe recovery exists, answer "
+            "with the concrete blocker and the best next action."
+        )
 
     def _append_tool_round(
         self,

@@ -25,7 +25,7 @@ process_belongs_to_project() {
 
     case "$role" in
         backend)
-            printf '%s' "$command_line" | grep -qE 'python[0-9.]* .*/backend/main\.py' || return 1
+            printf '%s' "$command_line" | grep -qE 'python[0-9.]* (.*\/)?backend/main\.py' || return 1
             [ "$cwd" = "$ROOT" ]
             ;;
         frontend)

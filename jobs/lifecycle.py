@@ -83,9 +83,9 @@ def _find_or_create_job(ws_id: str, session_id: str, user_input: str) -> str | N
             workspace_id=ws_id, job_type="agent_run", title=title,
             payload={"session_id": session_id}, created_by="api",
         )
-    job_id = j.get("job_id") if isinstance(j, dict) else j.job_id
-    _log.info("job created: %s for session=%s title=%.40s", job_id, session_id, title)
-    _broadcast_job(job_id, ws_id, session_id)
+        job_id = j.get("job_id") if isinstance(j, dict) else j.job_id
+        _log.info("job created: %s for session=%s title=%.40s", job_id, session_id, title)
+        _broadcast_job(job_id, ws_id, session_id)
 
     return job_id
 

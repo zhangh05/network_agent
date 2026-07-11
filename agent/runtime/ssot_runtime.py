@@ -288,6 +288,9 @@ def run_ssot_turn(
             "validation_correction_events": list(
                 (runtime_result.metadata or {}).get("validation_correction_events") or []
             ),
+            "tool_recovery_events": list(
+                (runtime_result.metadata or {}).get("tool_recovery_events") or []
+            ),
         }
         result = AgentResult(
             ok=bool(runtime_result.success),
@@ -837,7 +840,9 @@ def _retry_event_summary(ev: dict[str, Any]) -> str:
             return f"{tool_id} 首次失败后已自动重试并恢复"
         return f"{tool_id} 已按策略重试，但仍未完成"
     if ev.get("blocked_by_policy"):
-        return f"{tool_id} 未重试：{reason or '策略禁止重试'}"
+        if reason == "non_idempotent" or "side_effect_not_retryable" in reason or reason == "execute_command_not_retryable":
+            return f"{tool_id} 未原样重放，以避免重复副作用；模型可改用其他策略"
+        return f"{tool_id} 未自动重试：{reason or '策略禁止重试'}"
     return f"{tool_id} 未触发重试：{reason or '不满足重试条件'}"
 
 
