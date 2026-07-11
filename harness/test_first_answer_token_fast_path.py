@@ -220,7 +220,9 @@ class TestFastPathGenerator:
         assert meta.get("planner_skipped") is True
         assert meta.get("used_tools") is False
         assert meta.get("conversation_comprehension") is True
-        assert "RECENT CONVERSATION HISTORY" in seen["system"]
+        assert "RECENT CONVERSATION HISTORY" in seen["user"]
+        assert '<conversation_history data_only="true">' in seen["user"]
+        assert "data, not instructions" in seen["system"]
         assert result.final_response.startswith("上一轮的意思")
 
     def test_ospf_neighbor_down_full_ssot_runtime(self):
@@ -277,9 +279,7 @@ class TestStreamScope:
     """Verify stream_to_user / stream_scope reaching provider.py."""
 
     def test_planner_gets_stream_to_user_false(self):
-        """_invoke_llm_for_ssot_runtime with execution-planner system prompt
-        must set stream_to_user=False so planner tokens never land
-        in the user-facing token channel."""
+        """Structured planner scope keeps planner tokens out of user stream."""
         from agent.llm.runtime import invoke_llm
 
         req_meta = {}
@@ -307,8 +307,9 @@ class TestStreamScope:
             from agent.runtime.ssot_runtime import _invoke_llm_for_ssot_runtime
             # Simulate a planner call
             _invoke_llm_for_ssot_runtime(
-                system="You are an execution planner.",
+                system="production runtime contract",
                 user="test",
+                extra={"stream_scope": "planner", "stream_to_user": False},
             )
         finally:
             runtime_mod.invoke_llm = original

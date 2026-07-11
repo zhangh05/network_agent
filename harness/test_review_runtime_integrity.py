@@ -6,7 +6,6 @@ def _reset_context_runtime(tmp_path, monkeypatch):
     import core.context.context_store as context_store
     import core.context.unified_retriever as unified_retriever
 
-    context_store._BASE = tmp_path
     context_store._stores.clear()
     unified_retriever._retrievers.clear()
 

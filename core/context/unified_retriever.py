@@ -27,7 +27,7 @@ import os
 import time
 import threading
 from collections import Counter, defaultdict
-from typing import Optional
+from typing import Callable, Optional
 from pathlib import Path
 
 from core.context.context_store import get_context_store
@@ -325,14 +325,18 @@ class UnifiedRetriever:
 
     def _maybe_reindex(self):
         """Rebuild BM25 index if store has changed."""
-        items = self._store.all_items()
-        count = len(items)
         signature = self._store_signature()
-        if signature != self._indexed_signature or count != self._indexed_count or (
+        if signature != self._indexed_signature or (
             time.time() - self._last_index_time > 30
-        ) or (count > 0 and not self._bm25._built):
+        ) or not self._bm25._built:
             with self._lock:
-                # Re-read in case of concurrent update
+                signature = self._store_signature()
+                if (
+                    signature == self._indexed_signature
+                    and self._bm25._built
+                    and time.time() - self._last_index_time <= 30
+                ):
+                    return
                 items = self._store.all_items()
                 self._bm25.fit(items)
                 self._indexed_count = len(items)
@@ -348,8 +352,9 @@ class UnifiedRetriever:
         source_id: Optional[str] = None,
         tags: Optional[list[str]] = None,
         top_k: int = 10,
-        min_score: float = 0.1,
+        min_score: float = 0.01,
         expand: bool = True,
+        result_filter: Optional[Callable[[dict], bool]] = None,
     ) -> list[dict]:
         """Search for items matching *query*.
 
@@ -363,6 +368,7 @@ class UnifiedRetriever:
             top_k:      Max results.
             min_score:  Minimum BM25 score threshold.
             expand:     Whether to apply query expansion.
+            result_filter: Optional visibility predicate applied before dedup.
 
         Returns:
             List of item dicts, each with an added ``_score`` field.
@@ -370,7 +376,12 @@ class UnifiedRetriever:
         self._maybe_reindex()
 
         effective_query = expand_query(query) if expand else query
-        raw_results = self._bm25.score(effective_query, top_k=top_k * 3)
+        # Rank the complete index, then apply type/scope filters. Truncating
+        # before filtering lets unrelated item types crowd out valid hits.
+        raw_results = self._bm25.score(
+            effective_query,
+            top_k=max(top_k * 3, len(self._bm25.docs)),
+        )
 
         # Post-filter
         results: list[dict] = []
@@ -386,6 +397,10 @@ class UnifiedRetriever:
             doc = self._bm25.docs[idx]
 
             if doc.get("disabled") is True:
+                continue
+            if str(doc.get("workspace_id") or "") != self.workspace_id:
+                continue
+            if result_filter is not None and not result_filter(doc):
                 continue
 
             # Type filter
@@ -418,22 +433,32 @@ class UnifiedRetriever:
 
         return results
 
-    def search_memory(self, query: str, top_k: int = 5, **kwargs) -> list[dict]:
+    def search_memory(
+        self,
+        query: str,
+        top_k: int = 5,
+        *,
+        session_id: str = "",
+        task_id: str = "",
+        **kwargs,
+    ) -> list[dict]:
         """Convenience: search memory_hit items only."""
         # Retrieve extra candidates before enforcing the governance lifecycle.
         # Pending, rejected, expired and conflict records are not prompt facts.
         candidates = self.search(
             query,
             item_type="memory_hit",
-            top_k=top_k * 3,
+            top_k=top_k,
+            result_filter=lambda hit: (
+                str(hit.get("memory_status") or hit.get("status") or "").lower()
+                in {"active", "confirmed"}
+                and self._memory_scope_visible(
+                    hit, session_id=session_id, task_id=task_id
+                )
+            ),
             **kwargs,
         )
-        active = [
-            hit for hit in candidates
-            if str(hit.get("memory_status") or hit.get("status") or "").lower()
-            in {"active", "confirmed"}
-        ]
-        return active[:top_k]
+        return candidates[:top_k]
 
     def search_knowledge(self, query: str, top_k: int = 5, **kwargs) -> list[dict]:
         """Convenience: search knowledge_chunk items only."""
@@ -444,18 +469,43 @@ class UnifiedRetriever:
         query: str,
         top_k_memory: int = 5,
         top_k_knowledge: int = 5,
+        session_id: str = "",
+        task_id: str = "",
     ) -> dict:
         """Retrieve both memory and knowledge hits for context building.
 
         Returns:
             {"memory_hits": [...], "knowledge_hits": [...]}
         """
-        memory = self.search_memory(query, top_k=top_k_memory)
+        memory = self.search_memory(
+            query,
+            top_k=top_k_memory,
+            session_id=session_id,
+            task_id=task_id,
+        )
         knowledge = self.search_knowledge(query, top_k=top_k_knowledge)
         return {
             "memory_hits": memory,
             "knowledge_hits": knowledge,
         }
+
+    def _memory_scope_visible(
+        self,
+        hit: dict,
+        *,
+        session_id: str,
+        task_id: str,
+    ) -> bool:
+        scope = str(hit.get("scope") or "").lower()
+        if scope == "global":
+            return True
+        if scope == "workspace":
+            return str(hit.get("workspace_id") or "") == self.workspace_id
+        if scope == "session":
+            return bool(session_id) and str(hit.get("session_id") or "") == session_id
+        if scope == "task":
+            return bool(task_id) and str(hit.get("task_id") or "") == task_id
+        return False
 
     @staticmethod
     def _apply_boosts(results: list[dict]) -> list[dict]:
@@ -558,9 +608,11 @@ def _ts_to_epoch(ts: str) -> float:
 # Singleton helper
 # ---------------------------------------------------------------------------
 _retrievers: dict[str, UnifiedRetriever] = {}
+_retrievers_lock = threading.Lock()
 
 def get_retriever(workspace_id: str = "default") -> UnifiedRetriever:
     """Return the singleton UnifiedRetriever for a workspace."""
-    if workspace_id not in _retrievers:
-        _retrievers[workspace_id] = UnifiedRetriever(workspace_id)
-    return _retrievers[workspace_id]
+    with _retrievers_lock:
+        if workspace_id not in _retrievers:
+            _retrievers[workspace_id] = UnifiedRetriever(workspace_id)
+        return _retrievers[workspace_id]

@@ -21,7 +21,6 @@ from typing import Any, Callable
 from .audit import AuditLogger
 from .budget_controller import BudgetController
 from .errors import SSOTRuntimeError, SSOTRuntimeErrorCode, build_error
-from .fast_path import _build_conversation_history_block
 from .metrics import MetricsCollector
 from .models import (
     SSOTRuntimeConfig,
@@ -541,22 +540,22 @@ class SSOTRuntimeEngine:
         if not llm_budget.ok:
             return ""
 
-        context_block = conversation_context or ""
+        from .prompt_contract import DIRECT_ANSWER_PROMPT, build_turn_message
 
-        system_msg = (
-            "你是网络工程助手。直接回答用户问题。"
-            "不要调用工具。不要输出 JSON。"
-            "不要编造已执行的检查结果。"
+        user_message = build_turn_message(
+            workspace_id=ctx.workspace_id,
+            session_id=ctx.session_id,
+            user_input=ctx.user_input,
+            conversation_history=conversation_context or "",
+            governed_context=(
+                str(ctx.extras.get("retrieved_context_block") or "")
+                if conversation_context else ""
+            ),
         )
-        if context_block:
-            system_msg += f"\n\n{context_block}\n\n"
-            system_msg += (
-                "如果用户问的是关于之前对话的问题，请基于上述对话历史回答。"
-            )
         result = await asyncio.to_thread(
             self._llm_invoke,
-            system=system_msg,
-            user=ctx.user_input,
+            system=DIRECT_ANSWER_PROMPT,
+            user=user_message,
             workspace_id=ctx.workspace_id,
             session_id=ctx.session_id,
             extra={

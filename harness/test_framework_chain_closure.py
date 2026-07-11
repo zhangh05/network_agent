@@ -421,11 +421,12 @@ def test_memory_retrieval_only_returns_governed_active_records():
     from core.context.unified_retriever import UnifiedRetriever
 
     retriever = object.__new__(UnifiedRetriever)
+    retriever.workspace_id = "default"
     retriever.search = lambda *args, **kwargs: [
-        {"item_id": "active", "status": "active"},
-        {"item_id": "pending", "memory_status": "pending"},
-        {"item_id": "rejected", "status": "rejected"},
-        {"item_id": "confirmed", "memory_status": "confirmed"},
+        {"item_id": "active", "status": "active", "scope": "workspace", "workspace_id": "default"},
+        {"item_id": "pending", "memory_status": "pending", "scope": "workspace", "workspace_id": "default"},
+        {"item_id": "rejected", "status": "rejected", "scope": "workspace", "workspace_id": "default"},
+        {"item_id": "confirmed", "memory_status": "confirmed", "scope": "workspace", "workspace_id": "default"},
     ]
 
     hits = UnifiedRetriever.search_memory(retriever, "router", top_k=5)

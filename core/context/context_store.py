@@ -23,6 +23,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Iterator
 
+from workspace.ids import validate_workspace_id
+from storage.paths import workspace_root
+
 
 def _now_iso() -> str:
     """UTC ISO 8601 timestamp — matches workspace.session_store."""
@@ -31,16 +34,8 @@ def _now_iso() -> str:
 # ---------------------------------------------------------------------------
 # Workspace root helper (shared with knowledge/index.py)
 # ---------------------------------------------------------------------------
-_BASE = None
-
 def _ws_root(workspace_id: str = "default") -> Path:
-    global _BASE
-    if _BASE is None:
-        _BASE = Path(os.environ.get(
-            "NA_WORKSPACE_ROOT",
-            os.path.join(os.path.dirname(os.path.dirname(__file__)), "workspaces"),
-        ))
-    return _BASE / workspace_id / "context"
+    return workspace_root(validate_workspace_id(workspace_id)) / "context"
 
 
 # ---------------------------------------------------------------------------
@@ -64,20 +59,26 @@ class ContextStore:
     """Unified JSONL-backed item store."""
 
     def __init__(self, workspace_id: str = "default"):
-        self.workspace_id = workspace_id
-        self._root = _ws_root(workspace_id)
+        self.workspace_id = validate_workspace_id(workspace_id)
+        self._root = _ws_root(self.workspace_id)
         self._root.mkdir(parents=True, exist_ok=True)
         self._items_path = self._root / "items.jsonl"
-        self._lock = _get_lock(workspace_id)
+        self._lock = _get_lock(self.workspace_id)
 
     # ---- Write ----
 
     def put(self, item: dict) -> str:
         """Append an item.  Returns its item_id."""
+        item = dict(item)
+        item_workspace = validate_workspace_id(
+            str(item.get("workspace_id") or self.workspace_id)
+        )
+        if item_workspace != self.workspace_id:
+            raise ValueError("context item workspace_id does not match store")
         item_id = item.get("item_id") or f"ci_{uuid.uuid4().hex[:12]}"
         item["item_id"] = item_id
         item.setdefault("item_type", "unknown")
-        item.setdefault("workspace_id", self.workspace_id)
+        item["workspace_id"] = self.workspace_id
         item.setdefault("created_at", _now_iso())
         item.setdefault("deleted", False)
 
@@ -88,18 +89,28 @@ class ContextStore:
 
     def put_many(self, items: list[dict]) -> list[str]:
         """Batch append."""
+        prepared: list[dict] = []
+        for source_item in items:
+            item = dict(source_item)
+            item_workspace = validate_workspace_id(
+                str(item.get("workspace_id") or self.workspace_id)
+            )
+            if item_workspace != self.workspace_id:
+                raise ValueError("context item workspace_id does not match store")
+            item_id = item.get("item_id") or f"ci_{uuid.uuid4().hex[:12]}"
+            item["item_id"] = item_id
+            item.setdefault("item_type", "unknown")
+            item["workspace_id"] = self.workspace_id
+            item.setdefault("created_at", _now_iso())
+            item.setdefault("deleted", False)
+            prepared.append(item)
+
         ids = []
         with self._lock:
             with open(self._items_path, "a", encoding="utf-8") as f:
-                for item in items:
-                    item_id = item.get("item_id") or f"ci_{uuid.uuid4().hex[:12]}"
-                    item["item_id"] = item_id
-                    item.setdefault("item_type", "unknown")
-                    item.setdefault("workspace_id", self.workspace_id)
-                    item.setdefault("created_at", _now_iso())
-                    item.setdefault("deleted", False)
+                for item in prepared:
                     f.write(json.dumps(item, ensure_ascii=False, default=str) + "\n")
-                    ids.append(item_id)
+                    ids.append(item["item_id"])
         return ids
 
     def delete(self, item_id: str) -> bool:
@@ -136,46 +147,35 @@ class ContextStore:
         limit: int = 100,
     ) -> list[dict]:
         """List items with optional filters."""
-        seen: dict[str, dict] = {}  # last-write-wins
+        seen: dict[str, dict] = {}  # last-write-wins before filtering
         for item in self._iter_raw():
             iid = item.get("item_id", "")
             if item.get("deleted"):
-                seen.pop(iid, None)
+                if include_deleted:
+                    seen[iid] = {
+                        "item_id": iid,
+                        "item_type": item.get("item_type", "unknown"),
+                        "workspace_id": item.get("workspace_id", self.workspace_id),
+                        "deleted": True,
+                        "deleted_at": item.get("deleted_at", ""),
+                        "created_at": item.get("created_at", ""),
+                    }
+                else:
+                    seen.pop(iid, None)
                 continue
+            seen[iid] = item
+
+        results: list[dict] = []
+        for item in seen.values():
             if item_type and item.get("item_type") != item_type:
                 continue
             if scope and item.get("scope") != scope:
                 continue
             if source_id and item.get("source_id") != source_id:
                 continue
-            if tags:
-                item_tags = set(item.get("tags") or [])
-                if not item_tags.intersection(tags):
-                    continue
-            seen[iid] = item
-
-        if include_deleted:
-            # Re-scan and merge tombstones (skeleton records with deleted=True)
-            # so audit/debug callers can inspect the deletion trail.
-            tombstones: dict[str, dict] = {}
-            for item in self._iter_raw():
-                if not item.get("deleted"):
-                    continue
-                iid = item.get("item_id", "")
-                if not iid:
-                    continue
-                tombstones[iid] = {
-                    "item_id": iid,
-                    "item_type": item.get("item_type", "unknown"),
-                    "workspace_id": item.get("workspace_id", self.workspace_id),
-                    "deleted": True,
-                    "deleted_at": item.get("deleted_at", ""),
-                    "created_at": item.get("created_at", ""),
-                }
-            for iid, tomb in tombstones.items():
-                seen.setdefault(iid, tomb)
-
-        results = list(seen.values())
+            if tags and not set(item.get("tags") or []).intersection(tags):
+                continue
+            results.append(item)
         # newest first
         results.sort(key=lambda x: x.get("created_at", ""), reverse=True)
         return results[:limit]
@@ -403,9 +403,12 @@ class ContextStore:
 # Singleton helper
 # ---------------------------------------------------------------------------
 _stores: dict[str, ContextStore] = {}
+_stores_lock = threading.Lock()
 
 def get_context_store(workspace_id: str = "default") -> ContextStore:
     """Return the singleton ContextStore for a workspace."""
-    if workspace_id not in _stores:
-        _stores[workspace_id] = ContextStore(workspace_id)
-    return _stores[workspace_id]
+    validated = validate_workspace_id(workspace_id)
+    with _stores_lock:
+        if validated not in _stores:
+            _stores[validated] = ContextStore(validated)
+        return _stores[validated]

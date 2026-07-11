@@ -241,7 +241,7 @@ class TestRetrieval:
         import workspace.memory_governance as mg
 
         monkeypatch.setattr(mg, "WS_ROOT", tmp_path / "workspaces")
-        monkeypatch.setattr(context_store, "_BASE", tmp_path / "context")
+        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path / "context"))
         context_store._stores.clear()
         monkeypatch.setattr(
             "core.graph.projection_events.append_memory_written",

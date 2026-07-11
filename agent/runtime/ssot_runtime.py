@@ -70,6 +70,8 @@ def run_ssot_turn(
         metadata_in["conversation_history_block"] = history_block
     retrieved_context_block = _build_retrieved_context_block(
         workspace_id=workspace_id,
+        session_id=session_id,
+        task_id=turn.turn_id,
         user_input=user_input,
     )
     if retrieved_context_block:
@@ -1001,7 +1003,9 @@ def _truncate(text: str, limit: int) -> str:
     return text[: max(0, limit - 1)] + "…"
 
 
-def _build_retrieved_context_block(*, workspace_id: str, user_input: str) -> str:
+def _build_retrieved_context_block(
+    *, workspace_id: str, session_id: str, task_id: str, user_input: str,
+) -> str:
     """Retrieve concise governed memory and knowledge context for this turn."""
     if not workspace_id or not user_input.strip():
         return ""
@@ -1012,6 +1016,8 @@ def _build_retrieved_context_block(*, workspace_id: str, user_input: str) -> str
             user_input,
             top_k_memory=3,
             top_k_knowledge=2,
+            session_id=session_id,
+            task_id=task_id,
         )
         lines: list[str] = []
         for hit in retrieved.get("memory_hits", [])[:3]:
@@ -1048,31 +1054,35 @@ def _build_history_block(session, *, user_input: str = "") -> str:
         recent = messages[-_HISTORY_RECENT_MESSAGES:]
         older = messages[:-_HISTORY_RECENT_MESSAGES]
         parts: list[str] = []
+        recent_text = _format_recent_history(recent, max_chars=7600)
         if older:
             summary = _summarize_older_messages(older)
             if summary:
-                parts.append("SESSION SUMMARY:\n" + summary)
+                parts.append("SESSION SUMMARY:\n" + _truncate(summary, 2200))
         retrieved = _retrieve_history_references(messages, user_input)
         if retrieved:
-            parts.append("RETRIEVED HISTORY:\n" + "\n".join(
+            retrieved_text = "\n".join(
                 f"  [{m['role']}] {_truncate(m['content'], _HISTORY_MESSAGE_MAX_CHARS)}"
                 for m in retrieved
-            ))
-        if recent:
-            parts.append("RECENT CONVERSATION HISTORY:\n" + "\n".join(
-                f"  [{m['role']}] {_truncate(m['content'], _HISTORY_MESSAGE_MAX_CHARS)}"
-                for m in recent
-            ))
+            )
+            parts.append("RETRIEVED HISTORY:\n" + _truncate(retrieved_text, 1800))
+        if recent_text:
+            parts.append("RECENT CONVERSATION HISTORY:\n" + recent_text)
         block = "\n\n".join(parts)
-        return _truncate(block, _HISTORY_MAX_CHARS)
+        if len(block) <= _HISTORY_MAX_CHARS:
+            return block
+        # Never head-truncate a long block: that discards the newest turns.
+        return "RECENT CONVERSATION HISTORY:\n" + _format_recent_history(
+            recent, max_chars=_HISTORY_MAX_CHARS - 40
+        )
     except Exception:
         _LOG.debug("conversation history block build failed", exc_info=True)
         return ""
 
 
 def _load_context_messages(session) -> list[dict[str, str]]:
-    messages: list[dict[str, str]] = []
-    seen: set[str] = set()
+    persisted: list[dict[str, str]] = []
+    persisted_seen: set[str] = set()
     ws_id = str(getattr(session, "workspace_id", "") or "")
     session_id = str(getattr(session, "session_id", "") or "")
     if ws_id and session_id:
@@ -1080,19 +1090,56 @@ def _load_context_messages(session) -> list[dict[str, str]]:
             from workspace.message_store import SessionMessageStore
 
             for m in SessionMessageStore(session_id=session_id, ws_id=ws_id).get_messages():
-                _append_context_message(messages, seen, m)
+                _append_context_message(persisted, persisted_seen, m)
         except Exception:
             _LOG.debug("SessionMessageStore history read failed for %s", session_id, exc_info=True)
 
+    memory: list[dict[str, str]] = []
+    memory_seen: set[str] = set()
     for i, msg in enumerate(list(getattr(session, "history", None) or [])):
         role = str(getattr(msg, "role", "") or "")
         content = str(getattr(msg, "content", "") or "")
-        _append_context_message(messages, seen, {
+        _append_context_message(memory, memory_seen, {
             "message_id": getattr(msg, "id", "") or getattr(msg, "message_id", "") or f"mem:{i}:{role}:{content[:40]}",
             "role": role,
             "content": content,
         })
-    return messages
+    overlap = _history_overlap(persisted, memory)
+    return persisted + memory[overlap:]
+
+
+def _history_overlap(
+    persisted: list[dict[str, str]], memory: list[dict[str, str]],
+) -> int:
+    """Return the longest persisted suffix duplicated at memory's prefix."""
+    for size in range(min(len(persisted), len(memory)), 0, -1):
+        if all(
+            left.get("role") == right.get("role")
+            and left.get("content") == right.get("content")
+            for left, right in zip(persisted[-size:], memory[:size])
+        ):
+            return size
+    return 0
+
+
+def _format_recent_history(messages: list[dict[str, str]], *, max_chars: int) -> str:
+    """Fit newest messages into a budget while preserving chronological order."""
+    selected: list[str] = []
+    used = 0
+    for message in reversed(messages):
+        line = (
+            f"  [{message['role']}] "
+            f"{_truncate(message['content'], _HISTORY_MESSAGE_MAX_CHARS)}"
+        )
+        cost = len(line) + 1
+        if selected and used + cost > max_chars:
+            break
+        if not selected and cost > max_chars:
+            line = _truncate(line, max_chars)
+            cost = len(line)
+        selected.append(line)
+        used += cost
+    return "\n".join(reversed(selected))
 
 
 def _append_context_message(messages: list[dict[str, str]], seen: set[str], raw: Any) -> None:

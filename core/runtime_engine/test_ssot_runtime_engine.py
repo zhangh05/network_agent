@@ -1008,7 +1008,7 @@ class TestSSOTRuntimePipeline:
         def fake_llm(**kwargs):
             calls["count"] += 1
             assert kwargs["system"]
-            assert "User request: 解释一下" in kwargs["user"]
+            assert "<current_user_request>\n解释一下" in kwargs["user"]
             assert kwargs["extra"]["stream_scope"] == "planner"
             assert kwargs["extra"]["stream_to_user"] is False
             return "这是直接说明"

@@ -42,11 +42,10 @@ def temp_dirs(monkeypatch):
     ws_dir = _temp_ws
     reports_dir = _temp_rpts
 
-    # Monkeypatch ContextStore to use temp directory
+    # Reset ContextStore; storage root is controlled by NA_WORKSPACE_ROOT.
     try:
         import core.context.context_store as _cs
-        monkeypatch.setattr(_cs, "_BASE", ws_dir)
-        _cs._stores.clear()  # Reset singletons so new stores use patched path
+        _cs._stores.clear()
     except Exception:
         pass
     try:
