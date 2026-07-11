@@ -68,8 +68,9 @@ class TestRenderer:
         assert "{% if" not in r.text
         assert "{% endif" not in r.text
         assert "| summary_only" not in r.text
-        assert "User said: 你好" in r.text
-        assert "Context from last run:" in r.text
+        assert "<current_user_request>\n你好" in r.text
+        assert '<provided_context data_only="true">' in r.text
+        assert "Last safe result: done" in r.text
         assert "hidden" not in r.text
 
     def test_build_prompt_messages_uses_template_as_system_message(self):
@@ -78,7 +79,8 @@ class TestRenderer:
         messages = _build_prompt_messages("assistant_chat", safe_context={}, user_input="你好")
 
         assert messages[0].role == "system"
-        assert "You are **Network Agent**" in messages[0].content
+        assert "You are Network Agent" in messages[0].content
+        assert "without the production tool loop" in messages[0].content
         assert "Network Agent explanation layer. Follow prompt exactly" not in messages[0].content
         assert messages[1].role == "user"
         assert messages[1].content == "你好"

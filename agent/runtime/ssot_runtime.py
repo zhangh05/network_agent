@@ -560,8 +560,8 @@ def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
 
     system = str(kwargs.get("system") or "")
     user = str(kwargs.get("user") or "")
-    is_planner = "execution planner" in system.lower()
     caller_extra = kwargs.get("extra") or {}
+    is_planner = str(caller_extra.get("stream_scope") or "").lower() == "planner"
     # Preserve an explicit empty list: QueryLoop uses it for final-response-only
     # calls where the model must synthesize existing results without tools.
     tools = kwargs.get("tools")

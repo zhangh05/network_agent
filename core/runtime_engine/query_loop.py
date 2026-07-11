@@ -35,7 +35,12 @@ from .models import (
 from .tracking import extract_tracking_payload, normalize_tracking_payload
 from agent.llm.schemas import LLMMessage, LLMResponse, LLMToolCall
 from agent.llm.tool_adapter import tool_spec_to_openai_function
-from agent.runtime.prompt_architecture.policies import QUERY_LOOP_CONTRACT
+from .prompt_contract import (
+    FINAL_RESPONSE_PROMPT,
+    RUNTIME_SYSTEM_PROMPT,
+    build_runtime_system_prompt,
+    build_turn_message,
+)
 
 
 # ── Prompt Cache ────────────────────────────────────────────────────────────
@@ -43,22 +48,8 @@ from agent.runtime.prompt_architecture.policies import QUERY_LOOP_CONTRACT
 # Static prefix that never changes between turns — cached by the LLM API.
 # Keep this concise: the full tool catalog is already supplied through the
 # function-calling tools field on every planner call.
-QUERY_LOOP_SYSTEM_PROMPT = QUERY_LOOP_CONTRACT
-
-
-QUERY_LOOP_FINALIZER_PROMPT = """You are the final response writer for Network Agent.
-
-Use the provided tool results as facts. Explain the outcome in clear user-facing
-language:
-1. Answer the user's original request directly.
-2. Summarize successful tool results, failures, retries, tracking status, and
-   next actions when relevant.
-3. If a long task is still running, keep the task id and tell the user it is
-   still running; do not start a duplicate task.
-4. If a report or artifact URL is present, include it.
-5. Do not invent device states, command output, weather data, files, or memory.
-6. You may call another tool only when a required follow-up fact is missing.
-7. Never repeat a tool call whose successful result is already shown below."""
+QUERY_LOOP_SYSTEM_PROMPT = RUNTIME_SYSTEM_PROMPT
+QUERY_LOOP_FINALIZER_PROMPT = FINAL_RESPONSE_PROMPT
 
 FINAL_RESPONSE_ONLY_MARKER = "[FINAL_RESPONSE_ONLY]"
 
@@ -1030,23 +1021,18 @@ class QueryLoop:
         conversation_block = ctx.extras.get("conversation_history_block") or ""
         retrieved_block = ctx.extras.get("retrieved_context_block") or ""
 
-        user_content = (
-            f"Workspace: {ctx.workspace_id}\n"
-            f"Session: {ctx.session_id}\n\n"
-            f"User request: {ctx.user_input}"
-        )
-
-        if conversation_block.strip():
-            user_content = (
-                f"Recent conversation:\n{conversation_block}\n\n"
-                f"{user_content}"
-            )
-        if retrieved_block.strip():
-            user_content = f"Relevant governed context:\n{retrieved_block}\n\n{user_content}"
-
         return [
-            LLMMessage(role="system", content=QUERY_LOOP_SYSTEM_PROMPT),
-            LLMMessage(role="user", content=user_content),
+            LLMMessage(
+                role="system",
+                content=build_runtime_system_prompt(ctx.extras),
+            ),
+            LLMMessage(role="user", content=build_turn_message(
+                workspace_id=ctx.workspace_id,
+                session_id=ctx.session_id,
+                user_input=ctx.user_input,
+                conversation_history=str(conversation_block),
+                governed_context=str(retrieved_block),
+            )),
         ]
 
     @staticmethod
@@ -1083,7 +1069,7 @@ class QueryLoop:
         to guarantee a hard timeout and prevent event-loop blocking.
         """
         try:
-            system_prompt, stream_scope, stream_to_user = self._llm_call_mode(messages)
+            system_prompt, stream_scope, stream_to_user = self._llm_call_mode(messages, ctx)
             tools_for_call = (
                 [] if self._is_final_response_only(messages) else self._cached_tools
             )
@@ -1139,7 +1125,10 @@ class QueryLoop:
             return LLMResponse(error=str(e))
 
     @staticmethod
-    def _llm_call_mode(messages: List[LLMMessage]) -> tuple[str, str, bool]:
+    def _llm_call_mode(
+        messages: List[LLMMessage],
+        ctx: StatelessContext,
+    ) -> tuple[str, str, bool]:
         has_tool_context = any(
             m.role == "tool"
             or (m.role == "user" and "AUTO TRACKING RESULTS" in str(m.content or ""))
@@ -1147,7 +1136,7 @@ class QueryLoop:
         )
         if has_tool_context:
             return QUERY_LOOP_FINALIZER_PROMPT, "finalizer", True
-        return QUERY_LOOP_SYSTEM_PROMPT, "planner", False
+        return build_runtime_system_prompt(ctx.extras), "planner", False
 
     @staticmethod
     def _is_final_response_only(messages: List[LLMMessage]) -> bool:

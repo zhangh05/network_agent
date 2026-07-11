@@ -9,6 +9,8 @@ HTTP / WebSocket / SSE / Job entry
   -> AgentApp.submit_user_message (agent/app/facade.py)
   -> AgentThread + SessionManager (agent/core/thread.py)
   -> run_ssot_turn (agent/runtime/ssot_runtime.py)
+  -> QueryLoop (core/runtime_engine/query_loop.py)
+  -> LLM function calling + bounded tracking/retry/finalization
   -> ToolRuntimeClient.invoke / ToolRuntime.invoke_raw (core/runtime_engine/)
   -> registered canonical handlers
   -> AgentResult + RuntimeEvent timeline
@@ -67,9 +69,9 @@ Memory is governed by `MemoryWriteGate`. Raw writers are not active paths. Retri
                       → ContextStore.put(item_type="memory_hit") [BM25 index]
 
 3. Retrieval (per turn start, auto-injection)
-     MemoryHitsFragment → UnifiedRetriever.search_memory(BM25)
-                        → state.context["memory_hits"]
-                        → safe_context_renderer → prompt text
+     UnifiedRetriever.search_memory(BM25)
+       → run_ssot_turn.retrieved_context_block
+       → QueryLoop governed-context data boundary
 
 4. Retrieval (evidence pipeline, explicit)
      MemoryQueryPlanner → MemoryRetriever → UnifiedRetriever.search_memory()
@@ -85,4 +87,17 @@ Key modules:
 - `agent/runtime/memory_write/llm_gate.py` — LLM quality scoring (1-5)
 - `workspace/memory_governance.py` — MemoryRecord, MemoryStore, MemoryWriteGate
 - `core/context/context_store.py` — BM25 index for retrieval
-- `core/context/fragments/memory.py` — auto-injection into prompt
+
+## Prompt Boundary
+
+`core/runtime_engine/prompt_contract.py` is the production prompt SSOT. It owns
+the QueryLoop planner contract, final-response contract, subagent system
+constraints, and the delimited turn envelope. QueryLoop receives all canonical
+tool schemas through function calling; it does not duplicate the catalog in
+prompt text or use rules to hide tools.
+
+Conversation history and governed memory/knowledge retrieval are injected as
+explicit `data_only` sections. The current user request has its own boundary,
+so retrieved text cannot silently become a system instruction. Task-specific
+templates under `prompts/templates/` are separate non-runtime LLM jobs such as
+memory gating, report summaries, and knowledge answers.

@@ -5,7 +5,7 @@ Validates:
 1. SceneDecision — simple_chat, local_ops, knowledge, translation, sub_agent
 2. EvidenceBundle — normalization of memory/knowledge items
 3. ToolPlannerV2 — importable
-4. PromptCompiler — importable and callable
+4. Runtime prompt SSOT — production contract is importable
 5. Current module boundaries
 6. Local ops still exposed for explicit host scenes
 """
@@ -227,46 +227,23 @@ class TestToolPlannerV2:
         assert "host" in rule["categories"]
 
 
-# ── D. PromptCompiler ────────────────────────────────────────────────
+# ── D. Runtime prompt SSOT ──────────────────────────────────────────
 
-class TestPromptCompiler:
+class TestRuntimePromptSSOT:
     def test_importable(self):
-        from agent.runtime.prompting.compiler import PromptCompiler
-        assert callable(PromptCompiler)
+        from core.runtime_engine.prompt_contract import RUNTIME_SYSTEM_PROMPT
+        assert "Network Agent" in RUNTIME_SYSTEM_PROMPT
 
-    def test_blocks_importable(self):
-        from agent.runtime.prompting.blocks import (
-            CORE_PROMPT, ANTI_HALLUCINATION,
-            TOOL_CATEGORY_GUIDE, SUB_AGENT_PREAMBLE,
+    def test_context_boundary_is_explicit(self):
+        from core.runtime_engine.prompt_contract import build_turn_message
+        result = build_turn_message(
+            workspace_id="test",
+            session_id="s1",
+            user_input="hello",
+            governed_context="untrusted evidence",
         )
-        assert "Network Agent" in CORE_PROMPT
-        assert "sub-agent" in SUB_AGENT_PREAMBLE.lower()
-
-    def test_safe_context_renderer_importable(self):
-        from agent.runtime.prompting.safe_context_renderer import render_safe_context
-        result = render_safe_context(None)
-        assert result == ""
-        result = render_safe_context({"workspace_id": "test"})
-        assert "UNTRUSTED" in result
-
-    def test_history_renderer_importable(self):
-        from agent.runtime.prompting.history_renderer import build_user_content_with_images
-        result = build_user_content_with_images(None, "hello")
-        assert result == "hello"
-
-    def test_scene_decision_can_drive_prompt_architecture(self):
-        from types import SimpleNamespace
-        from agent.runtime.cognition.scene_decision import decide_scene
-        from agent.runtime.prompt_architecture.compiler import compile_runtime_prompt
-
-        d = decide_scene("查看本机端口")
-        context = SimpleNamespace(
-            metadata={"scene_decision": d.__dict__},
-            visible_tool_ids=["exec.run"],
-            safe_context={},
-        )
-        assembly = compile_runtime_prompt(context)
-        assert assembly.final_prompt
+        assert '<governed_context data_only="true">' in result
+        assert "<current_user_request>" in result
 
 
 # ── E. Current module boundaries ────────────────────────────────────

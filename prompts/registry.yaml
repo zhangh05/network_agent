@@ -1,12 +1,12 @@
-version: "1.0.0"
+version: "2.0.0"
 description: "Network Agent Prompt Registry"
 prompts:
-  - prompt_id: assistant.chat.v1
+  - prompt_id: assistant.chat.v2
     task: assistant_chat
-    version: v1
+    version: v2
     status: enabled
     template_path: prompts/templates/assistant_chat.md
-    description: "Basic assistant conversation for Network Agent"
+    description: "Non-tool conversational fallback; production tool turns use QueryLoop prompt SSOT"
     input_policy:
       allow_full_source_config: false
       allow_full_deployable_config: false
@@ -14,10 +14,6 @@ prompts:
       allow_secret: false
       max_context_chars: 4000
     output_policy:
-      forbid_deployable_generation: true
-      forbid_deployable_modification: true
-      forbid_hide_manual_review: true
-      forbid_direct_deploy_claim: true
       forbid_fake_trace_or_job_status: true
       forbid_fake_artifact_id: true
       forbid_secret_output: true

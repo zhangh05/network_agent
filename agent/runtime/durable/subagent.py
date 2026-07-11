@@ -220,18 +220,6 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
     }
 
     try:
-        # Build goal as system-style prompt
-        goal_prompt = (
-            f"You are a subagent: {profile.name} ({profile.role}).\n"
-            f"Goal: {task.goal}\n"
-            f"Constraints: max {profile.max_steps} tool calls, "
-            f"{profile.max_runtime_seconds}s runtime, "
-            f"read{'/write' if 'write' in profile.allowed_action_classes else ''}/"
-            f"{'execute' if profile.can_execute_commands else 'plan'} only.\n"
-            f"Output: {profile.output_contract or 'structured summary of findings'}.\n"
-            f"Respond concisely with your findings."
-        )
-
         # Create restricted session for profile-gated SSOT Runtime execution.
         from agent.core.session import AgentSession
 
@@ -246,7 +234,24 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
         from agent.core.turn import AgentTurn
         from agent.protocol.op import AgentOp
         from agent.runtime.ssot_runtime import run_ssot_turn
-        op = AgentOp(user_input=goal_prompt, workspace_id=ws_id, session_id=child_session_id)
+        op = AgentOp(
+            user_input=task.goal,
+            workspace_id=ws_id,
+            session_id=child_session_id,
+            metadata={
+                "subagent_profile": {
+                    "profile_id": profile.profile_id,
+                    "name": profile.name,
+                    "role": profile.role,
+                    "max_steps": profile.max_steps,
+                    "max_runtime_seconds": profile.max_runtime_seconds,
+                    "allowed_action_classes": list(profile.allowed_action_classes),
+                    "output_contract": profile.output_contract,
+                },
+                "parent_session_id": task.session_id,
+                "subtask_id": subtask_id,
+            },
+        )
         turn = AgentTurn.from_op(op)
         turn.metadata = {
             "max_steps": profile.max_steps,

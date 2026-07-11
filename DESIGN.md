@@ -104,9 +104,17 @@ LLM 失败时不能泄露异常文本，降级原因必须结构化。
 
 ## Prompt 与上下文
 
-Prompt 由模块化 block 组装：角色、行为规则、环境、能力、工具策略、安全策略、输出要求。上下文管道负责 history、scene、retrieval、safe context、loaded capability 和 metadata write。
+生产提示词只有一个事实来源：`core/runtime_engine/prompt_contract.py`。它定义
+QueryLoop 的执行契约、最终答复契约、子 Agent system 约束，以及每轮上下文的
+分隔格式。生产主链不再经过第二套 PromptCompiler 或 block assembly。
+
+每轮输入明确分为 runtime identity、`data_only` conversation history、
+`data_only` governed context 和 current user request。历史、记忆、知识、制品和
+工具输出只能作为证据，不能覆盖 system 规则。子 Agent 的角色、工具范围和预算
+进入 system prompt，委派目标仍保持为纯用户任务。
 
 工具 schema 通过模型 tools 字段提供；system prompt 只提供策略和工具选择原则，不内联长工具清单。
+所有 canonical 工具仍对主管线 LLM 可见，不使用关键词规则裁剪模型能力。
 
 ## Frontend
 

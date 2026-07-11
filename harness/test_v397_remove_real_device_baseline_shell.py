@@ -109,16 +109,13 @@ def test_canonical_registry_exposes_ssh_target_handler():
     assert entry.handler_id
 
 
-def test_assistant_chat_prompt_reflects_real_device_access():
-    """assistant_chat.md prompt must tell the LLM that real device
-    access via ``exec.run(target=ssh|telnet)`` is supported. Earlier
-    versions inverted this and misled the LLM into refusing.
-    """
-    from pathlib import Path
-    text = (Path("prompts/templates/assistant_chat.md").read_text(encoding="utf-8"))
-    # Real-device access is supported via exec.run target=ssh/telnet.
-    assert "exec.run(target=ssh)" in text
-    assert "exec.run(target=telnet)" in text
+def test_runtime_prompt_reflects_real_device_access():
+    """The production prompt must route real-device access through CMDB."""
+    from core.runtime_engine.prompt_contract import RUNTIME_SYSTEM_PROMPT
+    text = RUNTIME_SYSTEM_PROMPT
+    assert "Resolve CMDB assets" in text
+    assert "exec__run" in text
+    assert "asset_id" in text
     # The stale "Do NOT say 没有真实设备访问能力" sentence is gone.
     assert "Do NOT say" not in text
     assert "没有真实设备访问能力" not in text

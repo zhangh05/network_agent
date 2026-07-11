@@ -3,7 +3,7 @@
 
 Merges responsibility from:
 - prompts.py::classify_intent
-- message_builder.py::_is_pure_greeting, _looks_like_tool_query
+- Historical scene hints retained for deterministic diagnostics.
 - tool_category_router.py::route_tool_scene (signal detection)
 - context_tools.py::is_tool_followup
 """
