@@ -681,7 +681,6 @@ export interface DecisionReport {
     [key: string]: unknown;
   };
   retrieval_decision: Record<string, Record<string, unknown>>;
-  context_pipeline: Record<string, unknown>;
   visibility_violations: Array<Record<string, unknown>>;
   tool_execution_summary: {
     called: string[];

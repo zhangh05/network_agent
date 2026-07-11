@@ -18,7 +18,6 @@ def test_decision_report_preserves_business_capability_guidance():
             "memory": {"status": "skipped", "reason": "not_required"},
             "knowledge": {"status": "hit", "count": 2},
         },
-        "context_pipeline_meta": {"status": "ok", "stages_run": 13},
     })
 
     report = build_decision_report(
@@ -34,5 +33,4 @@ def test_decision_report_preserves_business_capability_guidance():
     assert report["business_capabilities"][0]["capability_id"] == "pcap_analysis"
     assert report["scene_decision"]["signals"]["has_file"] is True
     assert "catalog_expansions" not in report
-    assert report["context_pipeline"]["status"] == "ok"
     assert report["decision_status"] == "complete"

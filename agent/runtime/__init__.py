@@ -1,9 +1,8 @@
 # agent/runtime/__init__.py
 """Runtime package exports.
 
-Keep this module light. Low-level packages such as workspace.memory_governance
-import agent.runtime.utils; eager imports here would pull in context_builder and
-agent.context, creating circular imports during store/tool startup.
+Keep this module light. Eager imports here would pull in unnecessary dependencies,
+creating circular imports during store/tool startup.
 """
 
 from __future__ import annotations

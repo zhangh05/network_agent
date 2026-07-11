@@ -92,7 +92,6 @@ class DecisionReport:
         "knowledge": {"status": "not_evaluated"},
     })
 
-    context_pipeline: dict = field(default_factory=dict)
     decision_status: str = "degraded"
 
     # Tool execution summary
@@ -126,7 +125,6 @@ class DecisionReport:
             "tool_planning_decision": dict(self.tool_planning_decision),
             "visibility_violations": list(self.visibility_violations),
             "retrieval_decision": dict(self.retrieval_decision),
-            "context_pipeline": dict(self.context_pipeline),
             "decision_status": self.decision_status,
             "tool_execution_summary": dict(self.tool_execution_summary),
             "trace_summary": dict(self.trace_summary),

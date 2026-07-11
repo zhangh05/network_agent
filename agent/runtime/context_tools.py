@@ -1,7 +1,7 @@
 # agent/runtime/context_tools.py
 """Tool visibility and planning helpers for TurnContext construction.
 
-v3.4: plan_tool_visibility removed — replaced by ToolPlannerV2 in context_builder.
+v3.4: plan_tool_visibility removed.
 is_tool_followup canonical location: cognition/scene_decision.py.
 """
 

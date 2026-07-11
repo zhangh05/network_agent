@@ -75,14 +75,10 @@ def build_decision_report(
             "knowledge": {"status": "not_evaluated"},
         }
 
-    context_pipeline = _safe_structure(
-        ctx_meta.get("context_pipeline_meta", {}),
-    )
     decision_status = "complete" if all((
         scene_decision,
         tool_planning_decision,
         retrieval_decision,
-        context_pipeline,
     )) else "degraded"
 
     # Check for provider errors in metadata
@@ -111,7 +107,6 @@ def build_decision_report(
         "tool_planning_decision": tool_planning_decision,
         "visibility_violations": visibility_violations,
         "retrieval_decision": retrieval_decision,
-        "context_pipeline": context_pipeline,
         "decision_status": decision_status,
         "tool_execution_summary": exec_summary,
         "trace_summary": trace_summary,

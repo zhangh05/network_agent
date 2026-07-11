@@ -24,7 +24,6 @@ const report: DecisionReport = {
     memory: { status: "skipped", reason: "not_required" },
     knowledge: { status: "hit", count: 2 },
   },
-  context_pipeline: { status: "ok", stages_run: 13 },
   visibility_violations: [],
   tool_execution_summary: {
     called: ["pcap.manage"],
