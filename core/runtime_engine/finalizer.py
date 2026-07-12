@@ -135,8 +135,14 @@ class Finalizer:
         # ── Conversation history block ──
         context_block = ctx.extras.get("conversation_history_block") or ""
 
-        # No hard cap here — query_loop applies the single context budget gate.
-        results_json = json.dumps(merged, ensure_ascii=False, default=str, indent=2)
+        # Reuse the SSOT tool-context gate for direct/offline Finalizer callers.
+        # The active runtime finalizes inside QueryLoop, but this class remains
+        # a supported test/offline entry and must obey the same bound.
+        from .query_loop import TOOL_MESSAGE_MAX_CHARS, _json_compact
+        results_json = _json_compact(
+            {key: value for key, value in merged.items() if key != "normalized_content"},
+            max_chars=TOOL_MESSAGE_MAX_CHARS,
+        )
 
         # ── v3.14: normalized_content for analysis tools ────────────
         nc_block = ""

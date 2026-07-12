@@ -2907,6 +2907,8 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             },
             "query": _S["query"],
             "limit": _S["limit"],
+            "include_disabled": {"type": "boolean", "description": "[list] Include disabled sources.", "default": False},
+            "include_deleted": {"type": "boolean", "description": "[list] Include soft-deleted sources.", "default": False},
             "level": {"type": "string", "enum": ["chunk", "source", "parent"], "default": "chunk"},
             "chunk_id": _S["chunk_id"],
             "source_id": _S["source_id"],
@@ -2920,7 +2922,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["action"]),
         description=(
             "RAG knowledge base. search: find relevant documents via BM25. "
-            "read: view a chunk. list: browse indexed sources. "
+            "read: view a chunk. list: browse indexed sources and optionally filter with query. "
             "chunk: list chunks for a source. import: add markdown/pdf/docx/txt. "
             "manage: disable/delete/reindex sources."
         ),

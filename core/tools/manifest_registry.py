@@ -139,16 +139,19 @@ MANIFESTS: dict[str, CapabilityManifest] = {
     "knowledge.manage": CapabilityManifest(
         tool_id="knowledge.manage", category="knowledge", display_name="Knowledge (unified)",
         description=(
-            "Unified knowledge tool. action=search, read, source_list, "
-            "chunk_list, not_found_explain (reads); "
-            "action=import, source_manage, source_reindex (writes). "
-            "source_list supports `query` param to filter by title/source."
+            "Unified knowledge tool. Read actions: search, read, list, chunk. "
+            "Write actions: import, manage. action=list supports query filtering "
+            "and optional include_disabled/include_deleted flags; action=manage "
+            "uses action_source=disable|delete|reindex."
         ),
         # v3.9.2: visibility treats this as "read" because the canonical
         # knowledge query path is read. Write sub-actions (import/manage/
         # reindex) are gated at execution time, not visibility time.
         action_class="read",
-        risk_level="medium", side_effects="write", idempotency="safe_to_retry",
+        # Mixed read/write actions: action-aware retry contracts promote only
+        # exact read calls. The merged manifest must not advertise writes as
+        # globally safe to replay.
+        risk_level="medium", side_effects="write", idempotency="unknown",
         timeout_seconds=300,
     ),
 

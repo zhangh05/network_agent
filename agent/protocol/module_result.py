@@ -37,12 +37,6 @@ from dataclasses import dataclass, field
 from typing import Iterable
 
 
-# Maximum length for the `summary` field. Long enough for a real
-# description, short enough to never bloat LLM context windows.
-# No truncation — data flows intact to query_loop which applies a single
-# cap at the LLM injection point.
-
-
 @dataclass
 class ModuleResult:
     """Standard business output contract for a Capability Module."""

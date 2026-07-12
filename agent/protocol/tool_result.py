@@ -4,8 +4,9 @@
 v0.8.2 enhancement: ToolResult now carries the v0.7.1 capability fields
 (artifacts, source_count, manual_review_count, metadata, data) as
 **structured** fields, and gains `from_module_result()` to project a
-ModuleResult into a ToolResult. The `content` field is a bounded
-serialized preview for callers that still read text payloads.
+ModuleResult into a ToolResult. The `content` field is a serialized
+projection for callers that still read text payloads; QueryLoop owns the
+single LLM-injection bound.
 
 Three contracts (intentionally distinct):
   - ModuleResult  : business output contract, produced by a Module
@@ -26,11 +27,6 @@ from typing import Any, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from agent.protocol.module_result import ModuleResult
-
-
-# Max serialized length of `content` when it is a string. This is only
-# a preview; structured data/raw remain the source of truth.
-# No truncation here — query_loop applies a single cap before LLM injection.
 
 
 @dataclass
@@ -105,8 +101,7 @@ class ToolResult:
           - errors                : module_result.errors
           - warnings              : module_result.warnings
           - metadata              : module_result.metadata
-          - content               : JSON-encoded preview payload
-                                     (bounded by content_max_len)
+          - content               : JSON-encoded projection payload
           - raw                   : dict(module_result.to_dict())
         """
         mr = module_result

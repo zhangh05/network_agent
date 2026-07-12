@@ -53,6 +53,8 @@ def test_pcap_filter_returns_bounded_packet_preview(monkeypatch):
 
 
 def test_query_loop_compaction_keeps_control_fields_before_bulk_output():
+    import json
+
     from core.runtime_engine.query_loop import _json_compact
 
     compacted = _json_compact({
@@ -65,6 +67,53 @@ def test_query_loop_compaction_keeps_control_fields_before_bulk_output():
     assert "task_contract_123" in compacted
     assert '"status":"running"' in compacted
     assert "/reports/task_contract_123" in compacted
+    assert len(compacted) <= 500
+    assert json.loads(compacted)["_truncated"] is True
+
+
+def test_history_compaction_reads_actual_tool_result_messages():
+    from agent.llm.schemas import LLMMessage
+    from core.runtime_engine.query_loop import _compact_messages
+
+    messages = [
+        LLMMessage(role="system", content="system"),
+        LLMMessage(role="user", content="original request"),
+    ]
+    for index in range(7):
+        call_id = f"call_{index}"
+        messages.extend([
+            LLMMessage(role="assistant", content="", tool_calls=[{
+                "id": call_id,
+                "type": "function",
+                "function": {"name": "knowledge__manage", "arguments": "{}"},
+            }]),
+            LLMMessage(
+                role="tool",
+                content='{"ok":false,"summary":"source lookup failed"}',
+                tool_call_id=call_id,
+            ),
+        ])
+    messages.extend([
+        LLMMessage(role="user", content="continue"),
+        LLMMessage(role="assistant", content="working"),
+    ])
+
+    compacted, info = _compact_messages(messages)
+
+    assert info.compacted is True
+    assert info.tool_stats["knowledge__manage"]["failed"] > 0
+    assert "source lookup failed" in compacted[2].content
+
+
+def test_knowledge_list_llm_schema_matches_registered_handler_options():
+    from core.tools.canonical_registry import CANONICAL_REGISTRY
+
+    entry = CANONICAL_REGISTRY["knowledge.manage"]
+    properties = entry.input_schema["properties"]
+
+    assert "query" in properties
+    assert properties["include_disabled"]["type"] == "boolean"
+    assert properties["include_deleted"]["type"] == "boolean"
 
 
 def test_tool_result_injection_scan_checks_nested_evidence():

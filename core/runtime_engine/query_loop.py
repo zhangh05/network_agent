@@ -110,11 +110,10 @@ FALLBACK_TOOL_MAX_CHARS = 2000
 MAX_VALIDATION_CORRECTION_ROUNDS = 3
 
 _PRIORITY_OUTPUT_KEYS = (
-    "ok", "status", "summary", "message", "error", "reason",
-    "task_id", "task", "tracking", "progress", "done",
+    "ok", "status", "task_id", "task", "tracking", "progress", "done",
     "report_url", "html_url", "artifact_url", "url",
     "count", "total", "success", "failed", "skipped",
-    "title", "name", "format",
+    "summary", "message", "error", "reason", "title", "name", "format",
 )
 
 _BULK_TEXT_KEYS = {
@@ -177,7 +176,7 @@ def _compact_value_for_llm(value: Any, *, depth: int = 0, key_hint: str = "") ->
 
 
 def _json_compact(value: Any, *, max_chars: int = TOOL_MESSAGE_MAX_CHARS) -> str:
-    """JSON serialize compacted output with a hard cap."""
+    """JSON serialize compacted output with a valid-JSON hard cap."""
     compacted = _compact_value_for_llm(value)
     text = json.dumps(
         compacted,
@@ -191,7 +190,54 @@ def _json_compact(value: Any, *, max_chars: int = TOOL_MESSAGE_MAX_CHARS) -> str
     )
     if len(text) <= max_chars:
         return text
-    return text[:max_chars] + f"... [truncated {len(text) - max_chars} chars]"
+
+    control: dict[str, Any] = {}
+    if isinstance(compacted, dict):
+        for key in _PRIORITY_OUTPUT_KEYS:
+            if key not in compacted:
+                continue
+            value = compacted[key]
+            if isinstance(value, str) and len(value) > 500:
+                value = value[:500] + "...[truncated]"
+            candidate_control = {**control, key: value}
+            candidate_envelope = {
+                **candidate_control,
+                "_truncated": True,
+                "_original_chars": len(text),
+                "_preview": "",
+            }
+            candidate_text = json.dumps(
+                candidate_envelope,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                default=str,
+            )
+            if len(candidate_text) <= max_chars:
+                control = candidate_control
+    envelope = {
+        **control,
+        "_truncated": True,
+        "_original_chars": len(text),
+        "_preview": "",
+    }
+    # JSON escaping can expand the preview, so find the largest prefix that
+    # still keeps the entire envelope valid and within the exact character cap.
+    low, high = 0, min(len(text), max(0, max_chars))
+    best = json.dumps(envelope, ensure_ascii=False, separators=(",", ":"), default=str)
+    while low <= high:
+        mid = (low + high) // 2
+        envelope["_preview"] = text[:mid]
+        candidate = json.dumps(envelope, ensure_ascii=False, separators=(",", ":"), default=str)
+        if len(candidate) <= max_chars:
+            best = candidate
+            low = mid + 1
+        else:
+            high = mid - 1
+    if len(best) <= max_chars:
+        return best
+    # Extremely small caller-provided caps still receive valid JSON.
+    minimal = json.dumps({"_truncated": True}, separators=(",", ":"))
+    return minimal if len(minimal) <= max_chars else "{}"
 
 
 def _compact_tool_content(content: Any, *, max_chars: int = TOOL_MESSAGE_MAX_CHARS) -> str:
@@ -276,9 +322,10 @@ def _compact_messages(messages: List[LLMMessage]) -> tuple[List[LLMMessage], Com
     if middle_count <= 1:
         return messages, info
 
-    # ── Collect tool statistics from middle messages ──
+    # ── Collect tool calls and their actual role=tool results ──
     tool_names: list[str] = []
     tool_stats: dict[str, dict] = {}
+    call_names: dict[str, str] = {}
     for m in middle:
         if not m.tool_calls:
             continue
@@ -291,43 +338,35 @@ def _compact_messages(messages: List[LLMMessage]) -> tuple[List[LLMMessage], Com
             if name not in tool_stats:
                 tool_stats[name] = {"ok": 0, "failed": 0, "total": 0}
             tool_stats[name]["total"] += 1
-            result = tc.get("result") or tc.get("output") or {}
-            if isinstance(result, dict):
-                if result.get("ok", True):
-                    tool_stats[name]["ok"] += 1
-                else:
-                    tool_stats[name]["failed"] += 1
+            call_id = str(tc.get("id") or "")
+            if call_id:
+                call_names[call_id] = name
 
-    # ── Extract key hints from tool calls and tool summaries ──
-    key_hints = []
-    tool_summaries = []
+    key_hints: list[str] = []
+    tool_summaries: list[str] = []
     for m in middle:
-        if not m.tool_calls:
+        if m.role != "tool" or not m.tool_call_id:
             continue
-        for tc in m.tool_calls:
-            summary = tc.get("summary")
-            if not summary and isinstance(tc.get("result"), dict):
-                summary = tc.get("result", {}).get("summary")
-            if summary and isinstance(summary, str):
-                # Truncate individual summaries to fit
-                snippet = summary[:200].replace('\n', ' ').strip()
-                if snippet and snippet not in tool_summaries:
-                    tool_summaries.append(snippet)
-                    if len(tool_summaries) >= 3:
-                        break
-        if len(tool_summaries) >= 3:
-            break
-    # Combine hints and summaries
-    for m in middle:
-        if not m.tool_calls:
+        try:
+            result = json.loads(str(m.content or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            result = {}
+        if not isinstance(result, dict):
             continue
-        if isinstance(m.content, str):
-            for found in re.findall(r'_hint["\':\s]*["\']([^"\']+)["\']', m.content):
-                key_hints.append(found)
-                if len(key_hints) >= 3:
-                    break
-        if len(key_hints) >= 3:
-            break
+        name = call_names.get(str(m.tool_call_id), "")
+        if name in tool_stats:
+            if result.get("ok", True):
+                tool_stats[name]["ok"] += 1
+            else:
+                tool_stats[name]["failed"] += 1
+        summary = result.get("summary")
+        if isinstance(summary, str):
+            snippet = summary[:200].replace("\n", " ").strip()
+            if snippet and snippet not in tool_summaries and len(tool_summaries) < 3:
+                tool_summaries.append(snippet)
+        hint = result.get("_hint")
+        if isinstance(hint, str) and hint.strip() and len(key_hints) < 3:
+            key_hints.append(hint[:200].replace("\n", " ").strip())
 
     # Merge tool summaries and key_hints so they appear in compact summary
     combined_hints = tool_summaries + key_hints
@@ -345,7 +384,7 @@ def _compact_messages(messages: List[LLMMessage]) -> tuple[List[LLMMessage], Com
     info.saved_chars = before - after
     info.tools_used = tool_names
     info.tool_stats = tool_stats
-    info.key_hints = key_hints
+    info.key_hints = combined_hints
     return compacted, info
 
 

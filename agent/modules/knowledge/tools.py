@@ -10,7 +10,7 @@ Source tools:
 
 Retrieval tools:
   - knowledge.import.file
-  - knowledge.manage(action=chunk_list)
+  - knowledge.manage(action=chunk)
   - knowledge.manage(action=search)
   - knowledge.manage(action=read)
   - knowledge.manage(action=reindex)
@@ -55,7 +55,7 @@ TOOL_KNOWLEDGE_LIST = ToolSpec(
     category="knowledge",
     description=(
         "List source records in the workspace knowledge store. "
-        "For chunked view use knowledge.manage(action=chunk_list)."
+        "For chunked view use knowledge.manage(action=chunk)."
     ),
     risk_level="low",
     enabled=True,
@@ -68,6 +68,7 @@ TOOL_KNOWLEDGE_LIST = ToolSpec(
             "workspace_id": {"type": "string", "description": "Workspace id."},
             "include_disabled": {"type": "boolean", "description": "Include disabled sources."},
             "include_deleted": {"type": "boolean", "description": "Include soft-deleted sources."},
+            "query": {"type": "string", "description": "Filter by source title or origin."},
         },
         "required": ["workspace_id"],
     },
