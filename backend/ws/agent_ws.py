@@ -245,19 +245,18 @@ def _run_agent_thread(
                     pass
             else:
                 name = event.get("type", event.get("name", "event")) if isinstance(event, dict) else "event"
-                # v3.10: Surface tool calls as live events for inline display.
-                # Truncate large payloads to avoid WebSocket send failures on
-                # tool results that can carry 60+ KB of search / fetch data.
                 data = event
+                # Only surface lightweight fields for live display; the
+                # full result (including large output arrays) is carried
+                # through the final 'done' payload and run persistence.
                 if name in ("tool_call", "tool_result") and isinstance(event, dict):
-                    summary = str(event.get("summary") or event.get("message") or "")[:1200]
                     data = {
                         "type": event.get("type"),
                         "name": event.get("name", event.get("tool",
                                 event.get("tool_id", ""))),
                         "tool_id": event.get("tool_id", event.get("name", "")),
                         "ok": event.get("ok", event.get("status") == "ok"),
-                        "summary": summary,
+                        "summary": str(event.get("summary") or event.get("message") or ""),
                         "call_id": event.get("call_id", ""),
                     }
                 event_queue.put({

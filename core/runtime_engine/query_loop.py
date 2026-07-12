@@ -2057,7 +2057,7 @@ class QueryLoop:
             else:
                 summary = str(output.get("summary") or output.get("message") or "")
                 if summary:
-                    lines.append(summary[:1200] + ("..." if len(summary) > 1200 else ""))
+                    lines.append(summary[:8000] + ("..." if len(summary) > 8000 else ""))
                 elif not r.ok:
                     lines.append(f"error: {r.error}")
 
