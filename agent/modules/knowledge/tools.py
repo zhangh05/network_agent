@@ -358,7 +358,7 @@ def _build_handler(service_fn, tool_id_str: str,
         from agent.modules.knowledge.service import to_module_result
         from agent.protocol.tool_result import ToolResult
         call_id = ""
-        workspace_id = "default"
+        workspace_id = ""
         if context:
             call_id = (getattr(context, "call_id", None)
                         or getattr(context, "tool_call_id", "")) or ""
@@ -431,7 +431,7 @@ tool_handler_delete = _build_handler(
 # Merged source management handler (disable/delete/reindex)
 def _tool_handler_manage_source(**kwargs):
     action = (kwargs.get("action") or "").strip().lower()
-    workspace_id = kwargs.get("workspace_id", "default")
+    workspace_id = str(kwargs.get("workspace_id") or "").strip()
     source_id = kwargs.get("source_id", "")
     if action == "disable":
         return _knowledge_service.disable_source(

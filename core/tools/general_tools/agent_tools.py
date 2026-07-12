@@ -30,6 +30,7 @@ def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: st
                           background: bool = False) -> dict:
     from agent.runtime.durable.subagent import (
         create_subagent_task,
+        start_subagent_task,
         merge_subagent_result,
         run_subagent_task,
     )
@@ -47,6 +48,7 @@ def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: st
         profile_id=profile_id,
         goal=instruction,
         context_refs=[],
+        max_steps=effective_turns,
     )
     if not created.get("ok"):
         return {"ok": False, "error": created.get("error", "failed to create subagent task")}
@@ -54,6 +56,9 @@ def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: st
     subtask_id = created["subtask_id"]
 
     if background:
+        started = start_subagent_task(subtask_id, workspace_id)
+        if not started.get("ok"):
+            return started
         return {
             "ok": True, "subtask_id": subtask_id,
             "background": True,
@@ -61,7 +66,8 @@ def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: st
         }
 
     result = run_subagent_task(subtask_id, workspace_id)
-    merge_subagent_result(parent_task_id, subtask_id, workspace_id)
+    if result.get("ok") and result.get("status") == "succeeded":
+        merge_subagent_result(parent_task_id, subtask_id, workspace_id)
     child_session_id = result.get("child_session_id") or subtask_id
     return {
         "ok": result.get("ok", False) and result.get("status") == "succeeded",
@@ -212,6 +218,15 @@ def handle_agent_get_result(inv: ToolInvocation) -> dict:
         except Exception:
             pass
 
+        from agent.runtime.durable.subagent import get_subagent_task
+        persisted = get_subagent_task(ws, child_session_id)
+        if persisted is not None:
+            return _ok(inv, "", {
+                "child_session_id": child_session_id,
+                "workspace_id": ws,
+                **persisted,
+            })
+
         return _ok(inv, "", {
             "child_session_id": child_session_id,
             "workspace_id": ws,
@@ -230,11 +245,10 @@ def handle_agent_cancel(inv: ToolInvocation) -> dict:
     try:
         ws = _caller_workspace(inv)
         validate_workspace_id(ws)
-        from agent.runtime.durable.trajectory import _live_tasks
-        task = _live_tasks.get(subtask_id)
-        if task:
-            task["status"] = "cancelled"
-            task["cancelled_at"] = getattr(__import__("agent.runtime.utils", fromlist=["now_iso"]), "now_iso", lambda: "")()
+        from agent.runtime.durable.subagent import cancel_subagent_task
+        cancelled = cancel_subagent_task(subtask_id, ws)
+        if not cancelled.get("ok"):
+            return _error_inv(inv, cancelled.get("error", "cancel failed"))
         return _ok(inv, "", {
             "subtask_id": subtask_id, "cancelled": True,
             "_hint": f"Subagent {subtask_id} 已取消。",
@@ -248,15 +262,8 @@ def handle_agent_status(inv: ToolInvocation) -> dict:
     try:
         ws = _caller_workspace(inv)
         validate_workspace_id(ws)
-        from agent.runtime.durable.trajectory import _live_tasks
-        tasks = []
-        for tid, task in list(_live_tasks.items()):
-            tasks.append({
-                "subtask_id": tid,
-                "status": task.get("status", "unknown"),
-                "profile_id": task.get("profile_id", ""),
-                "instruction": (task.get("goal", "") or "")[:100],
-            })
+        from agent.runtime.durable.subagent import list_subagent_tasks
+        tasks = list_subagent_tasks(ws)
         return _ok(inv, "", {
             "tasks": tasks, "count": len(tasks),
             "_hint": f"{len(tasks)} 个子Agent任务。用 agent.manage(action=cancel) 取消运行中的任务。",

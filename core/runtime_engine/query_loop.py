@@ -831,6 +831,8 @@ class QueryLoop:
         # background task completes. Read those workspace-scoped artifacts
         # through the canonical runtime before planning, then use one
         # final-response-only LLM call when the content is complete.
+        if self._is_cancelled(ctx):
+            return finish(final_response="任务已取消。", error="cancelled_by_user")
         prefetch_ids = list(dict.fromkeys(
             str(value).strip()
             for value in (ctx.extras.get("prefetch_artifact_ids") or [])
@@ -868,6 +870,11 @@ class QueryLoop:
                 )
 
         while iterations < max_iterations:
+            if self._is_cancelled(ctx):
+                return finish(
+                    final_response="任务已取消。",
+                    error="cancelled_by_user",
+                )
             iterations += 1
 
             # Budget check. BudgetController is the SSOT for LLM call count;
@@ -1870,6 +1877,8 @@ class QueryLoop:
             poll_index = 0
             last_error_count = 0
             while poll_index < max_polls and time.monotonic() < deadline:
+                if self._is_cancelled(ctx):
+                    break
                 if tracking.get("done"):
                     break
 
@@ -1924,6 +1933,16 @@ class QueryLoop:
                     break
 
         return polled
+
+    @staticmethod
+    def _is_cancelled(ctx: StatelessContext) -> bool:
+        check = ctx.extras.get("cancel_check")
+        if not callable(check):
+            return False
+        try:
+            return bool(check())
+        except Exception:
+            return False
 
     def _tracking_wait(self, tracking: dict, cap: float, deadline: float) -> float:
         """Calculate poll wait time, capped and bounded by deadline."""

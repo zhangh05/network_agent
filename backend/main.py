@@ -344,6 +344,21 @@ def create_app():
                 "[inspection startup] reconcile failed: %s", exc,
                 exc_info=True,
             )
+        try:
+            from agent.runtime.durable.subagent import reconcile_subagent_tasks
+            reconciled = reconcile_subagent_tasks()
+            if reconciled:
+                import logging as _subagent_log
+                _subagent_log.getLogger(__name__).warning(
+                    "[subagent startup] marked interrupted tasks failed: %s",
+                    reconciled,
+                )
+        except Exception as exc:
+            import logging as _subagent_log
+            _subagent_log.getLogger(__name__).warning(
+                "[subagent startup] reconcile failed: %s", exc,
+                exc_info=True,
+            )
 
     _recon_t = _threading.Thread(
         target=_inspection_reconcile_async,

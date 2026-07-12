@@ -183,7 +183,7 @@ NS_DATA = [
 
     # Named network-domain spawn tools.
     ('spawn_network_diag_agent', 'agent', 'subagent', 'spawn', '派发网络诊断 Agent', 'spawn_network_diag_agent',
-     'Spawn a network diagnostic agent. Diagnoses network issues with read-only network access.',
+     'Spawn a network diagnostic agent for CMDB queries, evidence analysis, and policy-gated diagnostic commands. Destructive commands still require approval.',
      'agent spawn network diagnose', 'spawn_network_diag_agent'),
     ('spawn_config_translate_agent', 'agent', 'subagent', 'spawn', '派发配置翻译 Agent', 'spawn_config_translate_agent',
      'Spawn a config translation agent. Translates network config between vendors.',

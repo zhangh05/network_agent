@@ -26,6 +26,7 @@ from agent.approval import get_approval_store
 from core.runtime_engine.runtime_contracts import ExecutionContract
 
 _LOG = logging.getLogger(__name__)
+_APPROVAL_WAIT_SECONDS = 65
 _MEMORY_WRITE_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
     max_workers=1,
     thread_name_prefix="ssot-memory-write",
@@ -111,6 +112,7 @@ def run_ssot_turn(
             requested_by=requested_by,
             emitter=emitter,
             prebuilt_registry=ssot_registry,
+            max_query_loop_iterations=metadata_in.get("max_steps"),
         )
         runtime_result = _run_async(
             engine.run(
@@ -165,20 +167,28 @@ def run_ssot_turn(
 
             # Wait for approvals via thread-pool to avoid blocking the facade thread.
             # Each approval harnesses blocking=True (internal threading.Event.wait)
-            # and we run them in parallel with a hard 30s cutoff.
+            # and we run them in parallel with a cutoff slightly longer than
+            # the frontend's 60-second countdown.
             approved = True
             if approval_ids:
                 def _await_aid(aid: str) -> bool:
                     # blocking=True keeps CPU idle via Event.wait(); returns on
                     # resolution or timeout (whichever first).
-                    return store.wait(aid, blocking=True, timeout=30)
+                    return store.wait(
+                        aid,
+                        blocking=True,
+                        timeout=_APPROVAL_WAIT_SECONDS,
+                    )
 
                 with concurrent.futures.ThreadPoolExecutor(
                     max_workers=min(len(approval_ids), 8),
                     thread_name_prefix="approval-waiter",
                 ) as pool:
                     futures = {pool.submit(_await_aid, aid): aid for aid in approval_ids}
-                    for fut in concurrent.futures.as_completed(futures, timeout=35):
+                    for fut in concurrent.futures.as_completed(
+                        futures,
+                        timeout=_APPROVAL_WAIT_SECONDS + 5,
+                    ):
                         try:
                             if not fut.result():
                                 approved = False
@@ -196,6 +206,7 @@ def run_ssot_turn(
                     allowed_tool_ids=allowed_tool_ids,
                     requested_by=requested_by,
                     emitter=emitter,
+                    max_query_loop_iterations=metadata_in.get("max_steps"),
                 )
                 runtime_result = _run_async(
                     engine2.run(
@@ -446,6 +457,7 @@ def _build_engine(
     requested_by: str,
     emitter: Any | None = None,
     prebuilt_registry: dict[str, dict[str, Any]] | None = None,
+    max_query_loop_iterations: int | None = None,
 ):
     from core.runtime_engine import SSOTRuntimeConfig, SSOTRuntimeEngine
 
@@ -461,6 +473,10 @@ def _build_engine(
         tracking_max_seconds=150,
         tracking_max_polls=40,
         tracking_poll_interval_cap_seconds=5,
+        max_query_loop_iterations=max(
+            1,
+            min(int(max_query_loop_iterations or 20), 20),
+        ),
     )
     registry = prebuilt_registry or _build_ssot_runtime_tool_registry(allowed_tool_ids)
     engine_kwargs: dict[str, Any] = {

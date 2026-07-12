@@ -2,17 +2,21 @@
 """Phase 10: Trajectory builder, eval rules, and persistence."""
 
 from __future__ import annotations
-import json, uuid, time as _time
+import json, logging, re, uuid, time as _time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from workspace.run_store import WS_ROOT
 from workspace.atomic_io import atomic_write_json
+from workspace.ids import validate_workspace_id
 from agent.runtime.utils import now_iso, duration_ms
 
 def _now(): return now_iso()
 def _tid(): return f"traj-{uuid.uuid4().hex[:12]}"
+
+_log = logging.getLogger(__name__)
+_TRAJECTORY_ID_RE = re.compile(r"^traj-[0-9a-f]{12}$")
 
 _REDACT_KEYS = {"password","token","api_key","secret","credential","key","auth"}
 
@@ -144,12 +148,18 @@ def build_trajectory(task_id: str, ws_id: str) -> Optional[TrajectoryRecord]:
 
 
 def persist_trajectory(rec: TrajectoryRecord):
-    d = WS_ROOT / rec.workspace_id / "trajectories"
+    ws_id = validate_workspace_id(rec.workspace_id)
+    if not _TRAJECTORY_ID_RE.fullmatch(rec.trajectory_id):
+        raise ValueError("invalid trajectory_id")
+    d = WS_ROOT / ws_id / "trajectories"
     d.mkdir(parents=True, exist_ok=True)
     atomic_write_json(d / f"{rec.trajectory_id}.json", _redact_dict(asdict(rec)))
 
 
 def get_trajectory(traj_id: str, ws_id: str) -> Optional[dict]:
+    ws_id = validate_workspace_id(ws_id)
+    if not _TRAJECTORY_ID_RE.fullmatch(str(traj_id or "")):
+        return None
     p = WS_ROOT / ws_id / "trajectories" / f"{traj_id}.json"
     if not p.exists(): return None
     try: return json.loads(p.read_text())
@@ -157,6 +167,8 @@ def get_trajectory(traj_id: str, ws_id: str) -> Optional[dict]:
 
 
 def list_trajectories(ws_id: str, limit=50) -> list[dict]:
+    ws_id = validate_workspace_id(ws_id)
+    limit = max(1, min(int(limit), 200))
     d = WS_ROOT / ws_id / "trajectories"
     if not d.exists(): return []
     results = []
@@ -194,15 +206,12 @@ def evaluate_trajectory(traj: dict) -> dict:
 # ── Feedback ──
 
 def save_feedback(traj_id: str, ws_id: str, feedback: dict) -> dict:
+    ws_id = validate_workspace_id(ws_id)
     traj = get_trajectory(traj_id, ws_id)
     if not traj: return {"ok": False, "error": "trajectory not found"}
     traj["user_feedback"] = _redact_dict(feedback)
-    persist_trajectory(TrajectoryRecord(
-        trajectory_id=traj_id, task_id=traj.get("task_id",""),
-        workspace_id=ws_id, session_id=traj.get("session_id",""),
-        user_goal=traj.get("user_goal",""), final_status=traj.get("final_status",""),
-        user_feedback=feedback,
-    ))
+    path = WS_ROOT / ws_id / "trajectories" / f"{traj_id}.json"
+    atomic_write_json(path, _redact_dict(traj))
     # Generate pending MemoryCandidate for the feedback
     try:
         from workspace.memory_governance import MemoryRecord, MemoryWriteGate
@@ -217,9 +226,9 @@ def save_feedback(traj_id: str, ws_id: str, feedback: dict) -> dict:
             citations=[{"trajectory_id": traj_id}],
         )
         gate.write(rec)
-    except Exception as e:
+    except Exception:
         # Feedback memory write is best-effort, not critical
-        pass
+        _log.warning("trajectory feedback memory candidate write failed", exc_info=True)
     return {"ok": True}
 
 

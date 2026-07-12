@@ -50,3 +50,32 @@ def test_ws_done_payload_includes_full_inspector_fields(monkeypatch):
     assert done["metadata"]["stream_mode"] == "event_replay_fallback"
     assert done["metadata"]["transport"] == "websocket"
     assert error_holder["error"] is None
+
+
+def test_ws_worker_injects_cooperative_cancel_check(monkeypatch):
+    import threading
+    from backend.ws import agent_ws
+    import agent.app.service as service
+
+    captured = {}
+
+    class FakeResult:
+        def to_dict(self):
+            return {"ok": True, "final_response": "done", "events": [], "tool_calls": [], "metadata": {}}
+
+    class FakeApp:
+        def submit_user_message(self, **kwargs):
+            captured.update(kwargs)
+            return FakeResult()
+
+    monkeypatch.setattr(service, "get_default_agent_app", lambda: FakeApp())
+    cancel_event = threading.Event()
+    event_queue = queue.Queue()
+    agent_ws._run_agent_thread(
+        "q", "s-1", "default", {}, event_queue,
+        {"error": None}, {"live_events": 0}, cancel_event,
+    )
+    check = captured["metadata"]["cancel_check"]
+    assert check() is False
+    cancel_event.set()
+    assert check() is True

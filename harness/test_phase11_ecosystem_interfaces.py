@@ -126,6 +126,23 @@ class TestImport:
         assert result["ok"]
         assert result["providers_imported"] >= 1
 
+    def test_apply_rejects_invalid_workspace(self):
+        result = apply_import({"memories": []}, "../escape", confirm=True)
+        assert result == {"ok": False, "error": "invalid_workspace_id"}
+
+    def test_rejected_memory_is_not_counted(self, monkeypatch):
+        monkeypatch.setattr(
+            "workspace.memory_governance.MemoryWriteGate.write",
+            lambda self, record: {"ok": False, "error": "rejected"},
+        )
+        result = apply_import(
+            {"memories": [{"content": "candidate", "summary": "candidate"}]},
+            f"ws_reject_{uuid.uuid4().hex[:8]}",
+            confirm=True,
+        )
+        assert result["memories_imported"] == 0
+        assert result["errors"]
+
 
 class TestPhase10Unaffected:
     def test_trajectory_still_works(self):

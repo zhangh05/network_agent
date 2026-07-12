@@ -2,13 +2,16 @@
 """Phase 11: MCP / Skill / Plugin ecosystem interfaces."""
 
 from __future__ import annotations
-import json, hashlib, uuid, time as _time
+import json, hashlib, logging, uuid, time as _time
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional, Literal
 from workspace.run_store import WS_ROOT
 from workspace.atomic_io import atomic_write_json
 from agent.runtime.utils import now_iso
+from workspace.ids import validate_workspace_id
+
+_LOG = logging.getLogger(__name__)
 
 ProviderType = Literal["mcp","skill","plugin"]
 TrustLevel = Literal["untrusted","local","verified"]
@@ -70,7 +73,7 @@ class EcoRegistry:
     """Per-workspace ecosystem registry."""
 
     def _dir(self, ws_id: str) -> Path:
-        return WS_ROOT / ws_id / "ecosystem"
+        return WS_ROOT / validate_workspace_id(ws_id) / "ecosystem"
 
     def _prov_path(self, ws_id: str, pid: str) -> Path:
         return self._dir(ws_id) / "providers" / f"{pid}.json"
@@ -167,7 +170,16 @@ def preview_import(data: dict) -> dict:
 
 def apply_import(data: dict, ws_id: str, confirm: bool = False) -> dict:
     if not confirm: return {"ok": False, "error": "confirm=true required"}
-    results = {"providers_imported": 0, "memories_imported": 0, "skills_imported": 0}
+    try:
+        ws_id = validate_workspace_id(ws_id)
+    except ValueError:
+        return {"ok": False, "error": "invalid_workspace_id"}
+    results = {
+        "providers_imported": 0,
+        "memories_imported": 0,
+        "skills_imported": 0,
+        "errors": [],
+    }
     # Import memories as pending
     if "memories" in data:
         for m in data.get("memories", []):
@@ -180,9 +192,17 @@ def apply_import(data: dict, ws_id: str, confirm: bool = False) -> dict:
                     memory_type=m.get("memory_type","operational_fact"),
                     scope=m.get("scope","workspace"), confidence=0.3,
                 )
-                gate.write(rec)
-                results["memories_imported"] += 1
-            except Exception: pass
+                written = gate.write(rec)
+                if written.get("ok"):
+                    results["memories_imported"] += 1
+                else:
+                    results["errors"].append({
+                        "kind": "memory",
+                        "error": str(written.get("error") or written.get("status") or "rejected")[:160],
+                    })
+            except Exception as exc:
+                _LOG.warning("ecosystem memory import failed", exc_info=True)
+                results["errors"].append({"kind": "memory", "error": type(exc).__name__})
     # Import providers
     reg = EcoRegistry()
     if "providers" in data:
@@ -196,7 +216,9 @@ def apply_import(data: dict, ws_id: str, confirm: bool = False) -> dict:
                 )
                 reg.save_provider(ws_id, prov)
                 results["providers_imported"] += 1
-            except Exception: pass
+            except Exception as exc:
+                _LOG.warning("ecosystem provider import failed", exc_info=True)
+                results["errors"].append({"kind": "provider", "error": type(exc).__name__})
     return {"ok": True, **results}
 
 
@@ -213,4 +235,5 @@ def _audit(ws_id: str, pid: str, event_type: str):
             title=f"Ecosystem: {event_type}",
             summary=f"Provider {pid}: {event_type}",
         ))
-    except Exception: pass
+    except Exception:
+        _LOG.warning("ecosystem audit write failed", exc_info=True)

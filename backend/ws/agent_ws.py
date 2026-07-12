@@ -76,6 +76,7 @@ def register_ws_routes(app):
         # When auth is enabled, enforce token on the first message
         _auth_checked = False
         ws_key = ""
+        active_cancel_event = None
 
         try:
             while True:
@@ -164,9 +165,13 @@ def register_ws_routes(app):
                 error_holder = {"error": None}
                 stats = {"live_events": 0}
 
+                active_cancel_event = threading.Event()
                 thread = threading.Thread(
                     target=_run_agent_thread,
-                    args=(user_input, session_id, workspace_id, metadata, event_queue, error_holder, stats),
+                    args=(
+                        user_input, session_id, workspace_id, metadata,
+                        event_queue, error_holder, stats, active_cancel_event,
+                    ),
                     daemon=True,
                 )
                 thread.start()
@@ -190,6 +195,7 @@ def register_ws_routes(app):
                     try:
                         ws.send(json.dumps(event, ensure_ascii=True, default=str))
                     except Exception:
+                        active_cancel_event.set()
                         return
 
                 if error_holder["error"]:
@@ -197,6 +203,7 @@ def register_ws_routes(app):
                         ws.send(json.dumps({"type": "error", "message": error_holder["error"]}, ensure_ascii=True))
                     except Exception:
                         pass
+                active_cancel_event = None
 
         except Exception as e:
             try:
@@ -204,6 +211,8 @@ def register_ws_routes(app):
             except Exception:
                 pass
         finally:
+            if active_cancel_event is not None:
+                active_cancel_event.set()
             if ws_key:
                 with _active_ws_lock:
                     _active_ws_connections.pop(ws_key, None)
@@ -216,7 +225,10 @@ def _same_origin_ws_request() -> bool:
     return is_allowed_browser_origin(origin, request.host)
 
 
-def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queue, error_holder, stats):
+def _run_agent_thread(
+    user_input, session_id, workspace_id, metadata, event_queue, error_holder,
+    stats, cancel_event=None,
+):
     """Run agent in background thread through the shared AgentApp contract."""
     from agent.runtime.query_engine import StreamEmitter
 
@@ -259,11 +271,14 @@ def _run_agent_thread(user_input, session_id, workspace_id, metadata, event_queu
         from agent.app.service import get_default_agent_app
         app = get_default_agent_app()
 
+        runtime_metadata = dict(metadata or {})
+        if cancel_event is not None:
+            runtime_metadata["cancel_check"] = cancel_event.is_set
         result = app.submit_user_message(
             user_input=user_input,
             session_id=session_id,
             workspace_id=workspace_id,
-            metadata=metadata,
+            metadata=runtime_metadata,
         )
 
         result_payload = result.to_dict()

@@ -277,6 +277,7 @@ export function TaskWorkbench() {
   // FIX 3: Uses systemWsRef (separate from msgWsRef) to avoid race
   // conditions where message streaming overwrites the system WS.
   useEffect(() => {
+    if (!currentWorkspaceId) return;
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/ws/agent`;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -299,7 +300,7 @@ export function TaskWorkbench() {
         try {
           ws?.send(JSON.stringify({
             type: "ping",
-            workspace_id: currentWorkspaceId || "default",
+            workspace_id: currentWorkspaceId,
             auth_token: getApiAccessToken(),
           }));
         } catch {}

@@ -4,6 +4,8 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Literal
+import re
+import threading
 import uuid, time as _time
 from agent.runtime.utils import now_iso
 
@@ -37,12 +39,13 @@ class SubagentProfile:
 BUILTIN_PROFILES: dict[str, SubagentProfile] = {
     "network_diag_agent": SubagentProfile(
         profile_id="network_diag_agent", name="Network Diagnostic Agent",
-        role="Diagnoses network issues — read-only network access",
-        allowed_action_classes=["read", "network"],
+        role="Diagnoses network issues with policy-gated operational commands; destructive actions require approval",
+        allowed_action_classes=["read", "network", "execute"],
         allowed_tools=["device.manage", "system.manage",
                        "knowledge.manage", "pcap.manage",
-                       "web.manage"],
+                       "web.manage", "exec.run"],
         max_steps=8, max_runtime_seconds=180,
+        can_execute_commands=True,
         can_call_network=True,
         memory_write_policy="pending_only",
         output_contract="Diagnosis report with root cause and recommendations",
@@ -87,9 +90,11 @@ class SubagentTask:
     allowed_tools: list = field(default_factory=list)
     budget: dict = field(default_factory=dict)
     created_at: str = ""
+    started_at: str = ""
     finished_at: str = ""
     errors: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
+    summary: str = ""
 
     def __post_init__(self):
         if not self.created_at:
@@ -116,15 +121,24 @@ def get_profile(profile_id: str) -> Optional[SubagentProfile]:
     return BUILTIN_PROFILES.get(profile_id)
 
 
+_TASK_LOCK = threading.RLock()
+_CANCEL_EVENTS: dict[tuple[str, str], threading.Event] = {}
+_WORKER_THREADS: dict[tuple[str, str], threading.Thread] = {}
+_SUBTASK_ID_RE = re.compile(r"^sub-[a-f0-9]{8}$")
+
+
 def create_subagent_task(
     parent_task_id: str, workspace_id: str, session_id: str,
     profile_id: str, goal: str, context_refs: list = None,
+    max_steps: int | None = None,
 ) -> dict:
     profile = get_profile(profile_id)
     if not profile:
         return {"ok": False, "error": f"unknown profile: {profile_id}"}
-    if not workspace_id:
-        return {"ok": False, "error": "workspace_id required"}
+    try:
+        workspace_id = _validated_workspace_id(workspace_id)
+    except ValueError:
+        return {"ok": False, "error": "invalid_workspace_id"}
 
     task = SubagentTask(
         parent_task_id=parent_task_id,
@@ -134,7 +148,10 @@ def create_subagent_task(
         goal=goal,
         input_context_refs=context_refs or [],
         allowed_tools=profile.allowed_tools,
-        budget={"max_steps": profile.max_steps, "max_runtime_seconds": profile.max_runtime_seconds},
+        budget={
+            "max_steps": max(1, min(int(max_steps or profile.max_steps), profile.max_steps)),
+            "max_runtime_seconds": profile.max_runtime_seconds,
+        },
     )
     _save_task(task)
 
@@ -150,6 +167,11 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
     The profile provides the SSOT Runtime-visible tool allowlist. Tool execution still
     goes through ToolRuntimeClient with caller=subagent.
     """
+    try:
+        ws_id = _validated_workspace_id(ws_id)
+        subtask_id = _validated_subtask_id(subtask_id)
+    except ValueError:
+        return {"ok": False, "error": "invalid_subtask_identity"}
     task = _load_task(ws_id, subtask_id)
     if not task:
         return {"ok": False, "error": "subtask not found"}
@@ -160,8 +182,36 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
     if not profile:
         return {"ok": False, "error": "profile not found"}
 
-    task.status = "running"; _save_task(task)
+    key = (ws_id, subtask_id)
+    with _TASK_LOCK:
+        active_worker = _WORKER_THREADS.get(key)
+        if task.status in {"succeeded", "failed"}:
+            return {
+                "ok": False,
+                "error": f"subtask is already {task.status}",
+                "status": task.status,
+            }
+        if (
+            task.status == "running"
+            and active_worker is not None
+            and active_worker.is_alive()
+            and active_worker is not threading.current_thread()
+        ):
+            return {"ok": True, "subtask_id": subtask_id, "status": "running"}
+        if task.status not in {"created", "running", "cancelled"}:
+            return {"ok": False, "error": f"invalid subtask status: {task.status}"}
+
+    cancel_event = _cancel_event(ws_id, subtask_id)
+    if task.status == "cancelled" or cancel_event.is_set():
+        payload = _task_result_payload(task, ok=False)
+        _release_worker(ws_id, subtask_id)
+        return payload
+
+    task.status = "running"
+    task.started_at = task.started_at or _now()
+    _save_task(task)
     start = _time.time()
+    timed_out = False
     result = SubagentResult(subtask_id=subtask_id, status="succeeded")
 
     # Register in live tasks registry for cancel/status
@@ -181,7 +231,11 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
         child_session_id = subtask_id
         sess = AgentSession(session_id=child_session_id, workspace_id=ws_id)
         sess.mark_sub_agent()
-        sess.metadata["max_steps"] = profile.max_steps
+        effective_steps = max(1, min(
+            int((task.budget or {}).get("max_steps") or profile.max_steps),
+            profile.max_steps,
+        ))
+        sess.metadata["max_steps"] = effective_steps
         sess.metadata["parent_session_id"] = task.session_id
         sess.metadata["subtask_id"] = subtask_id
 
@@ -198,20 +252,22 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
                     "profile_id": profile.profile_id,
                     "name": profile.name,
                     "role": profile.role,
-                    "max_steps": profile.max_steps,
+                    "max_steps": effective_steps,
                     "max_runtime_seconds": profile.max_runtime_seconds,
                     "allowed_action_classes": list(profile.allowed_action_classes),
                     "output_contract": profile.output_contract,
                 },
                 "parent_session_id": task.session_id,
                 "subtask_id": subtask_id,
+                "cancel_check": cancel_event.is_set,
             },
         )
         turn = AgentTurn.from_op(op)
         turn.metadata = {
-            "max_steps": profile.max_steps,
+            "max_steps": effective_steps,
             "subtask_id": subtask_id,
             "subagent_profile": profile.profile_id,
+            "cancel_check": cancel_event.is_set,
         }
 
         try:
@@ -221,16 +277,23 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
                 turn,
                 set(profile.allowed_tools or []),
                 timeout_seconds=profile.max_runtime_seconds,
+                cancel_event=cancel_event,
             )
+        except TimeoutError as exc:
+            timed_out = True
+            llm_result = None
+            result.status = "failed"
+            result.summary = "Subagent timed out"
+            result.errors.append(str(exc)[:200])
         except Exception as e:
             raise RuntimeError(f"LLM turn failed: {str(e)[:200]}") from e
 
         elapsed = _time.time() - start
-        final_resp = getattr(llm_result, 'final_response', '') or ''
-        is_ok = getattr(llm_result, 'ok', False)
+        final_resp = (getattr(llm_result, "final_response", "") or "") if llm_result is not None else ""
+        is_ok = bool(getattr(llm_result, "ok", False)) if llm_result is not None else False
 
         # AgentResult.tool_calls is the canonical one-row-per-action projection.
-        for te in (getattr(llm_result, "tool_calls", []) or []):
+        for te in (getattr(llm_result, "tool_calls", []) or []) if llm_result is not None else []:
             te_get = te.get if isinstance(te, dict) else lambda key, default=None: getattr(te, key, default)
             tool_id = str(te_get("tool_id", "") or "")
             tools_ok = bool(te_get("ok", False))
@@ -240,7 +303,12 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
                 "summary": summary,
             })
 
-        if is_ok and final_resp:
+        if timed_out:
+            result.warnings.append(f"Budget exceeded: {profile.max_runtime_seconds}s")
+        elif cancel_event.is_set():
+            result.status = "cancelled"
+            result.summary = "Subagent cancelled by user"
+        elif is_ok and final_resp:
             result.summary = final_resp[:4000]
             result.findings = [final_resp[:1000]]
         elif elapsed >= profile.max_runtime_seconds:
@@ -259,14 +327,22 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
         result.summary = f"Subagent execution error: {str(e)[:100]}"
 
     elapsed = _time.time() - start
-    if elapsed >= profile.max_runtime_seconds:
+    if elapsed >= profile.max_runtime_seconds and not timed_out:
         result.warnings.append(f"Runtime budget {profile.max_runtime_seconds}s exceeded")
         if result.status != "failed":
             result.status = "failed"
 
-    task.status = result.status
-    task.finished_at = _now()
-    _save_task(task)
+    with _TASK_LOCK:
+        persisted = _load_task(ws_id, subtask_id)
+        if (persisted and persisted.status == "cancelled") or (
+            cancel_event.is_set() and not timed_out
+        ):
+            result.status = "cancelled"
+            result.summary = "Subagent cancelled by user"
+        task.status = result.status
+        task.summary = result.summary[:4000]
+        task.finished_at = _now()
+        _save_task(task)
     result.finished_at = _now()
 
     # Update live tasks registry with final status
@@ -275,9 +351,13 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
         _live_tasks[subtask_id]["status"] = result.status
         _live_tasks[subtask_id]["finished_at"] = _now()
         _live_tasks[subtask_id]["summary"] = (result.summary or "")[:200]
+    _prune_live_tasks(_live_tasks)
 
     # Emit timeline events
-    event_type = "subagent_succeeded" if result.status == "succeeded" else "subagent_failed"
+    event_type = {
+        "succeeded": "subagent_succeeded",
+        "cancelled": "subagent_cancelled",
+    }.get(result.status, "subagent_failed")
     _emit_event(ws_id, task.parent_task_id, task.session_id, event_type,
                 f"Subagent {profile.name}: {result.summary[:200]}")
 
@@ -285,7 +365,7 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
     try:
         from workspace.memory_governance import MemoryRecord, MemoryWriteGate
         gate = MemoryWriteGate()
-        for tr in result.tool_results:
+        for tr in result.tool_results if result.status == "succeeded" else []:
             if tr.get("ok"):
                 rec = MemoryRecord(
                     workspace_id=ws_id, session_id=task.session_id,
@@ -303,7 +383,7 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
     except Exception as e:
         result.warnings.append(f"Memory candidate write failed: {str(e)[:100]}")
 
-    return {
+    payload = {
         "ok": result.status == "succeeded",
         "subtask_id": subtask_id,
         "child_session_id": subtask_id,
@@ -314,6 +394,172 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
         "errors": result.errors,
         "warnings": result.warnings,
     }
+    _release_worker(ws_id, subtask_id)
+    return payload
+
+
+def start_subagent_task(subtask_id: str, ws_id: str) -> dict:
+    """Start one persisted subagent task exactly once in the background."""
+    try:
+        ws_id = _validated_workspace_id(ws_id)
+        subtask_id = _validated_subtask_id(subtask_id)
+    except ValueError:
+        return {"ok": False, "error": "invalid_subtask_identity"}
+    task = _load_task(ws_id, subtask_id)
+    if not task or task.workspace_id != ws_id:
+        return {"ok": False, "error": "subtask not found"}
+    key = (ws_id, subtask_id)
+    with _TASK_LOCK:
+        existing = _WORKER_THREADS.get(key)
+        if existing and existing.is_alive():
+            return {"ok": True, "subtask_id": subtask_id, "status": task.status}
+        if task.status != "created":
+            return {
+                "ok": False,
+                "error": f"subtask is {task.status}; only created tasks can start",
+                "status": task.status,
+            }
+        _cancel_event(ws_id, subtask_id).clear()
+        task.status = "running"
+        task.started_at = task.started_at or _now()
+        _save_task(task)
+        worker = threading.Thread(
+            target=run_subagent_task,
+            args=(subtask_id, ws_id),
+            name=f"subagent-{subtask_id}",
+            daemon=True,
+        )
+        _WORKER_THREADS[key] = worker
+        try:
+            worker.start()
+        except RuntimeError as exc:
+            _WORKER_THREADS.pop(key, None)
+            task.status = "failed"
+            task.finished_at = _now()
+            task.summary = "Subagent worker failed to start"
+            task.errors.append(type(exc).__name__)
+            _save_task(task)
+            return {"ok": False, "error": "subagent_worker_start_failed"}
+    return {"ok": True, "subtask_id": subtask_id, "status": "running"}
+
+
+def cancel_subagent_task(subtask_id: str, ws_id: str) -> dict:
+    """Persist cancellation and signal the running QueryLoop cooperatively."""
+    try:
+        ws_id = _validated_workspace_id(ws_id)
+        subtask_id = _validated_subtask_id(subtask_id)
+    except ValueError:
+        return {"ok": False, "error": "invalid_subtask_identity"}
+    task = _load_task(ws_id, subtask_id)
+    if not task or task.workspace_id != ws_id:
+        return {"ok": False, "error": "subtask not found"}
+    if task.status in {"succeeded", "failed", "cancelled"}:
+        return {
+            "ok": False,
+            "error": f"subtask is already {task.status}",
+            "status": task.status,
+        }
+    _cancel_event(ws_id, subtask_id).set()
+    if task.status not in {"succeeded", "failed", "cancelled"}:
+        task.status = "cancelled"
+        task.finished_at = _now()
+        task.summary = "Subagent cancelled by user"
+        _save_task(task)
+    from agent.runtime.durable.trajectory import _live_tasks
+    live = _live_tasks.get(subtask_id)
+    if live is not None:
+        live.update({"status": "cancelled", "cancelled_at": _now()})
+    return {"ok": True, "subtask_id": subtask_id, "status": task.status}
+
+
+def list_subagent_tasks(ws_id: str, limit: int = 200) -> list[dict]:
+    """Return persisted tasks for one workspace, newest first."""
+    import json
+    from workspace.run_store import WS_ROOT
+    try:
+        ws_id = _validated_workspace_id(ws_id)
+    except ValueError:
+        return []
+    limit = max(1, min(int(limit), 1000))
+    directory = WS_ROOT / ws_id / "subagents"
+    if not directory.exists():
+        return []
+    rows: list[dict] = []
+    for path in sorted(directory.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            raw = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if raw.get("workspace_id") != ws_id:
+            continue
+        rows.append({
+            "subtask_id": raw.get("subtask_id", ""),
+            "status": raw.get("status", "unknown"),
+            "profile_id": raw.get("profile_id", ""),
+            "instruction": str(raw.get("goal", ""))[:100],
+            "summary": str(raw.get("summary", ""))[:200],
+            "created_at": raw.get("created_at", ""),
+            "started_at": raw.get("started_at", ""),
+            "finished_at": raw.get("finished_at", ""),
+        })
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def get_subagent_task(ws_id: str, subtask_id: str) -> Optional[dict]:
+    """Return one persisted subagent projection without scanning task history."""
+    task = _load_task(ws_id, subtask_id)
+    if task is None:
+        return None
+    return {
+        "subtask_id": task.subtask_id,
+        "status": task.status,
+        "profile_id": task.profile_id,
+        "instruction": task.goal[:100],
+        "summary": task.summary[:200],
+        "created_at": task.created_at,
+        "started_at": task.started_at,
+        "finished_at": task.finished_at,
+    }
+
+
+def reconcile_subagent_tasks() -> list[str]:
+    """Mark process-owned queued/running tasks interrupted after restart."""
+    import json
+    from workspace.run_store import WS_ROOT
+
+    reconciled: list[str] = []
+    if not WS_ROOT.exists():
+        return reconciled
+    for ws_dir in WS_ROOT.iterdir():
+        if not ws_dir.is_dir():
+            continue
+        try:
+            ws_id = _validated_workspace_id(ws_dir.name)
+        except ValueError:
+            continue
+        directory = ws_dir / "subagents"
+        if not directory.exists():
+            continue
+        for path in directory.glob("sub-*.json"):
+            try:
+                raw = json.loads(path.read_text())
+                if raw.get("workspace_id") != ws_id or raw.get("status") not in {"created", "running"}:
+                    continue
+                task = SubagentTask(**{
+                    key: value for key, value in raw.items()
+                    if key in SubagentTask.__dataclass_fields__
+                })
+                task.status = "failed"
+                task.finished_at = _now()
+                task.summary = "Subagent interrupted by service restart"
+                task.errors.append("service_restart_interrupted")
+                _save_task(task)
+                reconciled.append(task.subtask_id)
+            except (OSError, ValueError, TypeError):
+                continue
+    return reconciled
 
 
 def merge_subagent_result(parent_task_id: str, subtask_id: str, ws_id: str) -> dict:
@@ -338,6 +584,8 @@ def _save_task(task: SubagentTask):
     from workspace.run_store import WS_ROOT
     from workspace.atomic_io import atomic_write_json
     from dataclasses import asdict
+    task.workspace_id = _validated_workspace_id(task.workspace_id)
+    _validated_subtask_id(task.subtask_id)
     d = WS_ROOT / task.workspace_id / "subagents"
     d.mkdir(parents=True, exist_ok=True)
     atomic_write_json(d / f"{task.subtask_id}.json", asdict(task))
@@ -345,12 +593,70 @@ def _save_task(task: SubagentTask):
 def _load_task(ws_id: str, subtask_id: str) -> Optional[SubagentTask]:
     import json
     from workspace.run_store import WS_ROOT
+    try:
+        ws_id = _validated_workspace_id(ws_id)
+        subtask_id = _validated_subtask_id(subtask_id)
+    except ValueError:
+        return None
     p = WS_ROOT / ws_id / "subagents" / f"{subtask_id}.json"
     if not p.exists(): return None
     try:
         raw = json.loads(p.read_text())
         return SubagentTask(**{k:v for k,v in raw.items() if k in SubagentTask.__dataclass_fields__})
     except Exception: return None
+
+
+def _cancel_event(ws_id: str, subtask_id: str) -> threading.Event:
+    key = (ws_id, subtask_id)
+    with _TASK_LOCK:
+        return _CANCEL_EVENTS.setdefault(key, threading.Event())
+
+
+def _release_worker(ws_id: str, subtask_id: str) -> None:
+    key = (ws_id, subtask_id)
+    with _TASK_LOCK:
+        if _WORKER_THREADS.get(key) is threading.current_thread():
+            _WORKER_THREADS.pop(key, None)
+        _CANCEL_EVENTS.pop(key, None)
+
+
+def _prune_live_tasks(live_tasks: dict[str, dict], limit: int = 256) -> None:
+    """Bound the compatibility status projection to recent terminal tasks."""
+    overflow = len(live_tasks) - max(1, limit)
+    if overflow <= 0:
+        return
+    terminal = [
+        key for key, value in live_tasks.items()
+        if value.get("status") in {"succeeded", "failed", "cancelled"}
+    ]
+    for key in terminal[:overflow]:
+        live_tasks.pop(key, None)
+
+
+def _validated_workspace_id(ws_id: str) -> str:
+    from workspace.ids import validate_workspace_id
+    return validate_workspace_id(str(ws_id or "").strip())
+
+
+def _validated_subtask_id(subtask_id: str) -> str:
+    value = str(subtask_id or "").strip()
+    if not _SUBTASK_ID_RE.fullmatch(value):
+        raise ValueError("invalid subtask_id")
+    return value
+
+
+def _task_result_payload(task: SubagentTask, *, ok: bool) -> dict:
+    return {
+        "ok": ok,
+        "subtask_id": task.subtask_id,
+        "child_session_id": task.subtask_id,
+        "status": task.status,
+        "summary": task.summary,
+        "findings": [],
+        "tool_results": [],
+        "errors": [],
+        "warnings": [],
+    }
 
 def _get_manifest(tool_id: str):
     try:
@@ -370,7 +676,10 @@ def _execute_as_subagent(tool_id: str, args: dict, ws_id: str) -> dict:
         return {"ok": False, "summary": str(e)[:200]}
 
 
-def _run_ssot_runtime_with_timeout(run_fn, session, turn, allowed_tool_ids, *, timeout_seconds: int):
+def _run_ssot_runtime_with_timeout(
+    run_fn, session, turn, allowed_tool_ids, *, timeout_seconds: int,
+    cancel_event: threading.Event | None = None,
+):
     """Run a subagent turn with a hard parent-side timeout.
 
     Python cannot forcibly stop an already-running provider call, so timeout
@@ -390,6 +699,8 @@ def _run_ssot_runtime_with_timeout(run_fn, session, turn, allowed_tool_ids, *, t
     try:
         return future.result(timeout=max(1, int(timeout_seconds)))
     except concurrent.futures.TimeoutError as exc:
+        if cancel_event is not None:
+            cancel_event.set()
         future.cancel()
         raise TimeoutError(f"subagent runtime exceeded {timeout_seconds}s") from exc
     finally:

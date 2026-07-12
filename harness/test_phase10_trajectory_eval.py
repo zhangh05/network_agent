@@ -96,9 +96,41 @@ class TestFeedback:
         result = save_feedback(rec.trajectory_id, ws,
                                {"rating": 4, "comment": "Good answer but missing error handling"})
         assert result["ok"] is True
+        saved = get_trajectory(rec.trajectory_id, ws)
+        assert saved["final_status"] == "succeeded"
+        assert saved["metrics"]["task_success"] is False
+        assert saved["user_feedback"]["rating"] == 4
+
+    def test_feedback_preserves_full_trajectory(self):
+        ws = f"ws_fb_{uuid.uuid4().hex[:8]}"
+        rec = TrajectoryRecord(
+            task_id="t2",
+            workspace_id=ws,
+            session_id="s2",
+            final_status="succeeded",
+            runtime_events=[{"type": "tool_completed"}],
+            tool_calls=[{"tool_id": "system.health"}],
+            checkpoints=[{"checkpoint_id": "cp1"}],
+            artifacts=["art1"],
+        )
+        rec.metrics.tool_call_count = 1
+        persist_trajectory(rec)
+
+        assert save_feedback(rec.trajectory_id, ws, {"rating": 5})["ok"] is True
+
+        saved = get_trajectory(rec.trajectory_id, ws)
+        assert saved["runtime_events"] == [{"type": "tool_completed"}]
+        assert saved["tool_calls"] == [{"tool_id": "system.health"}]
+        assert saved["checkpoints"] == [{"checkpoint_id": "cp1"}]
+        assert saved["artifacts"] == ["art1"]
+        assert saved["metrics"]["tool_call_count"] == 1
 
 
 class TestPhase9Unaffected:
     def test_subagent_profiles_still_valid(self):
         from agent.runtime.durable.subagent import BUILTIN_PROFILES
-        assert len(BUILTIN_PROFILES) == 7
+        assert set(BUILTIN_PROFILES) == {
+            "network_diag_agent", "config_translate_agent", "security_agent",
+        }
+        assert all(profile.allowed_tools for profile in BUILTIN_PROFILES.values())
+        assert all(profile.max_steps > 0 for profile in BUILTIN_PROFILES.values())

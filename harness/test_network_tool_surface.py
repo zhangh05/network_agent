@@ -47,5 +47,6 @@ def test_only_network_domain_subagent_profiles_remain():
 
     assert set(BUILTIN_PROFILES) == NETWORK_SUBAGENTS
     assert "pcap.manage" in BUILTIN_PROFILES["network_diag_agent"].allowed_tools
+    assert "exec.run" in BUILTIN_PROFILES["network_diag_agent"].allowed_tools
     assert "config.manage" in BUILTIN_PROFILES["config_translate_agent"].allowed_tools
     assert "pcap.manage" in BUILTIN_PROFILES["security_agent"].allowed_tools

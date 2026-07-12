@@ -83,10 +83,8 @@ def register_approval_routes(app) -> None:
             return jsonify({"ok": False, "error": "decision required: approve|reject|edit_args|respond"}), 400
 
         resolver = str(data.get("resolver") or "user")
-        if decision in ("respond", "respond_with_feedback"):
-            feedback = data.get("feedback", data.get("reason", ""))
-            return jsonify({"ok": True, "decision": decision, "feedback_recorded": True, "feedback": feedback[:500]})
-        reason = str(data.get("reason") or "")
+        feedback = str(data.get("feedback", data.get("reason", "")) or "")[:500]
+        reason = feedback if decision in ("respond", "respond_with_feedback") else str(data.get("reason") or "")
         allowed = decision == "approve" or decision == "edit_args"
         ws_id, err = _validated_ws_id(str(data.get("workspace_id", "")))
         if err:
@@ -98,6 +96,7 @@ def register_approval_routes(app) -> None:
 
         # v3.10 Phase 4: wire into durable runtime interrupt/resume
         runtime_result = None
+        task_id = ""
         try:
             meta = getattr(req, 'metadata', None) or {}
             task_id = meta.get("task_id", "")
@@ -119,6 +118,7 @@ def register_approval_routes(app) -> None:
             "ok": True,
             "approval_id": approval_id,
             "decision": decision,
+            "feedback_recorded": decision in ("respond", "respond_with_feedback"),
             "runtime_result": runtime_result,
         })
 

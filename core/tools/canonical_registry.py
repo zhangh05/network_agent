@@ -2932,7 +2932,10 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "background": {"type": "boolean", "default": False, "description": "Run in background."},
         }, ["instruction"]),
         risk_level="medium",
-        description="Spawn a network diagnostic agent. Diagnoses network issues with read-only network access.",
+        description=(
+            "Spawn a network diagnostic agent. It may query CMDB, inspect evidence, "
+            "and run policy-gated diagnostic commands; destructive commands still require approval."
+        ),
     ),
     CanonicalToolEntry(
         canonical_tool_id="spawn_config_translate_agent",

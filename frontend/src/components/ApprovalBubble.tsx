@@ -22,8 +22,8 @@ interface PendingApproval {
 /**
  * ApprovalBubble — small popup above the input bar for high-risk tool approval.
  *
- * Polls /api/agent/approvals/pending every 5s. refs hold the mutable
- * approval state across re-renders; useState triggers re-renders.
+ * SSE triggers immediate refreshes; a 5s poll remains as a disconnect-safe
+ * fallback. refs hold mutable approval state across re-renders.
  * Auto-denies after 60s.
  */
 export function ApprovalBubble({ onResolved }: { onResolved?: (decision: "approve" | "reject") => void }) {
@@ -57,23 +57,26 @@ export function ApprovalBubble({ onResolved }: { onResolved?: (decision: "approv
     }
   }, []);
 
-  // v3.10: SSE is a realtime invalidation signal; poll only when there's pending work.
+  // SSE gives immediate invalidation; low-frequency polling survives disconnects.
   useEffect(() => {
     if (!currentSessionId || !currentWorkspaceId) return;
 
     let cancelled = false;
     let es: EventSource | null = null;
     let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let pollInFlight = false;
 
     const stopPoll = () => {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     };
 
     const startPoll = () => {
-      // No-op: replaced by SSE-driven refresh
+      if (!pollTimer) pollTimer = setInterval(() => { void poll(); }, 5000);
     };
 
     const poll = async () => {
+      if (pollInFlight) return;
+      pollInFlight = true;
       try {
         const now = Date.now();
         for (const [id, ts] of resolvedIdsRef.current) {
@@ -87,7 +90,6 @@ export function ApprovalBubble({ onResolved }: { onResolved?: (decision: "approv
             if (!resolvingRef.current) {
               setPending(null);
               setSecondsLeft(60);
-              stopPoll();
             }
             return;
           }
@@ -97,22 +99,23 @@ export function ApprovalBubble({ onResolved }: { onResolved?: (decision: "approv
           const secs = Math.max(0, Math.ceil(60 - elapsed));
           if (secs <= 0 || elapsed > 120) {
             try { await approvalApi.resolve(p.approval_id, { decision: "reject", workspace_id: currentWorkspaceId }); } catch { /* ignore */ }
-            if (!resolvingRef.current) { setPending(null); setSecondsLeft(60); stopPoll(); }
+            if (!resolvingRef.current) { setPending(null); setSecondsLeft(60); }
             return;
           }
           setPending(p);
           setSecondsLeft(secs);
-          startPoll(); // keep polling while pending
+          startPoll();
         } else if (!resolvingRef.current) {
           setPending(null);
           setSecondsLeft(60);
-          stopPoll();
         }
       } catch { /* ignore */ }
+      finally { pollInFlight = false; }
     };
 
     // Initial poll: only continue polling if a pending approval is found
     poll();
+    startPoll();
     try {
       es = openApprovalStream(currentWorkspaceId, (event) => {
         if (!resolvingRef.current && event.session_id === currentSessionId && event.workspace_id === currentWorkspaceId) {

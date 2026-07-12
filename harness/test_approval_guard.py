@@ -110,6 +110,29 @@ class TestAdminTokenAuth:
         assert resp.status_code == 404
         assert store.get_pending(workspace_id="ws_scope")[0]["approval_id"] == req.approval_id
 
+    def test_feedback_decision_resolves_pending_approval(self, client, reset_approvals, monkeypatch):
+        monkeypatch.setenv("NETWORK_AGENT_ADMIN_TOKEN", "secret-admin-token")
+        from agent.approval import get_approval_store
+
+        store = get_approval_store()
+        req = store.create(
+            session_id="sess-feedback", tool_id="exec.run",
+            arguments={"cmd": "rm -f old.log"}, description="feedback",
+            risk_level="high", workspace_id="ws_feedback",
+        )
+        resp = client.post(
+            f"/api/agent/approvals/{req.approval_id}/resolve",
+            json={
+                "decision": "respond_with_feedback",
+                "feedback": "改用非破坏性方案",
+                "workspace_id": "ws_feedback",
+            },
+            headers={"X-Admin-Token": "secret-admin-token"},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["feedback_recorded"] is True
+        assert store.get_pending(workspace_id="ws_feedback") == []
+
     def test_wrong_token_returns_403(self, client, reset_approvals, monkeypatch):
         """Wrong token should return 403."""
         monkeypatch.setenv("NETWORK_AGENT_ADMIN_TOKEN", "secret-admin-token")
@@ -204,6 +227,30 @@ class TestApprovalLifecycle:
         data = resp.get_json()
         history_ids = [h["approval_id"] for h in data["history"]]
         assert req.approval_id in history_ids
+
+    def test_history_since_accepts_iso_created_at(self, client, reset_approvals):
+        import time
+        from agent.approval import get_approval_store
+
+        store = get_approval_store()
+        req = store.create(
+            session_id="sess-since", tool_id="exec.run",
+            arguments={"cmd": "rm -f old.log"}, description="since test",
+            risk_level="high", workspace_id="ws_since",
+        )
+        store.resolve(req.approval_id, False, workspace_id="ws_since", resolver="test")
+
+        included = client.get(
+            f"/api/agent/approvals/history?workspace_id=ws_since&since={time.time() - 60}"
+        )
+        assert included.status_code == 200
+        assert req.approval_id in [item["approval_id"] for item in included.get_json()["history"]]
+
+        excluded = client.get(
+            f"/api/agent/approvals/history?workspace_id=ws_since&since={time.time() + 60}"
+        )
+        assert excluded.status_code == 200
+        assert req.approval_id not in [item["approval_id"] for item in excluded.get_json()["history"]]
 
 
 class TestWorkspaceApprovalBoundary:

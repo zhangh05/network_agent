@@ -466,8 +466,12 @@ class ApprovalStore:
                         continue
                     if tool_id and rec.get("tool_id") != tool_id:
                         continue
-                    if since_ts and rec.get("created_at", "") < since_ts:
-                        continue
+                    if since_ts:
+                        try:
+                            if from_iso(str(rec.get("created_at") or "")) < since_ts:
+                                continue
+                        except (TypeError, ValueError):
+                            continue
                     records.append(rec)
         except OSError:
             logger.warning("approval: get_history read failed for %s",
