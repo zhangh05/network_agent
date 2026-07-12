@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   useAsync,
   AsyncView,
@@ -55,6 +55,8 @@ export function KnowledgeLibrary() {
     [currentWorkspaceId, scope],
     (d) => (d.sources ?? []).length === 0,
   );
+  const reloadRef = useRef(sources.reload);
+  reloadRef.current = sources.reload;
 
   const search = useAsync<Awaited<ReturnType<typeof knowledgeApi.search>> | null>(
     (s) =>
@@ -84,7 +86,7 @@ export function KnowledgeLibrary() {
         return;
       }
       if (refreshTimer) clearTimeout(refreshTimer);
-      refreshTimer = setTimeout(() => sources.reload(), 100);
+      refreshTimer = setTimeout(() => reloadRef.current(), 100);
     };
     stream.addEventListener("storage_changed", refresh);
     return () => {
@@ -92,7 +94,7 @@ export function KnowledgeLibrary() {
       stream.removeEventListener("storage_changed", refresh);
       stream.close();
     };
-  }, [currentWorkspaceId, sources.reload]);
+  }, [currentWorkspaceId]);
 
   async function onReindex(source_id: string) {
     if (!currentWorkspaceId) return;
