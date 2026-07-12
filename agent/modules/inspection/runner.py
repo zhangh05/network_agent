@@ -851,7 +851,7 @@ def _run_checks_on_asset(task: InspectionTask,
         # command with empty output (e.g. stdout consumed by session
         # reuse race) is a legitimate result that still needs an
         # artifact record for the LLM analysis phase.
-        if ok and rec.get("output") is not None:
+        if ok and rec.get("output") is not None and cmd != ENTER_ACTION:
             try:
                 # Pre-redact raw output so network-device config fields
                 # (password, community, etc.) don't trigger the artifact
