@@ -260,8 +260,7 @@ class TestArtifactAPI:
         ensure_workspace("api_dirs")
         p = Path(str(temp_dirs["workspace_dir"])) / "api_dirs"
         assert (p / "sys").is_dir()
-        assert (p / "files" / "user_upload" / "original").is_dir()
-        assert (p / "files" / "agent_output" / "export").is_dir()
+        assert (p / "files" / "data").is_dir()
 
 
 class TestRegression:
