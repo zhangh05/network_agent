@@ -1,13 +1,12 @@
 llm:
   enabled: true
   default_provider: minimax
-  safe_mode: true  # Default safe; overridable via llm.local.yaml
-  timeout_seconds: 30
+  safe_mode: true
+  timeout_seconds: 90
   providers:
     minimax:
       type: openai_compatible
       base_url: https://api.minimaxi.com/v1
-      api_key_env: MINIMAX_API_KEY
       model: MiniMax-M3
       temperature: 0.2
       max_tokens: 50000
