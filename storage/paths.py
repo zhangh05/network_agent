@@ -36,8 +36,7 @@ def ensure_workspace_storage_dirs(workspace_id: str) -> None:
         "files/agent_output/report",
         "files/agent_output/export",
         "files/agent_output/message",
-        "files/knowledge/source",
-        "files/knowledge/normalized",
+        "files/knowledge",
         "files/tmp",
         # System dirs
         "index",

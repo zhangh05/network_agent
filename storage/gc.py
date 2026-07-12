@@ -22,8 +22,7 @@ def find_orphan_files(workspace_id: str) -> list[dict]:
         "files/agent_output/report",
         "files/agent_output/export",
         "files/agent_output/message",
-        "files/knowledge/source",
-        "files/knowledge/normalized",
+        "files/knowledge",
     ]:
         d = ws / managed_dir
         if not d.exists():
