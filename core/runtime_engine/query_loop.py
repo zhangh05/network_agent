@@ -871,6 +871,19 @@ class QueryLoop:
 
         while iterations < max_iterations:
             if self._is_cancelled(ctx):
+                # If tools already produced results, surface them as a
+                # fallback instead of discarding everything.  This avoids
+                # losing completed work when the WebSocket closes before
+                # the final LLM summarisation call finishes.
+                if all_results:
+                    return finish(
+                        final_response=self._build_tool_result_fallback(ctx, all_results),
+                        tool_results=all_results,
+                        iterations=iterations,
+                        total_tool_calls=len(all_results),
+                        llm_calls=budget.llm_calls,
+                        error="cancelled_by_user",
+                    )
                 return finish(
                     final_response="任务已取消。",
                     error="cancelled_by_user",
