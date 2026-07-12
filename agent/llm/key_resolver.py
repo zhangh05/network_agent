@@ -1,8 +1,7 @@
 # agent/llm/key_resolver.py
-"""Secure API key resolution — env vars and local files only. Never in code."""
+"""Secure API key resolution — env vars and explicit file paths only."""
 
 import os
-import re
 from pathlib import Path
 from typing import Optional
 
@@ -10,17 +9,14 @@ KEY_SOURCES = []
 
 
 def resolve_api_key(env_name: str = "", file_path: str = "") -> Optional[str]:
-    """Resolve API key from env or local file. Never logs or stores plaintext."""
+    """Resolve API key from env var or an explicitly-configured file path."""
     global KEY_SOURCES
-    KEY_SOURCES.clear()  # Reset on each call to avoid stale state
+    KEY_SOURCES.clear()
 
     # 1. Environment variable
     if env_name and os.environ.get(env_name):
         KEY_SOURCES.append(f"env:{env_name}")
         return os.environ[env_name]
-
-    # If explicit env_name given but not found, don't fall back to auto-detect
-    explicit_request = bool(env_name) or bool(file_path)
 
     # 2. Explicit file path
     if file_path:
@@ -30,20 +26,6 @@ def resolve_api_key(env_name: str = "", file_path: str = "") -> Optional[str]:
             if key:
                 KEY_SOURCES.append(f"file:{path}")
                 return key
-
-    # Only auto-detect when no explicit env/file specified
-    if explicit_request:
-        return None
-
-    # 3. Auto-detect desktop api key files
-    for name in ["apikey", "api_key", "minimax_apikey", "minimax_api_key", "API_key.txt"]:
-        for base in [Path.home() / "Desktop", Path.home()]:
-            p = base / name
-            if p.is_file():
-                key = _read_key_from_file(str(p))
-                if key:
-                    KEY_SOURCES.append(f"auto:{p.name}")
-                    return key
 
     return None
 
@@ -61,13 +43,11 @@ def _read_key_from_file(path: str) -> Optional[str]:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        # KEY=VALUE
         if "=" in line:
             _, val = line.split("=", 1)
             val = val.strip()
             if val and not val.startswith("#"):
                 return val
-        # KEY: VALUE
         if ":" in line and not line.startswith("http"):
             _, val = line.split(":", 1)
             val = val.strip()
