@@ -153,6 +153,18 @@ export function OperationsPage() {
     setLoading(false);
   }, [wsId]);
 
+  // Silent refresh: updates jobs list without flashing the loading indicator.
+  // Used by the polling timer so transient-job tracking doesn't disrupt the UI.
+  const loadJobsSilently = useCallback(async () => {
+    if (!wsId) return;
+    try {
+      const data = await jobsApi.list(wsId);
+      setJobs((data?.jobs ?? []) as JobItem[]);
+    } catch { /* keep last known state */ }
+  }, [wsId]);
+  const loadJobsSilentlyRef = useRef(loadJobsSilently);
+  loadJobsSilentlyRef.current = loadJobsSilently;
+
   useEffect(() => { loadJobs(); }, [loadJobs]);
 
   // Cross-page linkage: any session lifecycle change (archive / restore / delete / rename)
@@ -212,7 +224,7 @@ export function OperationsPage() {
   );
   useEffect(() => {
     if (!hasTransientJob || !wsId) return;
-    const id = window.setInterval(() => loadJobsRef.current(), 3000);
+    const id = window.setInterval(() => loadJobsSilentlyRef.current(), 10_000);
     return () => window.clearInterval(id);
   }, [hasTransientJob, wsId]);
 
