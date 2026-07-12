@@ -304,13 +304,19 @@ export const toolsApi = {
     apiRequest<ToolCatalogResponse>({ method: "GET", url: "/tools/catalog" }, signal),
 };
 
+export const storageApi = {
+  events: (workspace_id: string): EventSource =>
+    new EventSource(apiUrlWithAuth(`/storage/events?workspace_id=${encodeURIComponent(workspace_id)}`)),
+};
+
 export const knowledgeApi = {
   listSources: (
     workspace_id: string,
+    scope?: "workspace" | "global" | "session",
     signal?: AbortSignal,
   ): Promise<{ sources: KnowledgeSource[]; counts?: Record<string, number> }> =>
     apiRequest<{ sources: KnowledgeSource[]; counts?: Record<string, number> }>(
-      { method: "GET", url: "/knowledge/sources", params: { workspace_id } },
+      { method: "GET", url: "/knowledge/sources", params: { workspace_id, scope } },
       signal,
     ),
   /**
@@ -395,6 +401,20 @@ export const knowledgeApi = {
       },
       signal,
     ),
+  setEnabled: (
+    source_id: string,
+    workspace_id: string,
+    enabled: boolean,
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; source: KnowledgeSource }> =>
+    apiRequest<{ ok: boolean; source: KnowledgeSource }>(
+      {
+        method: "PATCH",
+        url: `/knowledge/sources/${source_id}`,
+        data: { workspace_id, enabled },
+      },
+      signal,
+    ),
   getSource: (
     source_id: string,
     workspace_id: string,
@@ -411,7 +431,7 @@ export const knowledgeApi = {
   search: (
     q: string,
     workspace_id: string,
-    opts?: { limit?: number; source_id?: string },
+    opts?: { limit?: number; source_id?: string; scope?: "workspace" | "global" | "session" },
     signal?: AbortSignal,
   ): Promise<KnowledgeSearchResult> =>
     apiRequest<KnowledgeSearchResult>(
@@ -423,6 +443,7 @@ export const knowledgeApi = {
           workspace_id,
           limit: opts?.limit ?? 20,
           source_id: opts?.source_id,
+          scope: opts?.scope,
         },
       },
       signal,

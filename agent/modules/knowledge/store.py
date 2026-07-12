@@ -49,7 +49,11 @@ def _public_view(rec: dict, include_content: bool = False) -> dict:
         "deleted": rec.get("deleted", False),
         "created_at": rec.get("created_at", ""),
         "updated_at": meta.get("updated_at", rec.get("created_at", "")),
+        "summary": rec.get("summary", ""),
         "scope": rec.get("scope", meta.get("scope", "workspace")),
+        "source_type": meta.get("source_type", "project_doc"),
+        "format": "markdown",
+        "language": meta.get("language", ""),
         "tags": rec.get("tags", meta.get("tags", [])),
         "metadata": {
             k: v for k, v in meta.items()
@@ -87,32 +91,14 @@ def import_document(
     # kept in managed workspace storage. This preserves read/reindex semantics
     # without duplicating multi-megabyte documents in ContextStore JSONL.
     try:
-        source_file_id = str(meta.get("source_file_id") or "")
-        source_format = str(meta.get("format") or "").lower()
-        source_file_type = ""
-        if source_file_id:
-            from storage.file_store import get_file_record
-            source_file_type = str((get_file_record(workspace_id, source_file_id) or {}).get("logical_type") or "")
-        if (
-            source_file_id
-            and source_file_type == "knowledge_source"
-            and source_format in {"md", "markdown", "txt", "text"}
-        ):
-            normalized_file_id = source_file_id
-        else:
-            from storage.file_store import write_agent_output
-            normalized = write_agent_output(
-                workspace_id=workspace_id,
-                content=content,
-                logical_type="knowledge_normalized",
-                file_kind="markdown",
-                title=f"normalized_{source_id}",
-                ext="md",
-                source="knowledge_import",
-                sensitivity="internal",
-                metadata={"source_id": source_id, "storage_managed": True},
-            )
-            normalized_file_id = normalized.file_id
+        from storage.file_store import write_knowledge_document
+        normalized = write_knowledge_document(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            content=content,
+            title=title.strip()[:200],
+        )
+        normalized_file_id = normalized.file_id
         meta["normalized_file_id"] = normalized_file_id
         meta["storage_managed"] = True
     except Exception as exc:
@@ -207,6 +193,7 @@ def list_sources(
     include_disabled: bool = False,
     include_deleted: bool = False,
     query: str = "",
+    scope: str = "",
 ) -> dict:
     """List knowledge sources, optionally filtered by title/source substring."""
     store = get_context_store(workspace_id)
@@ -218,6 +205,8 @@ def list_sources(
         if item.get("deleted") and not include_deleted:
             continue
         if item.get("disabled") and not include_disabled:
+            continue
+        if scope and item.get("scope", (item.get("metadata") or {}).get("scope", "workspace")) != scope:
             continue
         if query_str:
             title = (item.get("title") or "").lower()
@@ -260,7 +249,7 @@ def disable_source(
     """Enable/disable a source."""
     store = get_context_store(workspace_id)
     item = store.get(source_id)
-    if not item:
+    if not item or item.get("item_type") != "knowledge_source":
         return None
 
     # Write updated version (append-only JSONL, last wins)
@@ -288,27 +277,30 @@ def delete_source(workspace_id: str, source_id: str) -> bool:
     """Physically delete a source and its chunks — purge from ContextStore."""
     store = get_context_store(workspace_id)
     source = store.get(source_id)
-    normalized_file_id = str((source or {}).get("metadata", {}).get("normalized_file_id") or "")
+    if not source or source.get("item_type") != "knowledge_source":
+        return False
+    source_meta = (source or {}).get("metadata", {})
+    file_ids = {str(source_meta.get("normalized_file_id") or "")}
     # Collect source + all associated chunk IDs
     ids_to_purge = {source_id}
     chunks = store.list_items(item_type="knowledge_chunk", source_id=source_id, include_deleted=True, limit=999_999)
     for chunk in chunks:
         ids_to_purge.add(chunk["item_id"])
     store.purge(ids_to_purge)
-    if normalized_file_id:
+    for file_id in file_ids - {""}:
         try:
-            from storage.file_store import soft_delete_file
-            soft_delete_file(workspace_id, normalized_file_id)
+            from storage.file_store import purge_file
+            purge_file(workspace_id, file_id)
         except Exception:
-            _LOG.warning("failed to retire normalized content for %s", source_id, exc_info=True)
+            _LOG.warning("failed to retire knowledge file for %s", source_id, exc_info=True)
     return True
 
 
 def rename_source(workspace_id: str, source_id: str, title: str) -> Optional[dict]:
-    """Rename a source. Updates both source record and all associated chunks."""
+    """Rename a source and all chunk projections."""
     store = get_context_store(workspace_id)
     item = store.get(source_id)
-    if not item:
+    if not item or item.get("item_type") != "knowledge_source":
         return None
 
     new_title = title.strip()[:200]

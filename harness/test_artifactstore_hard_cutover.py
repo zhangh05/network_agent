@@ -30,7 +30,7 @@ def test_save_artifact_uses_index_jsonl_and_file_record(monkeypatch, tmp_path):
     assert rec is not None
     assert rec.file_id
     assert (ws_root / "cutover_ws" / "index" / "artifacts.jsonl").is_file()
-    assert (ws_root / "cutover_ws" / "files" / "agent_output").is_dir()
+    assert (ws_root / "cutover_ws" / "files" / "data").is_dir()
 
     loaded = get_artifact("cutover_ws", rec.artifact_id)
     assert loaded is not None
@@ -66,5 +66,5 @@ def test_workspace_write_artifact_tool_uses_filestore(monkeypatch, tmp_path):
 
     assert out["ok"] is True
     assert out.get("file_id")
-    assert "files/agent_output/" in out.get("filepath", "").replace("\\", "/")
+    assert "files/data/" in out.get("filepath", "").replace("\\", "/")
     assert not (ws_root / "tool_ws" / "files" / "agent").exists()

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { ApiError, AsyncState } from "../types";
 import { isApiError, isError, isLoading } from "../types";
 
@@ -373,5 +373,6 @@ export function useAsync<T>(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, reloadSeq]);
 
-  return { state, reload: () => setReloadSeq((s) => s + 1) };
+  const reload = useCallback(() => setReloadSeq((s) => s + 1), []);
+  return { state, reload };
 }

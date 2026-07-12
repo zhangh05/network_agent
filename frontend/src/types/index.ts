@@ -299,6 +299,8 @@ export interface KnowledgeSource {
   status?: string;
   sensitivity?: Sensitivity;
   language?: string;
+  scope?: "workspace" | "global" | "session";
+  format?: string;
   tags: string[];
   enabled?: boolean;
   chunk_count: number;

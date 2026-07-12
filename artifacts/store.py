@@ -20,6 +20,7 @@ from typing import Optional
 from artifacts.schemas import ArtifactRecord, ArtifactIndex, RunArtifactIndex
 from artifacts.redaction import redact_artifact_content, contains_secret, redact_metadata
 from artifacts.classifier import classify_file
+from storage.schemas import FileRecord
 import logging
 from agent.runtime.utils import now_iso
 
@@ -34,9 +35,8 @@ WS_ROOT = ROOT / "workspaces"
 # Allowed source directories for source_path reads. Removed storage directories
 # are intentionally not allowed for runtime reads.
 ALLOWED_SOURCE_DIRS = [
-    "files/user_upload",
-    "files/agent_output",
-    "files/knowledge",
+    "files/data",
+    "files/tmp",
     "shared",
 ]
 
@@ -322,7 +322,8 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
                   artifact_type: str = "", title: str = "", scope: str = "workspace",
                   sensitivity: str = "", run_id: str = "", session_id: str = "", module: str = "",
                   skill: str = "", capability_id: str = "", metadata: dict = None,
-                  tags: list = None, source: str = "module_output") -> Optional[ArtifactRecord]:
+                  tags: list = None, source: str = "module_output",
+                  file_id: str = "") -> Optional[ArtifactRecord]:
     """Save an artifact. Returns ArtifactRecord or None if blocked by policy."""
     from workspace.manager import ensure_workspace
     ensure_workspace(workspace_id)
@@ -347,7 +348,8 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     if len(content.encode("utf-8")) > max_size:
         return None
 
-    if contains_secret(content):
+    content_had_secret = contains_secret(content)
+    if content_had_secret:
         if sensitivity == "secret":
             content = redact_artifact_content(content)
         else:
@@ -378,24 +380,39 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
     file_kind = cls["file_ext"] or ext or "text"
 
     try:
-        from storage.file_store import write_agent_output
-        file_rec = write_agent_output(
-            workspace_id=workspace_id,
-            content=content,
-            logical_type=logical_type,
-            file_kind=file_kind,
-            title=title or artifact_type or art_id,
-            ext=ext,
-            source=source,
-            run_id=run_id,
-            sensitivity=sensitivity,
-            metadata={
-                "artifact_id": art_id,
-                "artifact_type": artifact_type,
-                "storage_managed": True,
-                "write_path": "filestore",
-            },
-        )
+        from storage.file_store import get_file_record, write_agent_output
+        existing = get_file_record(workspace_id, file_id) if file_id and not content_had_secret else None
+        if existing and existing.get("lifecycle", "active") == "active":
+            file_rec = FileRecord(**{
+                key: value for key, value in existing.items()
+                if key in FileRecord.__dataclass_fields__
+            })
+            from storage import index as file_index
+            file_index.update_file_record(workspace_id, file_id, {
+                "metadata": {
+                    **existing.get("metadata", {}),
+                    "artifact_id": art_id,
+                    "artifact_type": artifact_type,
+                    "storage_managed": True,
+                },
+            })
+        else:
+            file_rec = write_agent_output(
+                workspace_id=workspace_id,
+                content=content,
+                logical_type=logical_type,
+                file_kind=file_kind,
+                title=title or artifact_type or art_id,
+                ext=ext,
+                source=source,
+                run_id=run_id,
+                sensitivity=sensitivity,
+                metadata={
+                    "artifact_id": art_id,
+                    "artifact_type": artifact_type,
+                    "storage_managed": True,
+                },
+            )
     except Exception:
         # If FileStore fails, artifact creation fails.
         return None
@@ -451,6 +468,9 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
                           metadata={"artifact_type": artifact_type, "run_id": run_id})
     except Exception:
         _LOG.warning("artifacts.store: silent exception", exc_info=True)
+
+    from storage.events import publish
+    publish(workspace_id, "artifact", "created", art_id)
 
     return rec
 
@@ -528,10 +548,12 @@ def update_artifact_tags(workspace_id: str, artifact_id: str, tags: list) -> boo
     rec.tags = list(tags or [])
     rec.updated_at = now_iso()
     _save_artifact_record(rec)
+    from storage.events import publish
+    publish(workspace_id, "artifact", "updated", artifact_id)
     return True
 
 
-def delete_artifact(workspace_id: str, artifact_id: str) -> bool:
+def delete_artifact(workspace_id: str, artifact_id: str, hard: bool = False) -> bool:
     rec = get_artifact(workspace_id, artifact_id)
     if not rec:
         return False
@@ -539,6 +561,11 @@ def delete_artifact(workspace_id: str, artifact_id: str) -> bool:
     rec.updated_at = now_iso()
     _save_artifact_record(rec)
     _remove_from_knowledge_index(workspace_id, artifact_id)
+    if rec.file_id:
+        from storage.file_store import purge_file, soft_delete_file
+        (purge_file if hard else soft_delete_file)(workspace_id, rec.file_id)
+    from storage.events import publish
+    publish(workspace_id, "artifact", "deleted", artifact_id)
     return True
 
 
@@ -574,6 +601,8 @@ def promote_artifact(workspace_id: str, artifact_id: str, target_scope: str) -> 
     rec.lifecycle = "promoted"
     rec.updated_at = now_iso()
     _save_artifact_record(rec)
+    from storage.events import publish
+    publish(workspace_id, "artifact", "updated", artifact_id)
     return rec
 
 

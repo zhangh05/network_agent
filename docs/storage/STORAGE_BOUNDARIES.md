@@ -21,3 +21,19 @@
 ## Runtime State
 
 Durable runtime state lives under workspace runtime storage and is addressed by task/session/workspace IDs. Task checkpoints are implementation state, not user documents.
+
+## Managed Files
+
+- `files/data/` is the only durable payload directory. Uploads, artifacts, reports, packet captures, translated configurations, and normalized knowledge documents are distinguished by `FileRecord.logical_type`, not by directory names.
+- `files/tmp/` is the only transient payload directory. Temporary parser and executor inputs must be purged after use.
+- Business stores hold `file_id` references and must not copy payloads into module-owned directories.
+- Frontend file views are projections of backend APIs and FileRecords; they never enumerate workspace directories.
+
+## Knowledge Library
+
+- `context/items.jsonl` is the metadata and chunk index SSOT. A knowledge source uses a stable `ksrc_<id>` identifier.
+- Upload payloads are temporary parser inputs and are purged after normalization.
+- Every indexed source has exactly one persistent Markdown document at `files/data/<source_id>.md`.
+- The source record's `normalized_file_id` points to that Markdown file. Code must not infer source identity from filenames, titles, vendors, or protocol keywords.
+- Rename changes source and chunk metadata; it does not rewrite document content. Disable controls retrieval visibility. Delete removes the normalized document and its source/chunk projections.
+- The frontend manages knowledge only through `/api/knowledge/*`; it does not enumerate or mutate workspace files directly.

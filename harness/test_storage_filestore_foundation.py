@@ -26,12 +26,7 @@ def tmp_workspace(monkeypatch, tmp_path):
 
 def test_ensure_workspace_creates_all_dirs(tmp_workspace):
     ws = tmp_workspace / "test_ws"
-    assert (ws / "files" / "user_upload" / "original").is_dir()
-    assert (ws / "files" / "agent_output" / "config").is_dir()
-    assert (ws / "files" / "agent_output" / "pcap").is_dir()
-    assert (ws / "files" / "agent_output" / "report").is_dir()
-    assert (ws / "files" / "agent_output" / "message").is_dir()
-    assert (ws / "files" / "knowledge").is_dir()
+    assert (ws / "files" / "data").is_dir()
     assert (ws / "files" / "tmp").is_dir()
     assert (ws / "index").is_dir()
     assert (ws / "inbox").is_dir()
@@ -49,7 +44,7 @@ def test_file_record_as_dict():
         workspace_id="test_ws",
         logical_type="user_upload",
         file_kind="text",
-        path="files/user_upload/original/file_abc123__test.txt",
+        path="files/data/file_abc123__test.txt",
     )
     d = rec.as_dict()
     assert d["file_id"] == "file_abc123"
@@ -219,7 +214,7 @@ def test_gc_preview_finds_orphans(tmp_workspace):
     write_agent_output("test_ws", "managed", "artifact_output", "text", title="managed")
 
     # Create an unmanaged file (orphan)
-    orphan = tmp_workspace / "test_ws" / "files" / "agent_output" / "export" / "orphan.txt"
+    orphan = tmp_workspace / "test_ws" / "files" / "data" / "orphan.txt"
     orphan.write_text("orphan content")
 
     report = gc_preview("test_ws")

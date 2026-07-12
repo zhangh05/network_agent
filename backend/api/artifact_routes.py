@@ -197,9 +197,9 @@ def register_artifact_routes(app):
                     run_id=run_id,
                     metadata={
                         "source_file_id": file_record.file_id,
-                        "upload_preserved": True,
                         "storage_managed": True,
                     },
+                    file_id=file_record.file_id,
                 )
                 if rec:
                     artifact = sanitize_record(rec)

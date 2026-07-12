@@ -7,7 +7,7 @@ from flask import jsonify, request
 from workspace.ids import validate_workspace_id
 
 
-KNOWLEDGE_SEARCH_PARAMS = {"workspace_id", "q", "limit", "source_id"}
+KNOWLEDGE_SEARCH_PARAMS = {"workspace_id", "q", "limit", "source_id", "scope"}
 IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"}
 
 
@@ -56,6 +56,8 @@ def register_knowledge_routes(app):
             return jsonify({"ok": False, "error": "empty filename"}), 400
 
         ext = Path(uploaded.filename).suffix.lower().lstrip(".")
+        if ext in IMAGE_EXTENSIONS:
+            return jsonify({"ok": False, "error": "unsupported_knowledge_format"}), 400
         file_kind = ext if ext in IMAGE_EXTENSIONS else _knowledge_file_kind(ext)
         binary = ext in IMAGE_EXTENSIONS or ext in {"pdf", "docx"}
         try:
@@ -65,7 +67,7 @@ def register_knowledge_routes(app):
                 workspace_id=ws_id,
                 file_source=uploaded.stream,
                 original_name=uploaded.filename,
-                logical_type="knowledge_source",
+                logical_type="tmp",
                 file_kind=file_kind,
                 binary=binary,
                 source="knowledge_upload",
@@ -77,28 +79,6 @@ def register_knowledge_routes(app):
         except Exception as exc:
             return jsonify({"ok": False, "error": "upload_failed", "message": str(exc)[:200]}), 400
 
-        # Images are managed attachments; document parsers do not ingest them.
-        if ext in IMAGE_EXTENSIONS:
-            return jsonify({
-                "ok": True,
-                "source": {
-                    "source_id": file_record.file_id,
-                    "file_id": file_record.file_id,
-                    "workspace_id": ws_id,
-                    "title": request.form.get("title", "") or uploaded.filename,
-                    "source_type": "attachment",
-                    "scope": request.form.get("scope", "workspace") or "workspace",
-                    "format": ext,
-                    "chunk_count": 0,
-                    "parent_count": 0,
-                    "status": "attached",
-                    "enabled": False,
-                    "tags": [],
-                    "filepath": file_record.path,
-                },
-                "summary": f"图片已保存: {uploaded.filename}",
-            })
-
         tags = [
             t.strip()
             for t in (request.form.get("tags", "") or "").split(",")
@@ -108,7 +88,6 @@ def register_knowledge_routes(app):
         result = import_file(
             workspace_id=ws_id,
             source=str(target),
-            file_id=file_record.file_id,
             title=request.form.get("title", "") or uploaded.filename,
             source_type=request.form.get("source_type", "project_doc") or "project_doc",
             scope=request.form.get("scope", "workspace") or "workspace",
@@ -116,9 +95,10 @@ def register_knowledge_routes(app):
             tags=tags,
             metadata={
                 "uploaded_filename": uploaded.filename,
-                "file_id": file_record.file_id,
             },
         )
+        from storage.file_store import purge_file
+        purge_file(ws_id, file_record.file_id)
 
         if not result.get("ok"):
             return jsonify({
@@ -144,6 +124,8 @@ def register_knowledge_routes(app):
             "tags": tags,
             "warnings": result.get("warnings", []),
         }
+        from storage.events import publish
+        publish(ws_id, "knowledge", "created", source["source_id"])
         return jsonify({
             "ok": True,
             "summary": result.get("summary", ""),
@@ -158,7 +140,10 @@ def register_knowledge_routes(app):
         if err:
             return err
         status = request.args.get("status")
-        sources = _module_sources(ws_id, status=status)
+        scope = request.args.get("scope", "").strip()
+        if scope and scope not in {"workspace", "global", "session"}:
+            return jsonify({"ok": False, "error": "invalid_scope"}), 400
+        sources = _module_sources(ws_id, status=status, scope=scope)
         # Filter out sources whose artifacts have been deleted
         sources = _filter_deleted_artifact_sources(ws_id, sources)
         for source in sources:
@@ -189,6 +174,8 @@ def register_knowledge_routes(app):
         if not result.get("ok"):
             status_code = 404 if result.get("error") == "artifact_not_found" else 400
             return jsonify(result), status_code
+        from storage.events import publish
+        publish(ws_id, "knowledge", "created", result.get("source", {}).get("source_id", ""))
         return jsonify({"ok": True, "source": result.get("source", {})})
 
     @app.route("/api/knowledge/sources/<source_id>/reindex", methods=["POST"])
@@ -202,6 +189,8 @@ def register_knowledge_routes(app):
         from agent.modules.knowledge.service import list_sources, reindex_source
         result = reindex_source(ws_id, source_id)
         if result and result.get("ok"):
+            from storage.events import publish
+            publish(ws_id, "knowledge", "reindexed", source_id)
             all_src = list_sources(ws_id)
             for s in all_src.get("sources", []):
                 if s.get("source_id", "") == source_id:
@@ -223,10 +212,12 @@ def register_knowledge_routes(app):
         from agent.modules.knowledge.service import delete_source
         result = delete_source(ws_id, source_id)
         if result.get("ok"):
+            from storage.events import publish
+            publish(ws_id, "knowledge", "deleted", source_id)
             return jsonify(result)
         return jsonify(result), 404
 
-    # ── Rename ──
+    # ── Source metadata / availability ──
     @app.route("/api/knowledge/sources/<source_id>", methods=["PATCH"])
     def api_knowledge_rename_source(source_id):
         data = request.get_json(silent=True) or {}
@@ -234,13 +225,27 @@ def register_knowledge_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        title = (data.get("title") or "").strip()
-        if not title:
-            return jsonify({"ok": False, "error": "title required"}), 400
-        from agent.modules.knowledge.service import rename_source
-        result = rename_source(ws_id, source_id, title)
+        title_present = "title" in data
+        enabled_present = "enabled" in data
+        if not title_present and not enabled_present:
+            return jsonify({"ok": False, "error": "title or enabled required"}), 400
+        from agent.modules.knowledge.service import disable_source, rename_source
+        result = None
+        if title_present:
+            title = str(data.get("title") or "").strip()
+            if not title:
+                return jsonify({"ok": False, "error": "title required"}), 400
+            result = rename_source(ws_id, source_id, title)
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": "source_not_found"}), 404
+        if enabled_present:
+            if not isinstance(data.get("enabled"), bool):
+                return jsonify({"ok": False, "error": "enabled must be boolean"}), 400
+            result = disable_source(ws_id, source_id, disabled=not data["enabled"])
         if not result.get("ok"):
             return jsonify({"ok": False, "error": "source_not_found"}), 404
+        from storage.events import publish
+        publish(ws_id, "knowledge", "updated", source_id)
         return jsonify({"ok": True, "source": result.get("source", {})})
 
     # ── Detail ──
@@ -280,6 +285,9 @@ def register_knowledge_routes(app):
             return err
         query = request.args.get("q", "").strip()
         source_id = request.args.get("source_id")
+        scope = request.args.get("scope", "").strip()
+        if scope and scope not in {"workspace", "global", "session"}:
+            return jsonify({"ok": False, "error": "invalid_scope"}), 400
         try:
             limit = min(int(request.args.get("limit", 20)), 100)
         except ValueError:
@@ -289,6 +297,7 @@ def register_knowledge_routes(app):
             workspace_id=ws_id,
             query=query,
             source_id=source_id,
+            scope=scope,
             limit=limit,
         )
         return jsonify({
@@ -386,11 +395,11 @@ def _import_artifact_as_knowledge(workspace_id: str, artifact_id: str) -> dict:
     return {"ok": True, "source": source}
 
 
-def _module_sources(workspace_id: str, status: str = None) -> list:
+def _module_sources(workspace_id: str, status: str = None, scope: str = "") -> list:
     """Return sources from the document knowledge store."""
     try:
         from agent.modules.knowledge.service import list_sources, list_chunks
-        src_result = list_sources(workspace_id)
+        src_result = list_sources(workspace_id, scope=scope)
         chunks_result = list_chunks(workspace_id, limit=500)
     except Exception:
         return []
@@ -423,14 +432,18 @@ def _module_sources(workspace_id: str, status: str = None) -> list:
             "created_at": s.get("created_at", ""),
             "updated_at": s.get("updated_at", ""),
             "metadata": {
-                "format": meta.get("format", ""),
+                "format": s.get("format", "markdown"),
+                "source_format": meta.get("format", ""),
                 "scope": s.get("scope", meta.get("scope", "workspace")),
+                "normalized_file_id": meta.get("normalized_file_id", ""),
             },
         })
     return out
 
 
-def _module_search_results(workspace_id: str, query: str, source_id: str = "", limit: int = 20) -> list:
+def _module_search_results(
+    workspace_id: str, query: str, source_id: str = "", scope: str = "", limit: int = 20,
+) -> list:
     try:
         from agent.modules.knowledge.service import search_chunks
         result = search_chunks(
@@ -438,6 +451,7 @@ def _module_search_results(workspace_id: str, query: str, source_id: str = "", l
             query=query,
             top_k=limit,
             source_id=source_id or "",
+            scope=scope,
         )
     except Exception:
         return []

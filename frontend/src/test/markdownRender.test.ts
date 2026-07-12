@@ -53,13 +53,13 @@ describe("assistant markdown rendering", () => {
   it("keeps operational identifiers literal instead of treating underscores as emphasis", () => {
     const html = renderAssistantHtml([
       "任务 ins_4b68d6d32ff8 已完成，制品为 art_d2fbca7e777a434d。",
-      "文件 files/agent_output/export/file_name.txt 已写入。",
+      "文件 files/data/file_name.txt 已写入。",
       "接口 GigabitEthernet_0_0_1 状态正常。",
     ].join("\n"));
 
     expect(html).toContain("ins_4b68d6d32ff8");
     expect(html).toContain("art_d2fbca7e777a434d");
-    expect(html).toContain("files/agent_output/export/file_name.txt");
+    expect(html).toContain("files/data/file_name.txt");
     expect(html).toContain("GigabitEthernet_0_0_1");
     expect(html).not.toContain("<em>");
     expect(html).not.toContain("<strong>");

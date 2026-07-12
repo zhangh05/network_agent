@@ -105,9 +105,8 @@ def _allowed_import_roots(workspace_id: str) -> List[Path]:
     """
     base = _ws_root() / workspace_id
     return [
-        base / "files" / "user_upload",
-        base / "files" / "agent_output",
-        base / "files" / "knowledge",
+        base / "files" / "data",
+        base / "files" / "tmp",
         base / "inbox",
     ]
 

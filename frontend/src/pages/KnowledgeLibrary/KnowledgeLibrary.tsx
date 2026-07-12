@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   useAsync,
   AsyncView,
@@ -7,7 +7,7 @@ import {
   InlineCode,
 } from "../../components/common";
 import { PortalModal } from "../../components/PortalModal";
-import { knowledgeApi, artifactsApi } from "../../api";
+import { knowledgeApi, artifactsApi, storageApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { formatDate } from "../../utils/format";
 import { useToastStore } from "../../stores/toast";
@@ -50,16 +50,16 @@ export function KnowledgeLibrary() {
   const sources = useAsync<{ sources: KnowledgeSource[]; counts?: Record<string, number> }>(
     (s) =>
       currentWorkspaceId
-        ? knowledgeApi.listSources(currentWorkspaceId, s)
+        ? knowledgeApi.listSources(currentWorkspaceId, scope, s)
         : Promise.resolve({ sources: [] }),
-    [currentWorkspaceId],
+    [currentWorkspaceId, scope],
     (d) => (d.sources ?? []).length === 0,
   );
 
   const search = useAsync<Awaited<ReturnType<typeof knowledgeApi.search>> | null>(
     (s) =>
       currentWorkspaceId && query.trim()
-        ? knowledgeApi.search(query, currentWorkspaceId, undefined, s)
+        ? knowledgeApi.search(query, currentWorkspaceId, { scope }, s)
         : Promise.resolve(null),
     [currentWorkspaceId, query],  // auto-search on workspace or query change; manual trigger via Enter/button
   );
@@ -72,6 +72,27 @@ export function KnowledgeLibrary() {
     [currentWorkspaceId],
     (d) => (d.artifacts ?? []).length === 0,
   );
+
+  useEffect(() => {
+    if (!currentWorkspaceId || typeof EventSource === "undefined") return;
+    const stream = storageApi.events(currentWorkspaceId);
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = (event: Event) => {
+      try {
+        if (JSON.parse((event as MessageEvent).data).domain !== "knowledge") return;
+      } catch {
+        return;
+      }
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => sources.reload(), 100);
+    };
+    stream.addEventListener("storage_changed", refresh);
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      stream.removeEventListener("storage_changed", refresh);
+      stream.close();
+    };
+  }, [currentWorkspaceId, sources.reload]);
 
   async function onReindex(source_id: string) {
     if (!currentWorkspaceId) return;
@@ -102,6 +123,26 @@ export function KnowledgeLibrary() {
         title: "删除失败",
         body: isApiError(e) ? e.message : String(e),
         request_id: isApiError(e) ? e.request_id : undefined,
+      });
+    }
+  }
+
+  async function onToggleEnabled(source: KnowledgeSource) {
+    if (!currentWorkspaceId) return;
+    const enabled = !source.enabled;
+    try {
+      await knowledgeApi.setEnabled(source.source_id, currentWorkspaceId, enabled);
+      toast({
+        kind: "success",
+        title: enabled ? "已允许检索" : "已暂停检索",
+        body: source.title || source.source_id,
+      });
+      sources.reload();
+    } catch (e: unknown) {
+      toast({
+        kind: "error",
+        title: "更新失败",
+        body: isApiError(e) ? e.message : String(e),
       });
     }
   }
@@ -388,7 +429,7 @@ export function KnowledgeLibrary() {
                     <th>内容类型</th>
                     <th>是否可检索</th>
                     <th>最后更新</th>
-                    <th style={{ width: 210 }}>操作</th>
+                    <th style={{ width: 270 }}>操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -447,6 +488,14 @@ export function KnowledgeLibrary() {
                           type="button"
                         >
                           <IconRefresh size={11} /> 整理
+                        </button>
+                        <button
+                          className="btn sm"
+                          style={{ marginLeft: 4 }}
+                          onClick={() => void onToggleEnabled(s)}
+                          type="button"
+                        >
+                          {s.enabled === false ? "启用" : "停用"}
                         </button>
                         <button
                           className="btn sm"

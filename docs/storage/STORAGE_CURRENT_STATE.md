@@ -2,6 +2,8 @@
 
 The current storage model is file-based and workspace-scoped.
 
+All durable user and Agent payloads live in `files/data/`. `files/tmp/` is transient. Business type and ownership come from FileRecord and reference metadata, never from nested payload directories.
+
 ## Stores
 
 | Store | Module |

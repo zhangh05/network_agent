@@ -247,15 +247,19 @@ def browser_screenshot(
         }
 
         if as_file and workspace_id:
-            # Save to workspace
-            from core.tools.general_tools.shared import _workspace_path
-            ws_path = _workspace_path(workspace_id, "screenshots")
-            os.makedirs(ws_path, exist_ok=True)
             filename = f"screenshot_{int(time.time())}.png"
-            filepath = os.path.join(ws_path, filename)
-            with open(filepath, "wb") as f:
-                f.write(img_bytes)
-            result["saved_to"] = filepath
+            from storage.file_store import write_agent_output
+            record = write_agent_output(
+                workspace_id=workspace_id,
+                content=img_bytes,
+                logical_type="artifact_output",
+                file_kind="image",
+                title=filename.removesuffix(".png"),
+                ext="png",
+                source="browser_screenshot",
+            )
+            result["file_id"] = record.file_id
+            result["saved_to"] = record.path
             result["filename"] = filename
             result["base64_preview"] = b64[:200]
         else:

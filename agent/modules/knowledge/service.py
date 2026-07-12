@@ -45,10 +45,11 @@ def import_document(workspace_id: str, title: str, content: str,
 
 
 def list_sources(workspace_id: str, include_disabled: bool = False,
-                  include_deleted: bool = False, query: str = "") -> dict:
+                  include_deleted: bool = False, query: str = "",
+                  scope: str = "") -> dict:
     from agent.modules.knowledge.store import list_sources as _impl
     result = _impl(workspace_id=workspace_id, include_disabled=include_disabled,
-                 include_deleted=include_deleted, query=query)
+                 include_deleted=include_deleted, query=query, scope=scope)
     sources = result.get("sources", []) if isinstance(result, dict) else []
     return {
         "ok": True,

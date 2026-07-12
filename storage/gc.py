@@ -16,13 +16,8 @@ def find_orphan_files(workspace_id: str) -> list[dict]:
     indexed_paths = {r["path"] for r in list_files(workspace_id, lifecycle="")}
     orphans = []
     for managed_dir in [
-        "files/user_upload/original",
-        "files/agent_output/config",
-        "files/agent_output/pcap",
-        "files/agent_output/report",
-        "files/agent_output/export",
-        "files/agent_output/message",
-        "files/knowledge",
+        "files/data",
+        "files/tmp",
     ]:
         d = ws / managed_dir
         if not d.exists():

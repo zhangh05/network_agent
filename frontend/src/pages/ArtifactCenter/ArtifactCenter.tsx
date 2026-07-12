@@ -2,7 +2,7 @@
  * ArtifactCenter — 制品中心 (v3.3.1 美化)
  */
 import { useEffect, useState, useCallback } from "react";
-import { artifactsApi, reportsApi } from "../../api";
+import { artifactsApi, reportsApi, storageApi } from "../../api";
 import { useAsync, AsyncView, Badge, CodeBlock, InlineCode, LoadingState, ErrorState } from "../../components/common";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
@@ -29,6 +29,27 @@ export function ArtifactCenter() {
     (s) => currentWorkspaceId ? artifactsApi.list(currentWorkspaceId, s) : Promise.resolve({ artifacts: [] }),
     [currentWorkspaceId], (d) => (d.artifacts ?? []).length === 0,
   );
+
+  useEffect(() => {
+    if (!currentWorkspaceId || typeof EventSource === "undefined") return;
+    const stream = storageApi.events(currentWorkspaceId);
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = (event: Event) => {
+      try {
+        if (JSON.parse((event as MessageEvent).data).domain !== "artifact") return;
+      } catch {
+        return;
+      }
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => list.reload(), 100);
+    };
+    stream.addEventListener("storage_changed", refresh);
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      stream.removeEventListener("storage_changed", refresh);
+      stream.close();
+    };
+  }, [currentWorkspaceId, list.reload]);
 
   const delOne = async (id: string, t: string) => {
     if (!currentWorkspaceId || !confirm(`删除「${t || id}」？`)) return;

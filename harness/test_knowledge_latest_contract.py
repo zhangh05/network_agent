@@ -1,5 +1,6 @@
 from pathlib import Path
 import io
+import json
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -55,10 +56,44 @@ def test_knowledge_upload_writes_through_filestore(monkeypatch, tmp_path):
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["ok"] is True
-    files = list_files("default", lifecycle="")
+    files = list_files("default")
     assert len(files) == 1
-    assert files[0]["logical_type"] == "knowledge_source"
-    assert files[0]["path"].startswith("files/knowledge/")
+    normalized = files[0]
+    assert normalized["logical_type"] == "knowledge_normalized"
+    assert normalized["path"].startswith("files/data/ksrc_")
+    assert normalized["path"].endswith(".md")
+    assert normalized["metadata"]["normalized_format"] == "markdown"
+
+    source_id = body["source"]["source_id"]
+    listed = client.get(
+        "/api/knowledge/sources",
+        query_string={"workspace_id": "default", "scope": "workspace"},
+    ).get_json()
+    assert [source["source_id"] for source in listed["sources"]] == [source_id]
+    global_list = client.get(
+        "/api/knowledge/sources",
+        query_string={"workspace_id": "default", "scope": "global"},
+    ).get_json()
+    assert global_list["sources"] == []
+
+    disabled = client.patch(
+        f"/api/knowledge/sources/{source_id}",
+        json={"workspace_id": "default", "enabled": False},
+    )
+    assert disabled.status_code == 200
+    assert disabled.get_json()["source"]["enabled"] is False
+
+    deleted = client.delete(
+        f"/api/knowledge/sources/{source_id}",
+        query_string={"workspace_id": "default"},
+    )
+    assert deleted.status_code == 200
+    assert client.delete(
+        f"/api/knowledge/sources/{source_id}",
+        query_string={"workspace_id": "default"},
+    ).status_code == 404
+    assert list_files("default") == []
+    assert not (workspace_root / "default" / normalized["path"]).exists()
 
 
 def test_frontend_knowledge_search_uses_current_query_contract():
@@ -67,6 +102,20 @@ def test_frontend_knowledge_search_uses_current_query_contract():
     assert "workspace_id" in search_block
     assert "q:" in search_block
     assert "limit" in search_block
+
+
+def test_knowledge_events_broadcast_to_all_workspace_subscribers():
+    from storage.events import publish, subscribe
+
+    with subscribe("default") as first, subscribe("default") as second:
+        publish("default", "knowledge", "updated", "ksrc_0123456789ab")
+        first_event = json.loads(first.get_nowait())
+        second_event = json.loads(second.get_nowait())
+
+    assert first_event == second_event
+    assert first_event["domain"] == "knowledge"
+    assert first_event["action"] == "updated"
+    assert first_event["entity_id"] == "ksrc_0123456789ab"
 
 
 def test_llm_tool_catalog_exposes_current_knowledge_search():

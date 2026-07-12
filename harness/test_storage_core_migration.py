@@ -54,12 +54,12 @@ def test_save_artifact_writes_through_filestore(storage_ws):
     files = list_files("test_ws", lifecycle="")
     matched = [f for f in files if f.get("file_id") == rec.file_id]
     assert matched, "FileRecord must exist in index"
-    assert matched[0]["metadata"].get("write_path") == "filestore"
-    assert matched[0]["path"].startswith("files/agent_output/")
+    assert matched[0]["metadata"].get("storage_managed") is True
+    assert matched[0]["path"].startswith("files/data/")
 
     # Verify physical file path
     physical = resolve_file_path("test_ws", rec.file_id)
-    assert "files/agent_output" in str(physical).replace("\\", "/")
+    assert "files/data" in str(physical).replace("\\", "/")
     assert physical.exists()
 
 

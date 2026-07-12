@@ -164,7 +164,7 @@ describe("CMDB inspection launch", () => {
         artifact: {
           artifact_id: "art-raw-1",
           title: "测试服务器_1_raw.txt",
-          relative_path: "files/agent_output/raw.txt",
+          relative_path: "files/data/raw.txt",
         },
       },
     });

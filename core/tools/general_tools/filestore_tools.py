@@ -120,7 +120,7 @@ def handle_file_import_workspace_path(inv, *, filepath: str = "") -> dict[str, A
     except ValueError:
         return _fail("workspace.filestore", "path_not_in_workspace", filepath=filepath)
 
-    allowed = {"files/user_upload", "files/agent_output", "files/knowledge", "inbox"}
+    allowed = {"inbox"}
     if not any(str(target.relative_to(root)).startswith(a) for a in allowed):
         return _fail("workspace.filestore", "path_not_allowed", filepath=filepath)
 

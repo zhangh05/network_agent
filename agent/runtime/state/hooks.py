@@ -133,7 +133,10 @@ def _run_finalization_kernels(ctx) -> None:
         sources = ResultCollector().collect(ctx)
         plans = ArtifactPlanner().plan(sources, task_id=task_id, step_id=step_id)
         writer = ArtifactWriter()
-        records = [writer.write(p, sources) for p in plans]
+        records = [
+            writer.write(p, sources, workspace_id=ctx.workspace_id)
+            for p in plans
+        ]
         ArtifactRegistry().register_all(ctx, records)
         OutputSummarizer().summarize(ctx, sources, records, task_id=task_id, step_id=step_id)
     except Exception:

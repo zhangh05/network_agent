@@ -83,3 +83,7 @@ CMDB-driven inspection runs only fixed read-only scripts selected by each asset'
 ```
 
 Successful responses include `{"ok": true, ...}` unless the route is a streaming endpoint.
+# Managed Storage
+
+- `GET /api/storage/files?workspace_id=<id>` returns active FileRecord projections without physical paths.
+- `GET /api/storage/events?workspace_id=<id>` streams workspace-scoped `storage_changed` events for frontend synchronization.

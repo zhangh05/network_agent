@@ -154,13 +154,12 @@ class TestRunRecordSafe:
 class TestCurrentStorageIntegration:
     def test_artifact_store_uses_current_source_dirs(self):
         from artifacts.store import ALLOWED_SOURCE_DIRS
-        assert "files/user_upload" in ALLOWED_SOURCE_DIRS
-        assert "files/agent_output" in ALLOWED_SOURCE_DIRS
+        assert "files/data" in ALLOWED_SOURCE_DIRS
 
     def test_filestore_backed_upload_paths(self):
         from storage.file_store import _LOGICAL_TYPE_TO_DIR
         result = _LOGICAL_TYPE_TO_DIR.get("user_upload", "")
-        assert result == "files/user_upload/original"
+        assert result == "files/data"
 
 
 class TestRunStoreWriteSafety:

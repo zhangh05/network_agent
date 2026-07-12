@@ -52,6 +52,7 @@ from backend.api.remote_routes import register_remote_routes
 from backend.api.cmdb_routes import register_cmdb_routes
 from backend.api.state_routes import register_state_routes
 from backend.api.inspection_routes import register_inspection_routes
+from backend.api.storage_routes import register_storage_routes
 from backend.core.settings import UNIFIED_PORT, API_MODE, BUILD_COMMIT, TRANSLATOR_ENTRY
 from backend.core.rate_limit import rate_limit_middleware
 from workspace.ids import validate_workspace_id
@@ -308,6 +309,7 @@ def create_app():
     register_job_routes(app)          # /api/jobs/*
     register_context_routes(app)      # /api/context/*, /api/prompts/*, /api/harness/*
     register_knowledge_routes(app)    # /api/knowledge/* (sources, search, chunks)
+    register_storage_routes(app)      # /api/storage/* (managed files and change events)
     register_review_routes(app)       # /api/review-items/*, /api/workspaces/<ws>/review-items
     register_pcap_routes(app)        # /api/pcap/* (parse, filter, align)
     register_workspace_status_routes(app)  # /api/workspaces/<ws>/status, /storage/health

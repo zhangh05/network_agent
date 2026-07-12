@@ -29,14 +29,7 @@ def ensure_workspace_storage_dirs(workspace_id: str) -> None:
     """Create all standard storage directories for a workspace."""
     ws = workspace_root(workspace_id)
     for rel in [
-        "files/user_upload/original",
-        "files/user_upload/staged",
-        "files/agent_output/config",
-        "files/agent_output/pcap",
-        "files/agent_output/report",
-        "files/agent_output/export",
-        "files/agent_output/message",
-        "files/knowledge",
+        "files/data",
         "files/tmp",
         # System dirs
         "index",

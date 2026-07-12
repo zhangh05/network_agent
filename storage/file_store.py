@@ -56,25 +56,24 @@ def _sha256_of_file(path: Path) -> str:
 
 
 _LOGICAL_TYPE_TO_DIR = {
-    "user_upload": "files/user_upload/original",
-    "chat_attachment": "files/user_upload/original",
-    "config_input": "files/user_upload/original",
-    "pcap_input": "files/user_upload/original",
-    "knowledge_source": "files/knowledge",
-    "knowledge_normalized": "files/knowledge",
-    "artifact_output": "files/agent_output/export",
-    "translated_config": "files/agent_output/config",
-    "pcap_result": "files/agent_output/pcap",
-    "pcap_session": "files/agent_output/pcap",
-    "pcap_connections": "files/agent_output/pcap",
-    "report": "files/agent_output/report",
-    "message_large_content": "files/agent_output/message",
+    "user_upload": "files/data",
+    "chat_attachment": "files/data",
+    "config_input": "files/data",
+    "pcap_input": "files/data",
+    "knowledge_normalized": "files/data",
+    "artifact_output": "files/data",
+    "translated_config": "files/data",
+    "pcap_result": "files/data",
+    "pcap_session": "files/data",
+    "pcap_connections": "files/data",
+    "report": "files/data",
+    "message_large_content": "files/data",
     "tmp": "files/tmp",
 }
 
 
 def _dir_for_type(logical_type: str) -> str:
-    return _LOGICAL_TYPE_TO_DIR.get(logical_type, "files/agent_output/export")
+    return _LOGICAL_TYPE_TO_DIR.get(logical_type, "files/data")
 
 
 # ── Public API ───────────────────────────────────────────────────────
@@ -291,6 +290,70 @@ def write_agent_output(
     )
 
 
+def write_knowledge_document(
+    workspace_id: str,
+    source_id: str,
+    content: str,
+    *,
+    title: str,
+    file_id: str = "",
+) -> FileRecord:
+    """Create or replace one canonical normalized knowledge document.
+
+    Knowledge has one stable Markdown path per source. Source metadata remains
+    in ContextStore; this managed file stores only the normalized body.
+    """
+    if not re.fullmatch(r"ksrc_[0-9a-f]{12}", str(source_id or "")):
+        raise ValueError("invalid knowledge source_id")
+    ensure_workspace_storage_dirs(workspace_id)
+    ws = workspace_root(workspace_id)
+    target = ws / "files" / "data" / f"{source_id}.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = ws / "files" / "tmp" / f"{source_id}.{uuid.uuid4().hex[:8]}.tmp"
+    tmp.parent.mkdir(parents=True, exist_ok=True)
+    tmp.write_text(str(content or ""), encoding="utf-8")
+    os.replace(tmp, target)
+
+    rel_path = str(target.relative_to(ws))
+    data = target.read_bytes()
+    updates = {
+        "logical_type": "knowledge_normalized",
+        "file_kind": "markdown",
+        "path": rel_path,
+        "original_name": f"{source_id}.md",
+        "mime_type": "text/markdown",
+        "binary": False,
+        "size_bytes": len(data),
+        "sha256": _sha256_of_bytes(data),
+        "source": "knowledge_import",
+        "sensitivity": "internal",
+        "lifecycle": "active",
+        "metadata": {
+            "source_id": source_id,
+            "title": str(title or "")[:200],
+            "storage_managed": True,
+            "normalized_format": "markdown",
+        },
+    }
+    if file_id and index.update_file_record(workspace_id, file_id, updates):
+        rec = get_file_record(workspace_id, file_id)
+        return FileRecord(**{k: v for k, v in rec.items() if k in FileRecord.__dataclass_fields__})
+    return create_file_record(
+        workspace_id=workspace_id,
+        logical_type="knowledge_normalized",
+        file_kind="markdown",
+        path=rel_path,
+        original_name=f"{source_id}.md",
+        mime_type="text/markdown",
+        binary=False,
+        size_bytes=len(data),
+        sha256=_sha256_of_bytes(data),
+        source="knowledge_import",
+        sensitivity="internal",
+        metadata=updates["metadata"],
+    )
+
+
 def read_file_content(workspace_id: str, file_id: str) -> str:
     """Read text content of a managed file by file_id."""
     rec = get_file_record(workspace_id, file_id)
@@ -347,11 +410,34 @@ def soft_delete_file(workspace_id: str, file_id: str) -> bool:
     rec = get_file_record(workspace_id, file_id)
     if not rec:
         return False
+    if rec.get("lifecycle") == "soft_deleted":
+        return True
+    if rec.get("lifecycle") == "purged":
+        return False
     index.update_file_record(workspace_id, file_id, {
         "lifecycle": "soft_deleted",
         "metadata": {**rec.get("metadata", {}), "deleted_at": _now_iso()},
     })
     return True
+
+
+def purge_file(workspace_id: str, file_id: str) -> bool:
+    """Remove one managed payload and mark its index record purged."""
+    rec = get_file_record(workspace_id, file_id)
+    if not rec:
+        return False
+    if rec.get("lifecycle") == "purged":
+        return True
+    try:
+        path = _resolve_workspace_relative_path(workspace_id, rec["path"])
+        if path.exists():
+            path.unlink()
+    except (OSError, ValueError):
+        return False
+    return index.update_file_record(workspace_id, file_id, {
+        "lifecycle": "purged",
+        "metadata": {**rec.get("metadata", {}), "purged_at": _now_iso()},
+    })
 
 
 # ── Internal helpers ─────────────────────────────────────────────────
