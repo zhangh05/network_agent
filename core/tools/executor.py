@@ -140,8 +140,7 @@ class ToolExecutor:
         # ── 8. Build result ──
         ok = output.get("ok", True)  # v1.0.3.5: check ok to propagate errors
         summary = output.get("summary", f"Tool {invocation.tool_id} {'completed' if ok else 'failed'}")
-        if len(summary) > 500:
-            summary = summary[:497] + "..."
+        # No per-field truncation — query_loop enforces a single 50K cap on the full payload.
 
         errors = output.get("errors", [])
         if not ok and not errors:

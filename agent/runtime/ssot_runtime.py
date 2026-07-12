@@ -1004,8 +1004,8 @@ _HISTORY_REFERENCE_PATTERNS = (
     "前面", "之前", "上次", "刚才", "继续", "还记得", "记得",
     "那个", "上一轮", "前一轮", "前面的", "之前的", "刚才的",
 )
-_RETRIEVED_CONTEXT_MAX_CHARS = 3200
-_RETRIEVED_ITEM_MAX_CHARS = 700
+_RETRIEVED_CONTEXT_MAX_CHARS = 6000
+_RETRIEVED_ITEM_MAX_CHARS = 1500
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -1069,7 +1069,7 @@ def _build_history_block(session, *, user_input: str = "") -> str:
         if older:
             summary = _summarize_older_messages(older)
             if summary:
-                parts.append("SESSION SUMMARY:\n" + _truncate(summary, 2200))
+                parts.append("SESSION SUMMARY:\n" + _truncate(summary, _HISTORY_SUMMARY_MAX_CHARS))
         retrieved = _retrieve_history_references(messages, user_input)
         if retrieved:
             retrieved_text = "\n".join(

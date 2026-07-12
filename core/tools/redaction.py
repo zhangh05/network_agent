@@ -5,8 +5,8 @@ Reuses patterns consistent with memory/ workspace/ observability redaction layer
 Handles dict, list, and string inputs recursively.
 """
 
-import re
 import copy
+import re
 
 # ── Secret patterns ──
 _SECRET_PATTERNS = [
@@ -42,6 +42,15 @@ _SENSITIVE_DICT_KEYS = {
     'ssh_key', 'psk', 'pre_shared_key', 'access_key', 'secret_key',
 }
 
+_SENSITIVE_KEY_PATTERNS = (
+    re.compile(r"^(?:auth|access|refresh|id|bearer)[_\-.]?token$"),
+    re.compile(r"^token[_\-.]?(?:value|secret|hash)$"),
+    re.compile(r"^(?:password|passwd|secret)[_\-.]?(?:value|hash|secret)?$"),
+    re.compile(r"^(?:snmp[_\-.]?)?community$"),
+    re.compile(r"^(?:api[_\-.]?)?key$"),
+    re.compile(r"^(?:ssh|private|secret|access|pre[_\-.]?shared)[_\-.]?key$"),
+)
+
 
 def redact_string(text: str) -> str:
     """Apply regex-based redaction to a single string."""
@@ -53,13 +62,29 @@ def redact_string(text: str) -> str:
     return text
 
 
+def _is_sensitive_key(key: str) -> bool:
+    """Check if a dict key matches sensitive patterns.
+
+    Uses word-boundary matching to avoid substring false positives:
+    - `token` no longer matches `toolbar`, `noteworthy_token`
+    - `community` no longer matches `community_name`
+    - `key` no longer matches `monkey`, `turkey`
+    """
+    kl = key.lower()
+    # Exact match first
+    if kl in _SENSITIVE_DICT_KEYS:
+        return True
+    for pattern in _SENSITIVE_KEY_PATTERNS:
+        if pattern.search(kl):
+            return True
+    return False
+
+
 def redact_dict(data: dict) -> dict:
     """Deep-redact a dict: mask sensitive keys, then regex-redact all string values."""
     result = {}
     for key, value in data.items():
-        if key.lower() in _SENSITIVE_DICT_KEYS or any(
-            sk in key.lower() for sk in _SENSITIVE_DICT_KEYS
-        ):
+        if _is_sensitive_key(key):
             result[key] = '[REDACTED]'
         elif isinstance(value, dict):
             result[key] = redact_dict(value)
@@ -104,15 +129,13 @@ def redact_tool_output(data: any) -> any:
 
 def contains_secret(data: any) -> bool:
     """Check if data contains any secret patterns."""
-    text = str(data)
-    for pattern, _ in _SECRET_PATTERNS:
-        if pattern.search(text):
-            return True
-    # Also check dict keys
     if isinstance(data, dict):
-        for key in data:
-            if key.lower() in _SENSITIVE_DICT_KEYS:
+        for key, value in data.items():
+            if _is_sensitive_key(str(key)) or contains_secret(value):
                 return True
-            if any(sk in key.lower() for sk in _SENSITIVE_DICT_KEYS):
-                return True
+        return False
+    if isinstance(data, (list, tuple)):
+        return any(contains_secret(item) for item in data)
+    if isinstance(data, str):
+        return any(pattern.search(data) for pattern, _ in _SECRET_PATTERNS)
     return False

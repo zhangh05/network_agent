@@ -21,21 +21,25 @@ from agent.modules.pcap.core import (
     tcp_stream_align,
 )
 
+_PCAP_PACKET_PREVIEW_LIMIT = 1000
+_PCAP_CONNECTION_PREVIEW_LIMIT = 500
+
 
 def resolve_workspace_path(workspace_id: str, filepath: str) -> Path:
-    """Resolve a workspace-relative filepath with path traversal protection."""
-    from agent.modules.knowledge.ingestion import _ws_root
-    from workspace.ids import validate_workspace_id
+    """Resolve a workspace-relative filepath with path traversal protection.
 
-    workspace_id = validate_workspace_id(workspace_id)
-    root = (_ws_root() / workspace_id).resolve()
-    candidate = Path(filepath)
-    if not candidate.is_absolute():
-        candidate = root / filepath
-    resolved = candidate.resolve()
-    if root not in resolved.parents and resolved != root:
-        raise ValueError("filepath must stay inside the workspace")
-    return resolved
+    Delegates to the core safe_workspace_path which covers:
+    - Path traversal (../, ..\\, encoded variants)
+    - Symlink escape
+    - URL-encoded traversal
+    - Prefix-spoofing containment bypass
+    """
+    from core.tools.path_security import safe_workspace_path
+    try:
+        return safe_workspace_path(workspace_id, filepath)
+    except Exception as exc:
+        # Wrap in ValueError for backward compatibility with callers
+        raise ValueError(f"invalid path: {exc}") from exc
 
 
 def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "",
@@ -277,7 +281,10 @@ def filter_pcap_session(session_id: str, src: str = "", sport: int = 0,
     return {
         "ok": True, "tool_id": "pcap.manage", "status": "succeeded",
         "summary": f"匹配到 {len(filtered)} 个报文。",
-        "count": len(filtered), "packets": filtered[:500], "truncated": len(filtered) > 500,
+        "count": len(filtered),
+        "packets": filtered[:_PCAP_PACKET_PREVIEW_LIMIT],
+        "truncated": len(filtered) > _PCAP_PACKET_PREVIEW_LIMIT,
+        "returned_packets": min(len(filtered), _PCAP_PACKET_PREVIEW_LIMIT),
     }
 
 
@@ -409,9 +416,10 @@ def _pcap_filter(session_id: str, src: str = "", sport: int = 0,
         "ok": True, "tool_id": "pcap.manage", "status": "succeeded",
         "summary": f"匹配 {len(packets)} 报文, {len(filtered_groups)} 条连接。",
         "total_packets": len(packets),
-        "connections": filtered_groups,
+        "connections": filtered_groups[:_PCAP_CONNECTION_PREVIEW_LIMIT],
         "connection_count": len(filtered_groups),
-        "truncated": len(packets) > 500,
+        "truncated": len(filtered_groups) > _PCAP_CONNECTION_PREVIEW_LIMIT,
+        "returned_connections": min(len(filtered_groups), _PCAP_CONNECTION_PREVIEW_LIMIT),
     }
     if protocol:
         result["protocol"] = protocol

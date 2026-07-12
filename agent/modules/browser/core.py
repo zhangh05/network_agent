@@ -448,7 +448,7 @@ def browser_extract(url: str, selector: str = "body") -> dict:
         text = await page.inner_text(selector)
         return {
             "ok": True, "url": page.url, "selector": selector,
-            "text": text[:10000],
+            "text": text[:50000],
             "text_length": len(text),
         }
     return _run(_extract())
@@ -489,7 +489,7 @@ def browser_evaluate(script: str) -> dict:
             result_str = str(result)
         return {
             "ok": True, "script": script[:200],
-            "result": result_str[:5000],
+            "result": result_str[:50000],
             "result_type": type(result).__name__,
         }
     return _run(_eval())

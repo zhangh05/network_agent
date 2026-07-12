@@ -128,9 +128,6 @@ def _validate_import_path(workspace_id: str, path: Union[str, Path]) -> dict:
     raw = str(path)
     if ".." in Path(raw).parts:
         return {"ok": False, "errors": ["path_not_allowed"]}
-    # Reject obvious symlink BEFORE resolve(): we want to know
-    # whether the caller-specified path itself is a symlink that
-    # points outside the allowlist.
     try:
         # Resolve the path (follows symlinks).
         resolved = p.resolve(strict=False)

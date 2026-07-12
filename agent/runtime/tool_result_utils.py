@@ -61,6 +61,7 @@ def to_standard_tool_call(call_id: str, tool_id: str, result) -> dict:
         "tool_id": tr.tool_id,
         "ok": tr.ok,
         "summary": tr.summary,
+        "result": _safe_tool_call_result_data(tr),
         "artifacts": list(tr.artifacts or []),
         "source_count": tr.source_count,
         "manual_review_count": tr.manual_review_count,
@@ -191,32 +192,6 @@ _OUTPUT_TEXT_KEYS = {
     "result_stdout", "result_stderr", "result_output", "result_text",
     "result_content", "results", "items", "chunks", "hits",
 }
-
-
-def _safe_tool_value(value, *, max_text: int = 20_000, key_hint: str = ""):
-    key_lower = str(key_hint or "").lower()
-    if isinstance(value, dict):
-        return {
-            str(k): _safe_tool_value(v, max_text=max_text, key_hint=str(k))
-            for k, v in value.items()
-            if not _is_forbidden_prompt_key(str(k))
-        }
-    if isinstance(value, (list, tuple)):
-        return [_safe_tool_value(v, max_text=max_text, key_hint=key_hint) for v in value]
-    return _safe_prompt_text(value, max_text)
-
-
-def _safe_prompt_text(value, max_text: int) -> str:
-    text = str(value)
-    if len(text) <= max_text:
-        return text
-    if max_text < 1200:
-        return text[:max_text] + f"...[truncated, {len(text)} chars total]"
-    marker = f"\n...[truncated middle, {len(text)} chars total]...\n"
-    keep = max(0, max_text - len(marker))
-    head = max(keep * 2 // 3, keep // 2)
-    tail = keep - head
-    return text[:head] + marker + text[-tail:]
 
 
 def _safe_tool_call_result_data(tr: ToolResult) -> dict:

@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[3]
 WS_ROOT = ROOT / "workspaces"
 
 _SHELL_TIMEOUT = 30
-_SHELL_MAX_OUTPUT = 10000
+_SHELL_MAX_OUTPUT = 50000
 
 
 # ═══════════════ Helpers ═══════════════

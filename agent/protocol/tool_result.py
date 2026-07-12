@@ -28,15 +28,6 @@ if TYPE_CHECKING:
     from agent.protocol.module_result import ModuleResult
 
 
-def _safe_truncate_utf8(text: str, max_chars: int) -> str:
-    """Truncate a Unicode string to at most ``max_chars`` characters."""
-    if not text or max_chars <= 0:
-        return ""
-    if len(text) <= max_chars:
-        return text
-    return text[:max_chars]
-
-
 # Max serialized length of `content` when it is a string. This is only
 # a preview; structured data/raw remain the source of truth.
 # No truncation here — query_loop applies a single cap before LLM injection.
@@ -145,7 +136,7 @@ class ToolResult:
             preview_payload["errors"] = list(mr.errors)[:5]
         if mr.warnings:
             preview_payload["warnings"] = list(mr.warnings)[:5]
-        content=json.dumps(preview_payload, ensure_ascii=False),
+        content_str = json.dumps(preview_payload, ensure_ascii=False)
 
         return cls(
             call_id=call_id,
@@ -177,7 +168,8 @@ class ToolResult:
             call_id=call_id,
             tool_id=tool_id,
             ok=bool(d.get("ok", False)),
-            content=str(d.get("summary", "")),
+            summary=str(d.get("summary", "")),
+            content=str(d.get("content", d.get("summary", ""))),
             data=(d.get("data") if isinstance(d.get("data"), dict)
                   else (d.get("content") if isinstance(d.get("content"), dict)
                         else {})),

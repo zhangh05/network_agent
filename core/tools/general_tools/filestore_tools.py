@@ -26,7 +26,7 @@ def _fail(tool_id: str, error: str, **kwargs) -> dict[str, Any]:
     return kwargs
 
 
-def handle_file_get(inv, *, file_id: str = "", limit: int = 2000) -> dict[str, Any]:
+def handle_file_get(inv, *, file_id: str = "", limit: int = 50000) -> dict[str, Any]:
     """Read text content of a managed file by file_id."""
     from storage.file_store import get_file_record, read_file_content
 

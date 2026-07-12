@@ -29,7 +29,7 @@ from backend.core.auth import is_allowed_browser_origin
 
 sock = Sock()
 _log = logging.getLogger("ws.agent")
-_MAX_WS_INPUT_LENGTH = 65536
+_MAX_WS_INPUT_LENGTH = 262144  # 256KB — supports pasting long device configs for analysis
 _MAX_WS_METADATA_JSON = 16384
 
 # v3.16: Global connection registry for broadcasting system events

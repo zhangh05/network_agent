@@ -75,7 +75,7 @@ def git_diff(repo_path: str, staged: bool = False, file_path: str = "") -> dict:
     code, out, _ = _run_git(args, cwd=repo_path)
     if code != 0:
         return {"ok": False, "error": out}
-    return {"ok": True, "diff": out[:8000]}
+    return {"ok": True, "diff": out[:50000]}
 
 
 def git_commit(repo_path: str, message: str, files: list[str] | None = None) -> dict:

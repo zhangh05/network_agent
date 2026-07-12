@@ -226,39 +226,55 @@ def scan_tool_result_payload(payload: dict, tool_id: str = "", source: str = "to
 
     Returns a sanitized payload dict:
     - high risk → minimal summary only
-    - medium risk → safe summary
-    - low risk → normal truncated payload
+    - low risk → pass through unchanged
 
-    source_type adjusts scan sensitivity:
-    - "knowledge": only HIGH_RISK_PATTERNS (knowledge tools return user-curated content)
-    - "" (default): full scan with HIGH + MEDIUM patterns
+    Note: MEDIUM patterns (instruction:, command:) are intentionally NOT
+    scanned here — they cause excessive false positives on legitimate tool
+    output (network config tutorials, how-to pages). Only HIGH risk patterns
+    (explicit injection attempts like "ignore previous instructions") are used.
     """
-    # Extract text content from payload
-    text_parts = []
-    for k in ("content", "summary", "output", "text", "rendered", "translated_config",
-              "diff", "markdown", "table", "mermaid", "document", "preview"):
-        v = payload.get(k)
-        if isinstance(v, str) and v:
-            text_parts.append(v)
+    # Tool payloads frequently place evidence under data/results/items. Walk
+    # the structure with strict bounds so nested injection text is not missed
+    # while large packet/log payloads remain cheap to scan.
+    text_parts: list[str] = []
+    remaining_chars = 100_000
+
+    def collect(value, *, depth: int = 0) -> None:
+        nonlocal remaining_chars
+        if remaining_chars <= 0 or depth > 5:
+            return
+        if isinstance(value, str):
+            if value:
+                chunk = value[:remaining_chars]
+                text_parts.append(chunk)
+                remaining_chars -= len(chunk)
+            return
+        if isinstance(value, dict):
+            for nested in value.values():
+                collect(nested, depth=depth + 1)
+                if remaining_chars <= 0:
+                    break
+            return
+        if isinstance(value, (list, tuple)):
+            for nested in value[:200]:
+                collect(nested, depth=depth + 1)
+                if remaining_chars <= 0:
+                    break
+
+    collect(payload)
 
     combined = "\n".join(text_parts)
     if not combined:
         return payload  # no text to scan
 
-    scan = scan_chunk(combined, chunk_id=tool_id, source=source, source_type=source_type)
-
-    if scan.blocked:
-        return {
-            "ok": False,
-            "summary": "[blocked — injection risk detected in tool output]",
-            "error": f"Injection scan blocked tool output from {tool_id}",
-            "scan_result": "blocked",
-        }
-    elif scan.summary_only:
-        return {
-            "ok": payload.get("ok", True),
-            "summary": "[sanitized — medium risk detected] " + (combined[:150] if combined else ""),
-            "scan_result": "summarized",
-        }
+    # Tool result path: strict HIGH-only scan
+    for pattern in HIGH_RISK_PATTERNS:
+        if re.search(pattern, combined, re.IGNORECASE):
+            return {
+                "ok": False,
+                "summary": "[blocked — injection risk detected in tool output]",
+                "error": f"Injection scan blocked tool output from {tool_id}",
+                "scan_result": "blocked",
+            }
 
     return payload  # safe — pass through

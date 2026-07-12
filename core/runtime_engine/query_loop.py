@@ -107,8 +107,6 @@ TOOL_MESSAGE_MAX_CHARS = 50_000    # Per-tool output cap fed to LLM; balances ar
 ARTIFACT_ANALYSIS_MAX_CHARS = 100_000
 FINALIZER_TOOL_MAX_CHARS = 5000
 FALLBACK_TOOL_MAX_CHARS = 2000
-MAX_INLINE_STRING_CHARS = 20_000  # Per-string-value cap in compacted output
-MAX_INLINE_LIST_ITEMS = 500       # Allow large result sets (e.g. 66 knowledge sources) to pass through
 MAX_VALIDATION_CORRECTION_ROUNDS = 3
 
 _PRIORITY_OUTPUT_KEYS = (
@@ -119,35 +117,61 @@ _PRIORITY_OUTPUT_KEYS = (
     "title", "name", "format",
 )
 
+_BULK_TEXT_KEYS = {
+    "stdout", "stderr", "log", "logs", "output", "result_output",
+    "result_stdout", "result_stderr", "diff", "translated_config",
+}
+_LONG_CONTEXT_TEXT_KEYS = {
+    "text", "content", "preview", "markdown", "document", "rendered",
+}
+_BULK_LIST_KEYS = {
+    "rows", "items", "results", "hits", "chunks", "packets", "connections",
+    "entries", "events",
+}
 
-def _compact_value_for_llm(value: Any, *, depth: int = 0) -> Any:
-    """Compact tool outputs while preserving facts the model needs next."""
+
+def _compact_value_for_llm(value: Any, *, depth: int = 0, key_hint: str = "") -> Any:
+    """Compact tool outputs while preserving enough evidence for follow-up."""
+    key = str(key_hint or "").lower()
     if depth >= 4:
         text = str(value)
-        return text[:MAX_INLINE_STRING_CHARS] + ("... [truncated]" if len(text) > MAX_INLINE_STRING_CHARS else "")
+        if len(text) > 4000:
+            return text[:3000] + f"\n...[truncated nested value, {len(text)} chars total]...\n" + text[-800:]
+        return text
     if isinstance(value, str):
-        return value[:MAX_INLINE_STRING_CHARS] + ("... [truncated]" if len(value) > MAX_INLINE_STRING_CHARS else "")
+        if key in _BULK_TEXT_KEYS:
+            limit = 2400
+        elif key in _LONG_CONTEXT_TEXT_KEYS:
+            limit = 12_000
+        else:
+            limit = 8000
+        if len(value) > limit:
+            tail = min(1000, max(0, limit // 4))
+            head = max(0, limit - tail)
+            return value[:head] + f"\n...[truncated {key or 'text'}, {len(value)} chars total]...\n" + (value[-tail:] if tail else "")
+        return value
     if isinstance(value, (int, float, bool)) or value is None:
         return value
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple)):
+        limit = 25 if key in _BULK_LIST_KEYS else (120 if depth == 0 else 50)
         compacted = [
-            _compact_value_for_llm(item, depth=depth + 1)
-            for item in value[:MAX_INLINE_LIST_ITEMS]
+            _compact_value_for_llm(item, depth=depth + 1, key_hint=key_hint)
+            for item in value[:limit]
         ]
-        if len(value) > MAX_INLINE_LIST_ITEMS:
-            compacted.append({"_omitted_items": len(value) - MAX_INLINE_LIST_ITEMS})
+        if len(value) > limit:
+            compacted.append({"_omitted_items": len(value) - limit})
         return compacted
     if isinstance(value, dict):
         result: dict[str, Any] = {}
         seen: set[str] = set()
         for key in _PRIORITY_OUTPUT_KEYS:
             if key in value:
-                result[key] = _compact_value_for_llm(value[key], depth=depth + 1)
+                result[key] = _compact_value_for_llm(value[key], depth=depth + 1, key_hint=key)
                 seen.add(key)
         for key, val in value.items():
             if key in seen:
                 continue
-            result[str(key)] = _compact_value_for_llm(val, depth=depth + 1)
+            result[str(key)] = _compact_value_for_llm(val, depth=depth + 1, key_hint=str(key))
         return result
     return str(value)
 
@@ -158,7 +182,10 @@ def _json_compact(value: Any, *, max_chars: int = TOOL_MESSAGE_MAX_CHARS) -> str
     text = json.dumps(
         compacted,
         ensure_ascii=False,
-        sort_keys=True,
+        # Dict compaction deliberately inserts control fields first. Preserve
+        # that order so task/status/report references survive the final hard
+        # cap even when a payload also contains very large evidence fields.
+        sort_keys=False,
         separators=(",", ":"),
         default=str,
     )
@@ -202,8 +229,8 @@ def _artifact_analysis_content(payload: dict[str, Any]) -> str:
 
 # ── Auto-Compact ────────────────────────────────────────────────────────────
 
-COMPACT_THRESHOLD_CHARS = 40_000  # ~10K tokens
-COMPACT_KEEP_LAST_N = 6           # Keep last N messages intact
+COMPACT_THRESHOLD_CHARS = 80_000  # ~20K tokens — avoid aggressive compaction on long conversations
+COMPACT_KEEP_LAST_N = 12          # Keep more recent messages intact
 COMPACT_HEAD_N = 2                # Keep first N (system + user request)
 
 
@@ -271,12 +298,29 @@ def _compact_messages(messages: List[LLMMessage]) -> tuple[List[LLMMessage], Com
                 else:
                     tool_stats[name]["failed"] += 1
 
-    # ── Extract key hints from tool_calls results ──
-    key_hints: list[str] = []
+    # ── Extract key hints from tool calls and tool summaries ──
+    key_hints = []
+    tool_summaries = []
     for m in middle:
         if not m.tool_calls:
             continue
-        # Check tool result dicts for _hint
+        for tc in m.tool_calls:
+            summary = tc.get("summary")
+            if not summary and isinstance(tc.get("result"), dict):
+                summary = tc.get("result", {}).get("summary")
+            if summary and isinstance(summary, str):
+                # Truncate individual summaries to fit
+                snippet = summary[:200].replace('\n', ' ').strip()
+                if snippet and snippet not in tool_summaries:
+                    tool_summaries.append(snippet)
+                    if len(tool_summaries) >= 3:
+                        break
+        if len(tool_summaries) >= 3:
+            break
+    # Combine hints and summaries
+    for m in middle:
+        if not m.tool_calls:
+            continue
         if isinstance(m.content, str):
             for found in re.findall(r'_hint["\':\s]*["\']([^"\']+)["\']', m.content):
                 key_hints.append(found)
@@ -285,9 +329,12 @@ def _compact_messages(messages: List[LLMMessage]) -> tuple[List[LLMMessage], Com
         if len(key_hints) >= 3:
             break
 
+    # Merge tool summaries and key_hints so they appear in compact summary
+    combined_hints = tool_summaries + key_hints
+
     # ── Build compact summary ──
     before = _estimate_chars(messages)
-    summary = _build_compact_summary(middle_count, tool_names, tool_stats, key_hints)
+    summary = _build_compact_summary(middle_count, tool_names, tool_stats, combined_hints)
     compacted = head + [LLMMessage(role="user", content=summary)] + tail
     after = _estimate_chars(compacted)
 
@@ -1284,6 +1331,9 @@ class QueryLoop:
                     parts[-1] = f"{parts[-1]} (tool_call_id={m.tool_call_id})"  # P2-3: simpler than slice assignment
         return "\n\n".join(parts)
 
+    # P3: Marker appended when provider signals stream_truncated.
+    _TRUNCATION_MARKER = "\n\n⚠️ [输出被截断 — 模型响应超时，以上为部分内容]"
+
     def _coerce_llm_response(self, raw: Any) -> LLMResponse:
         """Coerce injected adapter output into QueryLoop's LLMResponse shape.
         
@@ -1293,6 +1343,10 @@ class QueryLoop:
         """
         if isinstance(raw, LLMResponse):
             raw.content = self._strip_think_tags(str(raw.content or ""))
+            # P3: detect stream_truncated — provider-side timeout with partial output;
+            # append a visible marker so users know the response is incomplete.
+            if raw.finish_reason == "stream_truncated" and raw.content:
+                raw.content = raw.content.rstrip() + self._TRUNCATION_MARKER
             return raw
         if raw is None:
             return LLMResponse(error="empty_llm_response")
