@@ -2055,12 +2055,11 @@ class QueryLoop:
 
             # ── other tools: compact summary ──
             else:
-                summary = output.get("summary") or output.get("message") or ""
-                if summary and len(str(summary)) <= 300:
-                    lines.append(str(summary))
-                else:
-                    ok_mark = "ok" if r.ok else f"error: {r.error}"
-                    lines.append(f"{ok_mark}")
+                summary = str(output.get("summary") or output.get("message") or "")
+                if summary:
+                    lines.append(summary[:1200] + ("..." if len(summary) > 1200 else ""))
+                elif not r.ok:
+                    lines.append(f"error: {r.error}")
 
             # Error message if any
             if r.error:
