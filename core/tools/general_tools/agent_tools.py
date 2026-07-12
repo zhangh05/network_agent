@@ -1,8 +1,4 @@
-"""Agent orchestration tools — OpenCode-aligned profile-based subagent system.
-
-P2 重构: 每个 profile 是独立的具名工具 (spawn_review_agent, spawn_fix_agent 等),
-LLM 从工具列表里选择, 不再需要填写 agent_type 字符串。
-"""
+"""Network-domain subagent orchestration tools."""
 
 from __future__ import annotations
 
@@ -29,7 +25,7 @@ def _inv_session_id(inv: ToolInvocation) -> str:
 
 def _run_durable_subagent(*, instruction: str, workspace_id: str, session_id: str,
                           parent_task_id: str = "",
-                          profile_id: str = "review_agent",
+                          profile_id: str = "network_diag_agent",
                           max_turns: int = 3,
                           background: bool = False) -> dict:
     from agent.runtime.durable.subagent import (
@@ -127,27 +123,7 @@ def _spawn_agent(inv: ToolInvocation, profile_id: str, default_max_turns: int = 
         return _error_inv(inv, str(e)[:200])
 
 
-# ── 7 Named spawn tools ──────────────────────────────────────────────
-
-
-def spawn_review_agent(inv: ToolInvocation) -> dict:
-    """Spawn a read-only review agent for code/config review."""
-    return _spawn_agent(inv, "review_agent", default_max_turns=3)
-
-
-def spawn_fix_agent(inv: ToolInvocation) -> dict:
-    """Spawn a fix agent that can modify code/config (requires approval)."""
-    return _spawn_agent(inv, "fix_agent", default_max_turns=8)
-
-
-def spawn_test_agent(inv: ToolInvocation) -> dict:
-    """Spawn a test runner agent for running tests and validations."""
-    return _spawn_agent(inv, "test_agent", default_max_turns=5)
-
-
-def spawn_doc_agent(inv: ToolInvocation) -> dict:
-    """Spawn a documentation agent for updating docs."""
-    return _spawn_agent(inv, "doc_agent", default_max_turns=5)
+# ── Named network-domain spawn tools ────────────────────────────────
 
 
 def spawn_network_diag_agent(inv: ToolInvocation) -> dict:
@@ -161,8 +137,8 @@ def spawn_config_translate_agent(inv: ToolInvocation) -> dict:
 
 
 def spawn_security_agent(inv: ToolInvocation) -> dict:
-    """Spawn a security audit agent for permission/review analysis."""
-    return _spawn_agent(inv, "security_agent", default_max_turns=5)
+    """Spawn a network security audit agent."""
+    return _spawn_agent(inv, "security_agent", default_max_turns=8)
 
 
 # ── Other action handlers ────────────────────────────────────────────
@@ -292,11 +268,7 @@ def handle_agent_status(inv: ToolInvocation) -> dict:
 # ── Exports ──────────────────────────────────────────────────────────
 
 __all__ = [
-    # 7 named spawn tools
-    'spawn_review_agent',
-    'spawn_fix_agent',
-    'spawn_test_agent',
-    'spawn_doc_agent',
+    # Named network-domain spawn tools
     'spawn_network_diag_agent',
     'spawn_config_translate_agent',
     'spawn_security_agent',

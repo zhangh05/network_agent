@@ -53,14 +53,6 @@ class TestRiskAndApproval:
             if m.destructive:
                 assert m.requires_approval, f"{tid}: destructive must require approval"
 
-    def test_git_push_is_high_risk(self):
-        # v3.9.2: git.manage contains push as a sub-action.
-        m = MANIFESTS["git.manage"]
-        # git.manage is base medium; dispatcher escalates push to require approval
-        # at runtime. Manifest-level requires_approval=False is intentional.
-        assert m.risk_level == "medium"
-        # Sub-action approval is enforced at execution time, not in the manifest.
-
     def test_device_manage_base_policy_is_medium(self):
         # v3.9.7: merged tools carry base risk only. action=delete
         # escalates at runtime; action=list/get never opens approval.
@@ -73,7 +65,7 @@ class TestRiskAndApproval:
 class TestSecretFields:
     def test_exec_run_has_secret_fields(self):
         m = MANIFESTS["exec.run"]
-        assert "cmd" in m.secret_fields
+        assert {"password", "code", "env_vars"}.issubset(m.secret_fields)
 
     def test_memory_has_sensitive_output(self):
         # v3.9.2: memory.manage is the merged tool; output_sensitivity=sensitive.
@@ -85,7 +77,7 @@ class TestIdempotencyAndRetry:
     def test_safe_to_retry_tools_are_retryable(self):
         # v3.9.2: merged tools whose manifest marks safe_to_retry.
         # v3.16.2: agent.manage is now safe_to_retry (spawn moved to named tools).
-        for tid in ("web.manage", "browser.manage", "knowledge.manage", "code.search", "agent.manage"):
+        for tid in ("web.manage", "browser.manage", "agent.manage"):
             assert is_retryable(tid), f"{tid} should be retryable"
 
     def test_destructive_not_retryable(self):
@@ -94,10 +86,9 @@ class TestIdempotencyAndRetry:
         assert not is_retryable("system.manage")
 
     def test_non_idempotent_not_retryable(self):
-        # v3.9.2: exec.run is unsafe; git.push and exec.python merged into them.
-        # v3.16.2: agent.manage is now read-only (spawn moved to named spawn_*_agent tools).
+        # exec.run is unsafe; Python and shell execution remain available but
+        # are never mechanically replayed.
         assert not is_retryable("exec.run")
-        assert not is_retryable("git.manage")
         assert is_retryable("agent.manage")
 
 

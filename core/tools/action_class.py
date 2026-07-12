@@ -35,8 +35,7 @@ MUTATE_ACTIONS = {
 
 EXECUTE_ACTIONS = {
     "exec", "run", "slash_run",
-    "spawn_review_agent", "spawn_fix_agent", "spawn_test_agent",
-    "spawn_doc_agent", "spawn_network_diag_agent",
+    "spawn_network_diag_agent",
     "spawn_config_translate_agent", "spawn_security_agent",
 }
 
@@ -77,9 +76,7 @@ def classify_tool(tool_id: str, category: str = "", group: str = "",
 
     v3.9.2: ``arguments`` enables sub-action dispatch for merged tools
     whose canonical ``action`` is ``"multi"``. The actual class is then
-    looked up by ``arguments.action`` so ``git.manage(action="commit")``
-    classifies as ``write`` while ``git.manage(action="status")`` is
-    ``read``. Non-merged tools pass through unchanged.
+    looked up by ``arguments.action``. Non-merged tools pass through unchanged.
     """
     result = ActionClass(
         tool_id=tool_id, category=category, group=group, action=action

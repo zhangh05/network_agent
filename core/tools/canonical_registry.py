@@ -188,18 +188,6 @@ def _handle_exec_merged(inv: ToolInvocation) -> dict:
     return _handle_exec_run_merged(inv)
 
 
-def _handle_git_merged(inv: ToolInvocation) -> dict:
-    """git.manage — action=status|log|diff|commit|push."""
-    action, _ = _action(inv)
-    return {
-        "status": _handler_git_status,
-        "log": _handler_git_log,
-        "diff": _handler_git_diff,
-        "commit": _handler_git_commit,
-        "push": _handler_git_push,
-    }.get(action, _handler_git_status)(inv)
-
-
 def _handle_device_merged(inv: ToolInvocation) -> dict:
     """device.manage — action=list|get|add|delete|update|export."""
     action, _ = _action(inv)
@@ -1261,10 +1249,6 @@ from core.tools.general_tools.command_tools import (
     handle_python_exec,
 )
 from core.tools.general_tools.agent_tools import (
-    spawn_review_agent,
-    spawn_fix_agent,
-    spawn_test_agent,
-    spawn_doc_agent,
     spawn_network_diag_agent,
     spawn_config_translate_agent,
     spawn_security_agent,
@@ -1304,49 +1288,6 @@ def _safe_int(value, default: int = 0) -> int:
 
 
 # ── Directory-level tool handlers ────────────────────────────────────
-
-# ── v3.4: Git / Code / Browser handlers ──
-
-def _handler_git_status(inv: ToolInvocation) -> dict:
-    from agent.modules.git.core import git_status
-    args = inv.arguments or {}
-    return git_status(str(args.get("repo_path", ".")))
-
-def _handler_git_diff(inv: ToolInvocation) -> dict:
-    from agent.modules.git.core import git_diff
-    args = inv.arguments or {}
-    return git_diff(str(args.get("repo_path", ".")), bool(args.get("staged", False)), str(args.get("file_path", "")))
-
-def _handler_git_log(inv: ToolInvocation) -> dict:
-    from agent.modules.git.core import git_log
-    args = inv.arguments or {}
-    return git_log(str(args.get("repo_path", ".")), _safe_int(args.get("n", 10)), str(args.get("file_path", "")))
-
-def _handler_git_commit(inv: ToolInvocation) -> dict:
-    from agent.modules.git.core import git_commit
-    args = inv.arguments or {}
-    msg = str(args.get("message", ""))
-    if not msg:
-        return {"ok": False, "error": "message is required"}
-    files = args.get("files")
-    if isinstance(files, list):
-        return git_commit(str(args.get("repo_path", ".")), msg, files)
-    return git_commit(str(args.get("repo_path", ".")), msg, None)
-
-def _handler_git_push(inv: ToolInvocation) -> dict:
-    from agent.modules.git.core import git_push
-    args = inv.arguments or {}
-    return git_push(str(args.get("repo_path", ".")), str(args.get("remote", "origin")), str(args.get("branch", "")))
-
-def _handler_code_search(inv: ToolInvocation) -> dict:
-    from agent.modules.code.core import search_code
-    args = inv.arguments or {}
-    return search_code(
-        str(args.get("pattern", "")),
-        str(args.get("directory", ".")),
-        str(args.get("file_type", "")),
-        _safe_int(args.get("max_results"), 50),
-    )
 
 # ── Browser action handlers ──────────────────────────────────────────
 
@@ -2514,7 +2455,7 @@ def _ws_artifact_list_basic(inv: ToolInvocation) -> dict:
 
 # canonical_tool_id -> CanonicalToolEntry
 _RAW_REGISTRY: list[CanonicalToolEntry] = [
-    # ── 29-tool Codex-style registry (all visible to LLM) ──
+    # ── Network-agent registry (all visible to LLM) ──
     # Merged tools use action=... dispatch (see _handle_*_merged above).
     # LLMs and runtime callers use the merged canonical_tool_ids below.
 
@@ -2533,7 +2474,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "target": {"type": "string", "enum": ["local", "ssh", "telnet"],
                        "default": "local",
                        "description": "[action=shell] Execution target: local (default) | ssh | telnet."},
-            "shell": {"type": "string",
+            "shell": {"type": "string", "enum": ["cmd", "powershell"],
                       "description": "[action=shell] Shell type: cmd (bash) or powershell.", "default": "cmd"},
             "command": {"type": "string", "description": "[action=shell|background|stream] Shell command to execute."},
             "code": {"type": "string", "description": "[action=python] Python code to execute (AST-sandboxed, imports restricted)."},
@@ -2559,33 +2500,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         ),
     ),
 
-    # 2. git.manage — status / log / diff / commit / push
-    CanonicalToolEntry(
-        canonical_tool_id="git.manage",
-        handler=_adapt(_handle_git_merged),
-        input_schema=_schema({
-            "repo_path": {"type": "string", "default": ".", "description": "Path to git repository."},
-            "action": {"type": "string",
-                       "enum": ["status", "log", "diff", "commit", "push"],
-                       "description": "status | log | diff | commit | push."},
-            "staged": {"type": "boolean", "default": False, "description": "[diff] Show staged only."},
-            "file_path": {"type": "string", "default": "", "description": "[diff/log] Scope to file."},
-            "n": {"type": "integer", "default": 10, "description": "[log] Number of commits."},
-            "message": {"type": "string", "description": "[commit] Commit message."},
-            "files": {"type": "array", "items": {"type": "string"},
-                      "description": "[commit] Specific files; omit to stage all (-A)."},
-            "remote": {"type": "string", "default": "origin", "description": "[push] Remote."},
-            "branch": {"type": "string", "default": "", "description": "[push] Branch."},
-        }, ["action"]),
-        risk_level="medium", requires_approval=False,  # only commit/push require approval at runtime
-        description=(
-            "Unified git tool. action=status (working tree), action=log, action=diff "
-            "(unstaged/staged/file-scoped), action=commit (requires approval), "
-            "action=push (requires approval). Always run status+diff before commit/push."
-        ),
-    ),
-
-    # 3. device.manage — list / get / add / update / delete / export
+    # 2. device.manage — list / get / add / update / delete / export
     CanonicalToolEntry(
         canonical_tool_id="device.manage",
         handler=_adapt(_handle_device_merged),
@@ -3001,57 +2916,13 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         }, ["action"]),
         risk_level="medium",
         description=(
-            "Manage subagents. list: show 7 profiles. "
+            "Manage network subagents. list: show 3 profiles. "
             "get: fetch result. cancel: stop running. status: view all. "
-            "To spawn, use spawn_<profile> tools (spawn_review_agent, spawn_fix_agent, etc.)."
+            "Spawn with spawn_network_diag_agent, spawn_config_translate_agent, or spawn_security_agent."
         ),
     ),
 
-    # 13b-13h. Spawn tools — one per profile (LLM selects from tool list, no free-text name)
-    CanonicalToolEntry(
-        canonical_tool_id="spawn_review_agent",
-        handler=_adapt(spawn_review_agent),
-        input_schema=_schema({
-            "instruction": {"type": "string", "description": "Task description for the review agent."},
-            "max_turns": {"type": "integer", "default": 3, "minimum": 1, "maximum": 10, "description": "Max tool-call turns."},
-            "background": {"type": "boolean", "default": False, "description": "Run in background."},
-        }, ["instruction"]),
-        risk_level="medium",
-        description="Spawn a read-only review agent. Checks code quality, finds issues, suggests improvements.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="spawn_fix_agent",
-        handler=_adapt(spawn_fix_agent),
-        input_schema=_schema({
-            "instruction": {"type": "string", "description": "Task description for the fix agent."},
-            "max_turns": {"type": "integer", "default": 8, "minimum": 1, "maximum": 10, "description": "Max tool-call turns."},
-            "background": {"type": "boolean", "default": False, "description": "Run in background."},
-        }, ["instruction"]),
-        risk_level="medium",
-        description="Spawn a fix agent that can modify code/config. Requires approval for write operations.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="spawn_test_agent",
-        handler=_adapt(spawn_test_agent),
-        input_schema=_schema({
-            "instruction": {"type": "string", "description": "Task description for the test agent."},
-            "max_turns": {"type": "integer", "default": 5, "minimum": 1, "maximum": 10, "description": "Max tool-call turns."},
-            "background": {"type": "boolean", "default": False, "description": "Run in background."},
-        }, ["instruction"]),
-        risk_level="medium",
-        description="Spawn a test runner agent. Runs tests and validations with limited execution.",
-    ),
-    CanonicalToolEntry(
-        canonical_tool_id="spawn_doc_agent",
-        handler=_adapt(spawn_doc_agent),
-        input_schema=_schema({
-            "instruction": {"type": "string", "description": "Task description for the documentation agent."},
-            "max_turns": {"type": "integer", "default": 5, "minimum": 1, "maximum": 10, "description": "Max tool-call turns."},
-            "background": {"type": "boolean", "default": False, "description": "Run in background."},
-        }, ["instruction"]),
-        risk_level="medium",
-        description="Spawn a documentation agent. Updates documentation files.",
-    ),
+    # Named network-domain spawn tools.
     CanonicalToolEntry(
         canonical_tool_id="spawn_network_diag_agent",
         handler=_adapt(spawn_network_diag_agent),
@@ -3078,12 +2949,12 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         canonical_tool_id="spawn_security_agent",
         handler=_adapt(spawn_security_agent),
         input_schema=_schema({
-            "instruction": {"type": "string", "description": "Task description for the security audit agent."},
-            "max_turns": {"type": "integer", "default": 5, "minimum": 1, "maximum": 10, "description": "Max tool-call turns."},
+            "instruction": {"type": "string", "description": "Network configuration, traffic, exposure, or device security audit task."},
+            "max_turns": {"type": "integer", "default": 8, "minimum": 1, "maximum": 10, "description": "Max tool-call turns."},
             "background": {"type": "boolean", "default": False, "description": "Run in background."},
         }, ["instruction"]),
         risk_level="medium",
-        description="Spawn a security audit agent. Reviews permissions, risks, and access patterns.",
+        description="Spawn a network security audit agent for configurations, traffic evidence, exposed services, and device risks.",
     ),
 
     # 14. system.manage — 9 system tools merged
@@ -3145,31 +3016,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         ),
     ),
 
-    # 16. code.search
-    CanonicalToolEntry(
-        canonical_tool_id="code.search",
-        handler=_adapt(_handler_code_search),
-        input_schema=_schema({
-            "pattern": {"type": "string", "description": "Search pattern (regex or literal)."},
-            "directory": {"type": "string", "default": "."},
-            "file_type": {"type": "string", "default": ""},
-            "max_results": {"type": "integer", "default": 50},
-            "context_lines": {"type": "integer", "default": 2,
-                              "description": "Lines before/after each match."},
-            "output_mode": {"type": "string", "enum": ["content", "files_with_matches", "count"],
-                            "default": "content",
-                            "description": "content: show matching lines; files_with_matches: file paths; count: match counts."},
-            "case_sensitive": {"type": "boolean", "default": False},
-            "multiline": {"type": "boolean", "default": False,
-                          "description": "Enable multiline matching (dot matches newline)."},
-        }, ["pattern"]),
-        description=(
-            "Search codebase using ripgrep (fast) or Python fallback. "
-            "Supports regex, context lines, and multiple output modes."
-        ),
-    ),
-
-    # 17. workspace.file
+    # workspace.file
     CanonicalToolEntry(
         canonical_tool_id="workspace.file",
         handler=_adapt(_handle_workspace_file_merged),

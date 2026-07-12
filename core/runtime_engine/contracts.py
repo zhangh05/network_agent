@@ -56,7 +56,7 @@ class ToolContract:
 
 
 # ============================================================================
-# Built-in Contract Registry — all 29 canonical tools
+# Built-in Contract Registry — current network-agent canonical tools
 # ============================================================================
 
 BUILTIN_CONTRACTS: dict[str, ToolContract] = {
@@ -83,22 +83,6 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         concurrency_group="shell",
         requires_approval=False,
         rollback_supported=False,
-    ),
-
-    # --- git ---
-    "git.manage": ToolContract(
-        name="git.manage",
-        display_name="Git Management",
-        description="Manage git repository operations",
-        input_schema={"required": ["action"], "properties": {"action": {"type": "string", "enum": ["status", "diff", "log", "commit", "push", "branch", "checkout"]}}},
-        output_schema={},
-        side_effect="write_file",
-        risk_level="medium",
-        idempotent=False,
-        timeout_seconds=60,
-        concurrency_group="git",
-        requires_approval=False,
-        rollback_supported=True,
     ),
 
     # --- device ---
@@ -259,35 +243,7 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         requires_approval=False,
     ),
 
-    # 7 named spawn tools
-    "spawn_review_agent": ToolContract(
-        name="spawn_review_agent", display_name="Spawn Review Agent",
-        description="Spawn a read-only review agent for code/config review",
-        input_schema={"required": ["instruction"], "properties": {"instruction": {"type": "string"}, "max_turns": {"type": "integer"}, "background": {"type": "boolean"}}},
-        output_schema={}, side_effect="execute_command", risk_level="medium", idempotent=False, timeout_seconds=300,
-        concurrency_group="subagent", requires_approval=False,
-    ),
-    "spawn_fix_agent": ToolContract(
-        name="spawn_fix_agent", display_name="Spawn Fix Agent",
-        description="Spawn a fix agent that can modify code/config",
-        input_schema={"required": ["instruction"], "properties": {"instruction": {"type": "string"}, "max_turns": {"type": "integer"}, "background": {"type": "boolean"}}},
-        output_schema={}, side_effect="execute_command", risk_level="medium", idempotent=False, timeout_seconds=300,
-        concurrency_group="subagent", requires_approval=False,
-    ),
-    "spawn_test_agent": ToolContract(
-        name="spawn_test_agent", display_name="Spawn Test Agent",
-        description="Spawn a test runner agent",
-        input_schema={"required": ["instruction"], "properties": {"instruction": {"type": "string"}, "max_turns": {"type": "integer"}, "background": {"type": "boolean"}}},
-        output_schema={}, side_effect="execute_command", risk_level="medium", idempotent=False, timeout_seconds=300,
-        concurrency_group="subagent", requires_approval=False,
-    ),
-    "spawn_doc_agent": ToolContract(
-        name="spawn_doc_agent", display_name="Spawn Documentation Agent",
-        description="Spawn a documentation agent",
-        input_schema={"required": ["instruction"], "properties": {"instruction": {"type": "string"}, "max_turns": {"type": "integer"}, "background": {"type": "boolean"}}},
-        output_schema={}, side_effect="execute_command", risk_level="medium", idempotent=False, timeout_seconds=300,
-        concurrency_group="subagent", requires_approval=False,
-    ),
+    # Named network-domain spawn tools.
     "spawn_network_diag_agent": ToolContract(
         name="spawn_network_diag_agent", display_name="Spawn Network Diagnostic Agent",
         description="Spawn a network diagnostic agent",
@@ -303,8 +259,8 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         concurrency_group="subagent", requires_approval=False,
     ),
     "spawn_security_agent": ToolContract(
-        name="spawn_security_agent", display_name="Spawn Security Audit Agent",
-        description="Spawn a security audit agent",
+        name="spawn_security_agent", display_name="Spawn Network Security Audit Agent",
+        description="Audit network configurations, traffic evidence, exposed services, and device risks",
         input_schema={"required": ["instruction"], "properties": {"instruction": {"type": "string"}, "max_turns": {"type": "integer"}, "background": {"type": "boolean"}}},
         output_schema={}, side_effect="execute_command", risk_level="medium", idempotent=False, timeout_seconds=300,
         concurrency_group="subagent", requires_approval=False,
@@ -335,20 +291,6 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         risk_level="low",
         idempotent=True,
         timeout_seconds=15,
-        max_retries=1,
-    ),
-
-    # --- code ---
-    "code.search": ToolContract(
-        name="code.search",
-        display_name="Code Search",
-        description="Search code with ripgrep",
-        input_schema={"required": ["query"], "properties": {"query": {"type": "string"}, "path": {"type": "string"}}},
-        output_schema={},
-        side_effect="read",
-        risk_level="low",
-        idempotent=True,
-        timeout_seconds=30,
         max_retries=1,
     ),
 
@@ -483,7 +425,6 @@ ALWAYS_READ_ONLY_TOOLS: frozenset[str] = frozenset({
     "pcap.manage",
     "skill.manage",
     "text.analyze",
-    "code.search",
     "workspace.metadata.get",
     "workspace.document.pdf.extract_text",
 })
@@ -492,7 +433,6 @@ READ_ONLY_ACTIONS: dict[str, frozenset[str]] = {
     "agent.manage": frozenset({"list", "get", "status"}),
     "browser.manage": frozenset({"snapshot", "screenshot", "extract", "wait", "network", "console"}),
     "device.manage": frozenset({"list", "get", "export"}),
-    "git.manage": frozenset({"status", "log", "diff"}),
     "inspection.manage": frozenset({"list", "get"}),
     "knowledge.manage": frozenset({"search", "read", "list", "chunk"}),
     "memory.manage": frozenset({"search", "review", "profile_get"}),

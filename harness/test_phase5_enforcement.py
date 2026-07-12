@@ -51,29 +51,6 @@ class TestManifestDrivesRisk:
         m = get_manifest("web.manage")
         assert decision.risk_level == m.risk_level
 
-    def test_manifest_drives_approval_flag(self):
-        """requires_approval should be false for low-risk tools."""
-        from agent.runtime.actions.risk import RiskPolicy
-        from agent.runtime.actions.models import ActionPlan
-        rp = RiskPolicy()
-        plan = ActionPlan(tool_id="git.manage", action_class="read",
-                          arguments={"action": "diff"})
-        decision = rp.evaluate(plan)
-        assert decision.approval_required is False
-
-    def test_high_risk_manifest_drives_approval(self):
-        """high-risk manifest flag triggers approval."""
-        from agent.runtime.actions.risk import RiskPolicy
-        from agent.runtime.actions.models import ActionPlan
-        rp = RiskPolicy()
-        # v3.9.2: git.manage(action=push) requires approval
-        plan = ActionPlan(tool_id="git.manage", action_class="write",
-                          arguments={"action": "push"})
-        decision = rp.evaluate(plan)
-        m = get_manifest("git.manage")
-        assert decision.approval_required == m.requires_approval
-
-
 class TestManifestDrivesApprovalReason:
     def test_approval_reason_from_manifest(self):
         """Approval reason should come from manifest template."""

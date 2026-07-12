@@ -44,14 +44,13 @@ class TestRedaction:
         # Should be redacted
         assert result.redacted is True
 
-    def test_high_risk_rest_invoke_not_direct_execute(self):
+    def test_removed_git_tool_is_not_dispatchable(self):
         from core.tools.integration import get_default_tool_runtime_client
         from core.tools.context import ToolRuntimeContext
         client = get_default_tool_runtime_client()
         ctx = ToolRuntimeContext(workspace_id="default", requested_by="rest_api")
         result = client.invoke("git.manage", {"remote": "origin"}, context=ctx)
-        # Should go through pipeline, not directly execute
-        assert result.status in ("failed", "blocked", "succeeded", "dry_run")
+        assert result.status == "blocked"
 
 
 class TestToolPolicySafetySemantics:

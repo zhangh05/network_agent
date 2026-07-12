@@ -209,9 +209,6 @@ _CANONICAL_ACTIONS: Final[dict[str, frozenset[str]]] = {
     "agent.manage": frozenset({
         "list", "get", "cancel", "status",
     }),
-    "git.manage": frozenset({
-        "status", "log", "diff", "commit", "push",
-    }),
     "browser.manage": frozenset({
         "navigate", "snapshot", "screenshot", "click", "type", "extract",
         "scroll", "hover", "press_key", "select_option", "evaluate", "wait",

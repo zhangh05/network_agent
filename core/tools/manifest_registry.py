@@ -1,5 +1,5 @@
 # core/tools/manifest_registry.py
-"""All tool manifests — single source of truth for the 29 canonical tools.
+"""All tool manifests — single source of truth for network-agent tools.
 
 Each merged tool carries a base risk profile. Per-action destructive
 checks in ``core.tools.policy`` escalate delete/rewind/destructive
@@ -22,27 +22,13 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         risk_level="medium",  # base level; dangerous patterns escalate to high
         side_effects="remote_exec",
         idempotency="unsafe_to_retry", rollback_strategy="none",
-        secret_fields=["cmd", "code"], output_sensitivity="secret",
+        secret_fields=["password", "code", "env_vars"], output_sensitivity="secret",
         timeout_seconds=120,
         allowed_callers=["turn_runner", "rest_api", "job_runner",
                         "subagent", "inspection_runner"],
     ),
 
-    # ═══ 2. git.manage (merged: status+log+diff+commit+push) ═══
-    "git.manage": CapabilityManifest(
-        tool_id="git.manage", category="git", display_name="Git (unified)",
-        description=(
-            "Unified git tool. action=status, log, diff (reads); "
-            "action=commit, push (writes, dispatcher enforces approval). "
-            "Run status+diff first; never commit/push without confirmation."
-        ),
-        action_class="write",
-        risk_level="medium",  # base level; commit/push escalate via dispatcher
-        side_effects="network_change", idempotency="unsafe_to_retry",
-        timeout_seconds=60,
-    ),
-
-    # ═══ 3. device.manage (merged: list+get+add+update+delete+export) ═══
+    # ═══ 2. device.manage (merged: list+get+add+update+delete+export) ═══
     "device.manage": CapabilityManifest(
         tool_id="device.manage", category="device", display_name="Device Asset (unified)",
         description=(
@@ -196,35 +182,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         timeout_seconds=30,
     ),
 
-    # ═══ 13b-13h. Spawn tools — one per profile ═══
-    "spawn_review_agent": CapabilityManifest(
-        tool_id="spawn_review_agent", category="agent", display_name="Spawn Review Agent",
-        description="Spawn a read-only review agent for code/config.",
-        action_class="execute", risk_level="medium", side_effects="none",
-        idempotency="unsafe_to_retry", requires_approval=False,
-        allowed_callers=["turn_runner", "rest_api", "job_runner"], timeout_seconds=300,
-    ),
-    "spawn_fix_agent": CapabilityManifest(
-        tool_id="spawn_fix_agent", category="agent", display_name="Spawn Fix Agent",
-        description="Spawn a fix agent that can modify code/config.",
-        action_class="execute", risk_level="medium", side_effects="none",
-        idempotency="unsafe_to_retry", requires_approval=False,
-        allowed_callers=["turn_runner", "rest_api", "job_runner"], timeout_seconds=300,
-    ),
-    "spawn_test_agent": CapabilityManifest(
-        tool_id="spawn_test_agent", category="agent", display_name="Spawn Test Agent",
-        description="Spawn a test runner agent.",
-        action_class="execute", risk_level="medium", side_effects="none",
-        idempotency="unsafe_to_retry", requires_approval=False,
-        allowed_callers=["turn_runner", "rest_api", "job_runner"], timeout_seconds=300,
-    ),
-    "spawn_doc_agent": CapabilityManifest(
-        tool_id="spawn_doc_agent", category="agent", display_name="Spawn Doc Agent",
-        description="Spawn a documentation agent.",
-        action_class="execute", risk_level="medium", side_effects="none",
-        idempotency="unsafe_to_retry", requires_approval=False,
-        allowed_callers=["turn_runner", "rest_api", "job_runner"], timeout_seconds=300,
-    ),
+    # Network-domain spawn tools — one per profile.
     "spawn_network_diag_agent": CapabilityManifest(
         tool_id="spawn_network_diag_agent", category="agent", display_name="Spawn Network Diag Agent",
         description="Spawn a network diagnostic agent.",
@@ -240,8 +198,8 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         allowed_callers=["turn_runner", "rest_api", "job_runner"], timeout_seconds=300,
     ),
     "spawn_security_agent": CapabilityManifest(
-        tool_id="spawn_security_agent", category="agent", display_name="Spawn Security Agent",
-        description="Spawn a security audit agent.",
+        tool_id="spawn_security_agent", category="agent", display_name="Spawn Network Security Agent",
+        description="Spawn a network security audit agent for configurations, traffic, exposure, and device risks.",
         action_class="execute", risk_level="medium", side_effects="none",
         idempotency="unsafe_to_retry", requires_approval=False,
         allowed_callers=["turn_runner", "rest_api", "job_runner"], timeout_seconds=300,
@@ -273,16 +231,7 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         timeout_seconds=30,
     ),
 
-    # ═══ 16. code.search ═══
-    "code.search": CapabilityManifest(
-        tool_id="code.search", category="code", display_name="Code Search",
-        description="Search codebase using ripgrep (fast) or Python fallback.",
-        action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
-        timeout_seconds=60,
-    ),
-
-    # ═══ 17. workspace.file ═══
+    # workspace.file
     "workspace.file": CapabilityManifest(
         tool_id="workspace.file", category="workspace", display_name="Workspace File (unified)",
         description=(

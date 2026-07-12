@@ -27,7 +27,7 @@ from core.tools.tool_namespace import TOOL_NAMESPACE
 #   display_name        str   human-readable name
 #   description         str   one-sentence description
 #   module_ids          tuple  backend module name(s) (e.g. "cmdb", "pcap")
-#   recommended_tool_ids tuple  canonical tool ids from the 29-tool set
+#   recommended_tool_ids tuple  canonical tool ids from the network tool set
 #   prompt_hints        tuple  short hints for the LLM when invoking
 #   safety_notes        tuple  short safety warnings for the LLM
 #   status              str   "enabled" or "planned"
@@ -113,16 +113,12 @@ _CAPABILITIES: tuple[dict, ...] = (
         "module_ids": ("runtime",),
         "recommended_tool_ids": (
             "agent.manage",
-            "spawn_review_agent",
-            "spawn_fix_agent",
-            "spawn_test_agent",
-            "spawn_doc_agent",
             "spawn_network_diag_agent",
             "spawn_config_translate_agent",
             "spawn_security_agent",
         ),
         "prompt_hints": (
-            "Use named spawn tools to start subagents; use agent.manage(action=get) to fetch results.",
+            "Delegate only network diagnosis, configuration translation, or network security analysis; use agent.manage(action=get) to fetch results.",
         ),
         "safety_notes": (
             "Sub-agents inherit workspace/session boundaries.",

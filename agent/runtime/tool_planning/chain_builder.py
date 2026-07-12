@@ -42,7 +42,7 @@ SIGNAL_DISPATCH = [
     (("mentions_host",), "exec.run", "查询或操作当前本机环境"),
     (("mentions_runtime",), "system.manage", "查看运行、trace、session 或审计信息"),
     (("mentions_memory",), "memory.manage", "搜索或维护记忆/profile"),
-    (("mentions_sub_agent",), "spawn_review_agent", "派生子代理并行处理复杂任务"),
+    (("mentions_sub_agent",), "spawn_network_diag_agent", "派生网络诊断子代理并行处理复杂网络任务"),
 ]
 
 

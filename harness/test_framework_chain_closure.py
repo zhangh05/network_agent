@@ -456,7 +456,7 @@ def test_subagent_runtime_failure_reaches_terminal_projection(monkeypatch):
         "parent_task",
         workspace_id,
         "session_1",
-        "review_agent",
+        "network_diag_agent",
         "Review the current state",
     )
     result = subagent.run_subagent_task(created["subtask_id"], workspace_id)

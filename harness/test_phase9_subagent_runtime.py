@@ -19,25 +19,23 @@ def _fake_run_turn(session, turn, services=None, **kwargs):
 
 
 class TestSubagentProfiles:
-    def test_all_7_profiles_exist(self):
-        assert len(BUILTIN_PROFILES) == 7
-        assert "review_agent" in BUILTIN_PROFILES
-        assert "security_agent" in BUILTIN_PROFILES
+    def test_network_domain_profiles_exist(self):
+        assert set(BUILTIN_PROFILES) == {
+            "network_diag_agent", "config_translate_agent", "security_agent",
+        }
 
-    def test_review_agent_readonly(self):
-        p = get_profile("review_agent")
-        assert p.allowed_action_classes == ["read"]
+    def test_network_diag_agent_is_network_scoped(self):
+        p = get_profile("network_diag_agent")
+        assert p.allowed_action_classes == ["read", "network"]
+        assert "device.manage" in p.allowed_tools
+        assert "pcap.manage" in p.allowed_tools
         assert not p.can_modify_files
-        assert not p.can_execute_commands
 
-    def test_fix_agent_can_write(self):
-        p = get_profile("fix_agent")
-        assert "write" in p.allowed_action_classes
-        assert p.can_modify_files
-
-    def test_security_agent_readonly(self):
+    def test_security_agent_is_network_scoped(self):
         p = get_profile("security_agent")
-        assert p.allowed_action_classes == ["read"]
+        assert p.allowed_action_classes == ["read", "network"]
+        assert "config.manage" in p.allowed_tools
+        assert "pcap.manage" in p.allowed_tools
         assert not p.can_execute_commands
 
 
@@ -46,8 +44,8 @@ class TestSubagentTask:
         ws = f"ws_sa_{uuid.uuid4().hex[:8]}"
         result = create_subagent_task(
             parent_task_id="task-123", workspace_id=ws,
-            session_id="s1", profile_id="review_agent",
-            goal="Review OSPF config changes",
+            session_id="s1", profile_id="network_diag_agent",
+            goal="Diagnose OSPF adjacency instability",
         )
         assert result["ok"]
         assert result["subtask_id"].startswith("sub-")
@@ -63,23 +61,21 @@ class TestSubagentTask:
     def test_workspace_required(self):
         result = create_subagent_task(
             parent_task_id="t1", workspace_id="",
-            session_id="s1", profile_id="review_agent",
+            session_id="s1", profile_id="network_diag_agent",
             goal="test",
         )
         assert result["ok"] is False
 
 
 class TestSubagentRuntime:
-    def test_review_agent_cannot_call_write_tools(self, monkeypatch):
+    def test_network_diag_agent_runs_with_profile_limits(self, monkeypatch):
         monkeypatch.setattr("agent.runtime.ssot_runtime.run_ssot_turn", _fake_run_turn)
         ws = f"ws_rt_{uuid.uuid4().hex[:8]}"
-        cr = create_subagent_task("t1", ws, "s1", "review_agent", "Review code")
+        cr = create_subagent_task("t1", ws, "s1", "network_diag_agent", "Diagnose BGP peer down")
         assert cr["ok"]
 
         r = run_subagent_task(cr["subtask_id"], ws)
-        # Review agent should not be able to use write/delete/execute tools
         assert r["ok"]
-        # Should not have succeeded — profile restricts action_class
         assert r["status"] in ("succeeded", "failed")
 
     @pytest.mark.skip(reason="requires web search API")
@@ -94,14 +90,14 @@ class TestSubagentRuntime:
     def test_cross_workspace_run_blocked(self):
         ws_a = f"ws_sa9_{uuid.uuid4().hex[:8]}"
         ws_b = f"ws_sb9_{uuid.uuid4().hex[:8]}"
-        cr = create_subagent_task("t1", ws_a, "s1", "review_agent", "test")
+        cr = create_subagent_task("t1", ws_a, "s1", "network_diag_agent", "test")
         r = run_subagent_task(cr["subtask_id"], ws_b)
         assert r["ok"] is False
 
     def test_merge_subagent_result(self, monkeypatch):
         monkeypatch.setattr("agent.runtime.ssot_runtime.run_ssot_turn", _fake_run_turn)
         ws = f"ws_mg_{uuid.uuid4().hex[:8]}"
-        cr = create_subagent_task("t-parent", ws, "s1", "review_agent", "Review")
+        cr = create_subagent_task("t-parent", ws, "s1", "network_diag_agent", "Diagnose")
         r = run_subagent_task(cr["subtask_id"], ws)
         assert r["ok"]
 
@@ -111,22 +107,20 @@ class TestSubagentRuntime:
 
     def test_merge_cross_parent_rejected(self):
         ws = f"ws_mp_{uuid.uuid4().hex[:8]}"
-        cr = create_subagent_task("t-real", ws, "s1", "review_agent", "test")
+        cr = create_subagent_task("t-real", ws, "s1", "network_diag_agent", "test")
         m = merge_subagent_result("t-wrong", cr["subtask_id"], ws)
         assert m["ok"] is False
 
 
 class TestProfileToolsFilter:
-    def test_review_agent_no_exec_tools(self):
-        p = get_profile("review_agent")
-        # review_agent must not have exec.run in allowed_tools
+    def test_network_diag_agent_no_exec_tools(self):
+        p = get_profile("network_diag_agent")
         exec_tools = [t for t in p.allowed_tools if "exec" in t or "delete" in t]
         assert len(exec_tools) == 0
 
-    def test_test_agent_has_exec_tools(self):
-        p = get_profile("test_agent")
-        assert "exec.run" in p.allowed_tools
-        assert "system.manage" in p.allowed_tools
+    def test_removed_development_profiles_are_absent(self):
+        for profile_id in ("review_agent", "fix_agent", "test_agent", "doc_agent"):
+            assert get_profile(profile_id) is None
 
 
 class TestPhase8Unaffected:

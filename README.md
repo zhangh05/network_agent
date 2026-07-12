@@ -77,9 +77,9 @@ flowchart LR
 - JSONL append-only + RLock 并发控制，软删除（tombstone 标记）
 - 密码损坏检测（`password_corrupted` 标记）在列表和单资产查询中生效
 
-## 29 个 Canonical Tools
+## 23 个 Network Agent Tools
 
-`agent.manage`, `browser.manage`, `code.search`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `git.manage`, `inspection.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `spawn_config_translate_agent`, `spawn_doc_agent`, `spawn_fix_agent`, `spawn_network_diag_agent`, `spawn_review_agent`, `spawn_security_agent`, `spawn_test_agent`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
+`agent.manage`, `browser.manage`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `inspection.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `spawn_config_translate_agent`, `spawn_network_diag_agent`, `spawn_security_agent`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
 
 工具名、manifest 和 registry 必须三方一致。不要添加别名，不要恢复旧工具名，不要让 handler 绕过 `ToolRuntimeClient`。
 

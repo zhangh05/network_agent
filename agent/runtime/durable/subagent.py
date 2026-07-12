@@ -8,7 +8,7 @@ import uuid, time as _time
 from agent.runtime.utils import now_iso
 
 # ── Re-export for convenience ──
-# All 7 profiles are the single source of truth for subagent types.
+# Network-domain profiles are the single source of truth for subagent types.
 # The frontend and tool layer reference these IDs directly.
 
 def _now(): return now_iso()
@@ -35,51 +35,6 @@ class SubagentProfile:
     merge_strategy: str = "append"  # append | replace | report
 
 BUILTIN_PROFILES: dict[str, SubagentProfile] = {
-    "review_agent": SubagentProfile(
-        profile_id="review_agent", name="Review Agent",
-        role="Code/config reviewer — read-only, no modifications",
-        allowed_action_classes=["read"],
-        allowed_tools=["workspace.file", "workspace.artifact", "code.search",
-                       "knowledge.manage", "git.manage",
-                       "web.manage"],
-        max_steps=5, max_runtime_seconds=120,
-        memory_write_policy="pending_only",
-        output_contract="Review findings with severity: info/warning/critical",
-    ),
-    "fix_agent": SubagentProfile(
-        profile_id="fix_agent", name="Fix Agent",
-        role="Applies fixes to code/config — write access, approval required",
-        allowed_action_classes=["read", "write"],
-        allowed_tools=["workspace.file", "workspace.artifact",
-                       "code.search",
-                       "git.manage", "exec.run"],
-        max_steps=8, max_runtime_seconds=180,
-        can_modify_files=True, can_execute_commands=True,
-        memory_write_policy="pending_only",
-        output_contract="List of changes made with before/after snippets",
-    ),
-    "test_agent": SubagentProfile(
-        profile_id="test_agent", name="Test Agent",
-        role="Runs tests and validations — limited execution",
-        allowed_action_classes=["read", "execute"],
-        allowed_tools=["exec.run", "workspace.file",
-                       "code.search", "system.manage"],
-        max_steps=5, max_runtime_seconds=120,
-        can_execute_commands=True,
-        memory_write_policy="none",
-        output_contract="Test results: passed/failed counts, error details",
-    ),
-    "doc_agent": SubagentProfile(
-        profile_id="doc_agent", name="Documentation Agent",
-        role="Updates documentation files",
-        allowed_action_classes=["read", "write"],
-        allowed_tools=["workspace.file", "workspace.artifact",
-                       "code.search", "report.manage"],
-        max_steps=5, max_runtime_seconds=120,
-        can_modify_files=True,
-        memory_write_policy="pending_only",
-        output_contract="Updated doc files with change summary",
-    ),
     "network_diag_agent": SubagentProfile(
         profile_id="network_diag_agent", name="Network Diagnostic Agent",
         role="Diagnoses network issues — read-only network access",
@@ -104,15 +59,15 @@ BUILTIN_PROFILES: dict[str, SubagentProfile] = {
         output_contract="Translated config with mapping table and warnings",
     ),
     "security_agent": SubagentProfile(
-        profile_id="security_agent", name="Security Audit Agent",
-        role="Reviews permissions, risks, and access patterns — read-only",
-        allowed_action_classes=["read"],
-        allowed_tools=["workspace.file", "workspace.artifact",
-                       "code.search", "knowledge.manage",
-                       "system.manage", "memory.manage"],
-        max_steps=5, max_runtime_seconds=120,
+        profile_id="security_agent", name="Network Security Audit Agent",
+        role="Audits network configurations, traffic evidence, device exposure, and operational risks",
+        allowed_action_classes=["read", "network"],
+        allowed_tools=["device.manage", "config.manage", "pcap.manage",
+                       "knowledge.manage", "web.manage", "workspace.artifact"],
+        max_steps=8, max_runtime_seconds=180,
+        can_call_network=True,
         memory_write_policy="pending_only",
-        output_contract="Security findings with risk levels and recommendations",
+        output_contract="Network security findings with evidence, severity, affected assets, and remediation",
     ),
 }
 

@@ -8,7 +8,6 @@ from core.tools.general_tools.pdf_tools import handle_pdf_extract_text
 from core.tools.general_tools.file_tools import handle_file_list, handle_file_exists, handle_file_read, handle_file_edit, handle_file_patch, handle_ws_list_files, handle_ws_read_text_preview, handle_ws_write_artifact_file, handle_ws_path_exists, handle_ws_get_metadata
 from core.tools.general_tools.command_tools import handle_command_approved_exec, handle_powershell_approved_script, handle_slash_run, handle_python_exec
 from core.tools.general_tools.agent_tools import (
-    spawn_review_agent, spawn_fix_agent, spawn_test_agent, spawn_doc_agent,
     spawn_network_diag_agent, spawn_config_translate_agent, spawn_security_agent,
     handle_agent_list, handle_agent_get_result, handle_agent_cancel, handle_agent_status,
 )
@@ -75,10 +74,6 @@ __all__ = [
     'handle_powershell_approved_script',
     'handle_slash_run',
     'handle_python_exec',
-    'spawn_review_agent',
-    'spawn_fix_agent',
-    'spawn_test_agent',
-    'spawn_doc_agent',
     'spawn_network_diag_agent',
     'spawn_config_translate_agent',
     'spawn_security_agent',

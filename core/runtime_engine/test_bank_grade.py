@@ -48,8 +48,8 @@ def config():
 # ============================================================================
 
 class TestContracts:
-    def test_all_22_tools_have_contracts(self):
-        assert len(BUILTIN_CONTRACTS) == 29
+    def test_all_network_tools_have_contracts(self):
+        assert len(BUILTIN_CONTRACTS) == 23
 
     def test_exec_run_is_high_risk(self):
         c = get_contract("exec.run")
@@ -61,7 +61,7 @@ class TestContracts:
         assert not c.idempotent
 
     def test_read_tools_are_low_risk(self):
-        for tool in ["knowledge.manage", "code.search", "system.manage"]:
+        for tool in ["knowledge.manage", "pcap.manage", "system.manage"]:
             c = get_contract(tool)
             assert c is not None
             assert c.side_effect == "read", f"{tool}: expected read, got {c.side_effect}"

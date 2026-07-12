@@ -147,7 +147,7 @@ class PermissionMatrix:
             "workspace.metadata.get", "workspace.document.pdf.extract_text",
             "knowledge.manage", "memory.manage", "skill.manage",
             "system.manage", "text.analyze", "data.manage",
-            "report.manage", "code.search", "pcap.manage", "config.manage",
+            "report.manage", "pcap.manage", "config.manage",
         )
         if tool_id in read_tools:
             return PermissionAction.READ

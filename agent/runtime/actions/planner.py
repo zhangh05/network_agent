@@ -23,7 +23,7 @@ _CLASS_PATTERNS = [
 def _classify_action(tool_id: str, arguments: dict | None = None) -> str:
     """Classify action based on tool_id + (for merged tools) arguments.action.
 
-    Merged tools like ``git.manage`` / ``agent.manage`` use a single
+    Merged tools like ``device.manage`` / ``agent.manage`` use a single
     canonical id and dispatch by ``arguments.action``. To classify them
     correctly we build a pseudo tool_id that concatenates the action
     name so the regex patterns above can match. For non-merged tools

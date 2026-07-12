@@ -57,9 +57,9 @@ def test_legacy_tool_ids_absent_from_tooL_namespace():
     )
 
 
-def test_canonical_namespace_has_current_29_tools():
-    """Current design: 29 canonical tools, including seven named spawn tools."""
-    assert len(TOOL_NAMESPACE) == 29, (
+def test_canonical_namespace_has_current_network_tools():
+    """Current design: 23 network-agent tools, including three named spawn tools."""
+    assert len(TOOL_NAMESPACE) == 23, (
         f"canonical tool count drifted from current SSOT set: {len(TOOL_NAMESPACE)}"
     )
     # No legacy names may sneak in.

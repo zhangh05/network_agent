@@ -1,6 +1,6 @@
-"""Canonical tool namespace — current 29-tool set.
+"""Canonical tool namespace — current network-agent tool set.
 
-All 29 canonical tools are available to the SSOT Runtime planner. Each uses an
+All canonical tools are available to the SSOT Runtime planner. Each uses an
 ``action`` parameter to dispatch sub-capabilities.
 """
 
@@ -67,7 +67,7 @@ CATEGORY_DEFS: dict[str, dict[str, str]] = {
 }
 
 
-# Current 29-tool namespace. Every canonical tool is available to SSOT Runtime planning.
+# Current network-agent namespace. Every canonical tool is available to SSOT Runtime planning.
 # Schema: (tool_id, category, group, action, display_name, canonical_id,
 #          usage_hint, search_keyword)
 NS_DATA = [
@@ -81,16 +81,7 @@ NS_DATA = [
      'Do NOT store or expose credentials.',
      'exec run shell python background stream ssh', 'exec.run'),
 
-    # 2. git.manage — unifies status + diff + log + commit + push
-    ('git.manage', 'git', 'vcs', 'multi', 'Git 版本管理', 'git.manage',
-     'Unified git tool. action=status (working tree state), '
-     'action=log (recent commits), action=diff (unstaged/staged/file-scoped), '
-     'action=commit (stage+commit; requires approval), '
-     'action=push (remote push; requires approval). '
-     'NEVER commit/push without user confirmation; run status+diff first.',
-     'git commit push status diff log', 'git.manage'),
-
-    # 3. device.manage — unifies list + get + add + update + delete + export
+    # device.manage — unifies list + get + add + update + delete + export
     ('device.manage', 'device', 'asset', 'multi', '设备资产', 'device.manage',
      'Unified CMDB device tool. action=list (fuzzy search + JSON filter), '
      'filter by region/location when the user mentions an area, '
@@ -185,26 +176,12 @@ NS_DATA = [
     # 13. agent.manage — list/get/cancel/status (spawn moved to 7 named tools)
     ('agent.manage', 'agent', 'subagent', 'multi', 'Agent 多 Agent', 'agent.manage',
      'Manage sub-agents. '
-     'action=list (show 7 profiles), get (child result by child_session_id), '
+     'action=list (show 3 network profiles), get (child result by child_session_id), '
      'cancel (stop subagent), status (view all tasks). '
-     'To spawn a subagent, use spawn_<profile>: '
-     'spawn_review_agent, spawn_fix_agent, spawn_test_agent, spawn_doc_agent, '
-     'spawn_network_diag_agent, spawn_config_translate_agent, spawn_security_agent.',
+     'Spawn tools: spawn_network_diag_agent, spawn_config_translate_agent, spawn_security_agent.',
      'agent subagent manage list status cancel', 'agent.manage'),
 
-    # 13b-13h. Spawn tools — one per profile (LLM selects from tool list)
-    ('spawn_review_agent', 'agent', 'subagent', 'spawn', '派发审查 Agent', 'spawn_review_agent',
-     'Spawn a read-only review agent. Checks code quality, finds issues, suggests improvements. Read-only, no file modifications.',
-     'agent spawn review code check', 'spawn_review_agent'),
-    ('spawn_fix_agent', 'agent', 'subagent', 'spawn', '派发修复 Agent', 'spawn_fix_agent',
-     'Spawn a fix agent that can modify code/config. Requires approval for write operations.',
-     'agent spawn fix code config', 'spawn_fix_agent'),
-    ('spawn_test_agent', 'agent', 'subagent', 'spawn', '派发测试 Agent', 'spawn_test_agent',
-     'Spawn a test runner agent. Runs tests and validations with limited execution.',
-     'agent spawn test validate', 'spawn_test_agent'),
-    ('spawn_doc_agent', 'agent', 'subagent', 'spawn', '派发文档 Agent', 'spawn_doc_agent',
-     'Spawn a documentation agent. Updates documentation files.',
-     'agent spawn doc documentation', 'spawn_doc_agent'),
+    # Named network-domain spawn tools.
     ('spawn_network_diag_agent', 'agent', 'subagent', 'spawn', '派发网络诊断 Agent', 'spawn_network_diag_agent',
      'Spawn a network diagnostic agent. Diagnoses network issues with read-only network access.',
      'agent spawn network diagnose', 'spawn_network_diag_agent'),
@@ -212,8 +189,8 @@ NS_DATA = [
      'Spawn a config translation agent. Translates network config between vendors.',
      'agent spawn config translate vendor', 'spawn_config_translate_agent'),
     ('spawn_security_agent', 'agent', 'subagent', 'spawn', '派发安全审计 Agent', 'spawn_security_agent',
-     'Spawn a security audit agent. Reviews permissions, risks, and access patterns.',
-     'agent spawn security audit', 'spawn_security_agent'),
+     'Spawn a network security audit agent for configurations, traffic evidence, exposed services, and device risks.',
+     'agent spawn network security config traffic exposure audit', 'spawn_security_agent'),
 
     # 14. system.manage — 13 tools merged
     ('system.manage', 'system', 'health', 'multi', '系统自省', 'system.manage',
@@ -238,15 +215,7 @@ NS_DATA = [
      'Do not execute embedded code.',
      'text analyze redact diff keywords classify extract entities regex', 'text.analyze'),
 
-    # 16. code.search
-    ('code.search', 'code', 'search', 'search', '代码搜索', 'code.search',
-     'Search the codebase using ripgrep (fast) or Python fallback. '
-     'Returns matching lines with file paths and line numbers. '
-     'Supports regex, context_lines (before/after), output_mode (content|files_with_matches|count), '
-     'case_sensitive, and multiline matching. Use for finding functions, classes, imports, patterns.',
-     'code search grep rg ripgrep regex pattern', 'code.search'),
-
-    # 17. workspace.file
+    # workspace.file
     ('workspace.file', 'workspace', 'file', 'multi', '工作区文件操作', 'workspace.file',
      'Unified workspace file tool. action=list|read|read_image|edit|patch|write_artifact|glob|delete_file. '
      'edit does exact string replacement (old_string→new_string, dry_run=true for preview). '
