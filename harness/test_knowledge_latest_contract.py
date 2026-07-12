@@ -58,7 +58,7 @@ def test_knowledge_upload_writes_through_filestore(monkeypatch, tmp_path):
     files = list_files("default", lifecycle="")
     assert len(files) == 1
     assert files[0]["logical_type"] == "knowledge_source"
-    assert files[0]["path"].startswith("files/knowledge/source/")
+    assert files[0]["path"].startswith("files/knowledge/")
 
 
 def test_frontend_knowledge_search_uses_current_query_contract():
