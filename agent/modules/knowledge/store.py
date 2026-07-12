@@ -305,17 +305,30 @@ def delete_source(workspace_id: str, source_id: str) -> bool:
 
 
 def rename_source(workspace_id: str, source_id: str, title: str) -> Optional[dict]:
-    """Rename a source."""
+    """Rename a source. Updates both source record and all associated chunks."""
     store = get_context_store(workspace_id)
     item = store.get(source_id)
     if not item:
         return None
 
-    item["title"] = title.strip()[:200]
+    new_title = title.strip()[:200]
+    item["title"] = new_title
     meta = item.get("metadata", {})
     meta["updated_at"] = _now_iso()
     item["metadata"] = meta
     store.put(item)
+
+    # Update title in all associated chunks (search results read from chunks)
+    chunks = store.list_items(
+        item_type="knowledge_chunk",
+        source_id=source_id,
+        include_deleted=False,
+        limit=999_999,
+    )
+    if chunks:
+        for chunk in chunks:
+            chunk["title"] = new_title
+        store.put_many(chunks)
 
     return _public_view(item)
 
