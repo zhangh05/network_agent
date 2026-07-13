@@ -39,31 +39,8 @@ def _check_code(pattern, label):
                 if pattern in c:
                     high.append(f"{label}: found in {fp}")
 
-def _check_absent_file(fpath, label):
-    if os.path.exists(os.path.join(ROOT, fpath)):
-        critical.append(f"{label}: {fpath} should NOT exist")
-    else:
-        warnings.append(f"OK: {fpath} absent")
-
 def run():
-    # Check no /api/translate
-    _check_code("/api/translate", "old-api")
-
-    # Check no backend/services/config_translation
-    svc_path = os.path.join(ROOT, "backend", "services", "config_translation.py")
-    if os.path.exists(svc_path):
-        critical.append("backend/services/config_translation.py exists")
-    else:
-        warnings.append(f"OK: config_translation.py absent")
-
-    # Check no old GraphAgent
-    graphagent = os.path.join(ROOT, "agent", "graph_agent.py")
-    if os.path.exists(graphagent):
-        critical.append("agent/graph_agent.py (old GraphAgent) exists")
-    else:
-        warnings.append(f"OK: old GraphAgent absent")
-
-    # Check no external network-translator dependency
+    # Production code must not mutate process cwd or inject import paths.
     _check_code("os.chdir", "os.chdir")
     _check_code("sys.path.append", "sys.path-hack")
 

@@ -1,6 +1,8 @@
 # prompts/renderer.py
-"""Prompt renderer — loads templates and renders with safe context."""
+"""Strict renderer for the small template language used by prompt files."""
 
+import json
+import re
 from pathlib import Path
 from dataclasses import dataclass, field
 
@@ -21,17 +23,19 @@ class RenderedPrompt:
 
 def render_prompt(task: str, safe_context: dict = None, user_input: str = "",
                   citations: list = None, extra: dict = None) -> RenderedPrompt:
-    """Render a prompt by loading template and substituting safe variables."""
+    """Render a registered prompt with bounded, explicitly referenced context."""
     from prompts.loader import get_prompt_by_task
 
     spec = get_prompt_by_task(task)
-    ctx = safe_context or {}
-    extra = extra or {}
+    citations = list(citations or [])
+    merged_context = dict(safe_context or {})
+    merged_context.update(dict(extra or {}))
+    ctx, policy_warnings = _apply_context_policy(
+        merged_context, citations, spec
+    )
     vars_ctx = dict(ctx)
-    vars_ctx.update(extra)
     vars_ctx["user_input"] = user_input
     vars_ctx["citations"] = citations
-    citations = citations or []
 
     # Load template file
     template_text = ""
@@ -40,37 +44,42 @@ def render_prompt(task: str, safe_context: dict = None, user_input: str = "",
         ROOT = Path(__file__).resolve().parent.parent
         tpath = ROOT / tp if not tp.is_absolute() else tp
         if tpath.is_file():
-            template_text = tpath.read_text()
+            template_text = tpath.read_text(encoding="utf-8")
 
     if not template_text:
-        template_text = _minimal_prompt(task)
+        raise FileNotFoundError(
+            f"prompt template not found for {spec.prompt_id}: {spec.template_path}"
+        )
 
-    # Substitutions
-    safe_ctx_str = _safe_json(ctx)
-    cite_str = _safe_json(list(citations))
-
-    text = template_text
-    text = _replace_conditionals(text, vars_ctx)
-    text = _replace_filters(text, vars_ctx)
-    text = text.replace("{{ intent }}", str(ctx.get("intent", "")))
-    text = text.replace("{{ user_input }}", str(user_input))
-    text = text.replace("{{ last_result_summary }}", str(ctx.get("last_result_summary", "")))
-    text = text.replace("{{ job_summary }}", str(ctx.get("job_summary", "")))
-    text = text.replace("{{ task }}", task)
-
-    # Replace loops in templates
-    text = _replace_template_loops(text, ctx, citations)
+    vars_ctx["task"] = task
+    text = _render_template(template_text, vars_ctx)
+    unresolved = sorted(set(re.findall(r"(?:\{\{|\{%)[^\n]{0,120}", text)))
+    if unresolved:
+        raise ValueError(
+            f"unresolved template expressions in {spec.prompt_id}: {unresolved[:3]}"
+        )
 
     return RenderedPrompt(
         prompt_id=spec.prompt_id, task=task, version=spec.version,
-        text=text, context_chars=len(str(ctx)),
+        text=text, context_chars=len(_safe_json(ctx)),
         citation_ids=[c.get("citation_id", "") for c in citations],
+        warnings=policy_warnings,
+        metadata={
+            "context_policy_applied": True,
+            "max_context_chars": int(spec.input_policy.get("max_context_chars", 8000)),
+        },
     )
 
 
+def _render_template(text: str, values: dict) -> str:
+    """Render conditionals, loops, variables and approved filters."""
+    text = _replace_conditionals(text, values)
+    text = _replace_loops(text, values)
+    return _replace_variables(text, values)
+
+
 def _replace_conditionals(text: str, values: dict) -> str:
-    """Resolve the small subset of template conditionals used in prompt files."""
-    import re
+    """Resolve simple truthy ``if`` blocks without evaluating expressions."""
 
     pattern = re.compile(r'\{%\s*if\s+([a-zA-Z_][\w.]*)\s*%\}([\s\S]*?)\{%\s*endif\s*%\}')
     previous = None
@@ -79,25 +88,61 @@ def _replace_conditionals(text: str, values: dict) -> str:
 
         def repl(match):
             val = _resolve_path(values, match.group(1))
-            return match.group(2) if val else ""
+            branches = re.split(r'\{%\s*else\s*%\}', match.group(2), maxsplit=1)
+            if val:
+                return branches[0]
+            return branches[1] if len(branches) == 2 else ""
 
         text = pattern.sub(repl, text)
     return text
 
 
-def _replace_filters(text: str, values: dict) -> str:
-    """Resolve supported `{{ var | filter }}` expressions."""
-    import re
+def _replace_loops(text: str, values: dict) -> str:
+    """Resolve loops over bounded lists from the trusted render context."""
+    pattern = re.compile(
+        r'\{%\s*for\s+([a-zA-Z_]\w*)\s+in\s+([a-zA-Z_][\w.]*)\s*%\}'
+        r'([\s\S]*?)\{%\s*endfor\s*%\}'
+    )
+    previous = None
+    while previous != text:
+        previous = text
+
+        def repl(match):
+            item_name, path, body = match.groups()
+            items = _resolve_path(values, path)
+            if not isinstance(items, (list, tuple)):
+                return ""
+            rendered = []
+            for item in items:
+                item_values = dict(values)
+                item_values[item_name] = item
+                rendered.append(_replace_variables(body, item_values))
+            return "".join(rendered)
+
+        text = pattern.sub(repl, text)
+    return text
+
+
+def _replace_variables(text: str, values: dict) -> str:
+    """Resolve scalar variables with a deliberately small filter allow-list."""
+    pattern = re.compile(
+        r'\{\{\s*([a-zA-Z_][\w.]*)'
+        r'(?:\s*\|\s*([a-zA-Z_]\w*))?\s*\}\}'
+    )
 
     def repl(match):
-        var_name = match.group(1).strip()
-        filter_name = match.group(2).strip()
+        var_name = match.group(1)
+        filter_name = match.group(2) or ""
         val = _resolve_path(values, var_name)
         if filter_name == "summary_only":
             return _summary_only(val)
-        return ""
+        if filter_name == "upper":
+            return _stringify(val).upper()
+        if filter_name:
+            raise ValueError(f"unsupported prompt filter: {filter_name}")
+        return _stringify(val)
 
-    return re.sub(r'\{\{\s*([a-zA-Z_][\w.]*)\s*\|\s*([a-zA-Z_][\w]*)\s*\}\}', repl, text)
+    return pattern.sub(repl, text)
 
 
 def _resolve_path(values: dict, path: str):
@@ -127,54 +172,90 @@ def _summary_only(value) -> str:
     return str(value)[:500]
 
 
-def _replace_template_loops(text: str, ctx: dict, citations: list) -> str:
-    """Replace simple {% for ... %} ... {% endfor %} blocks."""
-    import re
-    # Artifact refs
-    art_block = ""
-    for a in ctx.get("artifact_refs", []):
-        art_block += f"- Artifact {a.get('artifact_id','?')} ({a.get('artifact_type','?')}): {a.get('summary','')}\n"
-    text = re.sub(r'\{%\s*for\s+art\s+in\s+artifact_refs\s*%\}[\s\S]*?\{%\s*endfor\s*%\}', art_block, text)
+def _apply_context_policy(ctx: dict, citations: list, spec) -> tuple[dict, list[str]]:
+    """Apply registry list limits and context character budget before rendering."""
+    warnings: list[str] = []
+    list_limits = {
+        "artifact_refs": int(spec.context_policy.get("max_artifact_refs", 10)),
+        "memory_hits": int(spec.context_policy.get("max_memory_hits", 5)),
+        "knowledge_hits": int(spec.context_policy.get("max_knowledge_hits", 8)),
+    }
+    bounded = dict(ctx)
+    for key, limit in list_limits.items():
+        value = bounded.get(key)
+        if isinstance(value, list) and len(value) > max(0, limit):
+            bounded[key] = value[:max(0, limit)]
+            warnings.append(f"{key}_truncated:{len(value)}->{max(0, limit)}")
 
-    # Memory hits
-    # v3.0.0+: include the full `content` field, not just the title+summary.
-    # Many memory records store the actual answer in `content` (e.g. an IP
-    # address, a specific port number, a hostname) while title/summary only
-    # describe the topic. The previous 100-char summary cap caused the LLM
-    # to see "本机 IP 地址" but never the actual IP, which made the
-    # RAG-augmented answer indistinguishable from a no-context answer.
-    mem_block = ""
-    for m in ctx.get("memory_hits", []):
-        title = (m.get("title") or "").strip()
-        summary = (m.get("summary") or "").strip()
-        content = (m.get("content") or "").strip()
-        # Prefer content if it has substance; fall back to summary.
-        body = content if len(content) > len(summary) else summary
-        # Strip title prefix from body to avoid duplicating it.
-        if title and body.startswith(title):
-            body = body[len(title):].lstrip(" :：\n")
-        line = f"- Memory: {title}"
-        if body:
-            line += f" — {body[:400]}"
-        mem_block += line + "\n"
-    text = re.sub(r'\{%\s*for\s+mem\s+in\s+memory_hits\s*%\}[\s\S]*?\{%\s*endfor\s*%\}', mem_block, text)
+    max_citations = int(spec.context_policy.get("max_citations", 20))
+    if len(citations) > max_citations:
+        original_count = len(citations)
+        del citations[max_citations:]
+        warnings.append(f"citations_truncated:{original_count}->{max_citations}")
 
-    # Citations
-    cite_block = ""
-    for c in citations:
-        cite_block += f"- Citation [{c.get('citation_id','?')}]: {c.get('source_type','?')} {c.get('source_id','?')}\n"
-    text = re.sub(r'\{%\s*for\s+cite\s+in\s+citations\s*%\}[\s\S]*?\{%\s*endfor\s*%\}', cite_block, text)
+    max_chars = max(500, int(spec.input_policy.get("max_context_chars", 8000)))
+    bounded = _fit_context_budget(bounded, max_chars)
+    if len(_safe_json(ctx)) > max_chars:
+        warnings.append(f"context_truncated_to:{max_chars}")
+    return bounded, warnings
 
-    return text
+
+def _fit_context_budget(value: dict, max_chars: int) -> dict:
+    """Deterministically shrink string leaves while preserving context shape."""
+    if len(_safe_json(value)) <= max_chars:
+        return value
+    cap = 1000
+    bounded = value
+    while cap >= 80:
+        bounded = _bound_strings(value, cap)
+        if len(_safe_json(bounded)) <= max_chars:
+            return bounded
+        cap //= 2
+    bounded = _bound_strings(value, 80)
+    while len(_safe_json(bounded)) > max_chars and _drop_last_list_item(bounded):
+        pass
+    return bounded
+
+
+def _bound_strings(value, cap: int):
+    if isinstance(value, dict):
+        return {str(k): _bound_strings(v, cap) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_bound_strings(v, cap) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_bound_strings(v, cap) for v in value)
+    if isinstance(value, str):
+        return value if len(value) <= cap else value[:cap] + "..."
+    return value
+
+
+def _drop_last_list_item(value) -> bool:
+    """Drop one item from the deepest non-empty list to honor a hard budget."""
+    if isinstance(value, dict):
+        for child in reversed(list(value.values())):
+            if _drop_last_list_item(child):
+                return True
+        return False
+    if isinstance(value, list):
+        for child in reversed(value):
+            if _drop_last_list_item(child):
+                return True
+        if value:
+            value.pop()
+            return True
+    return False
+
+
+def _stringify(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list, tuple)):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    return str(value).replace("\x00", "")
 
 
 def _safe_json(obj) -> str:
-    import json
     try:
-        return json.dumps(obj, default=str)[:5000]
+        return json.dumps(obj, ensure_ascii=False, default=str)
     except Exception:
-        return str(obj)[:5000]
-
-
-def _minimal_prompt(task: str) -> str:
-    return f"Task: {task}\nUser: {{user_input}}\nProvide a concise, factual response based only on the context above."
+        return str(obj)

@@ -16,7 +16,6 @@ business-readable index of capabilities and their recommended tools.
 from .catalog import (
     list_all,
     list_enabled,
-    list_planned,
     get,
     to_skill_dict,
     all_recommended_tool_ids,
@@ -25,7 +24,6 @@ from .catalog import (
 __all__ = [
     "list_all",
     "list_enabled",
-    "list_planned",
     "get",
     "to_skill_dict",
     "all_recommended_tool_ids",

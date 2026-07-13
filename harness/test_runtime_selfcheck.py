@@ -43,11 +43,11 @@ class TestSelfcheck:
         output = str(result.as_dict())
         assert "/Users/" not in output
 
-    def test_selfcheck_config_translation_only_enabled(self):
+    def test_selfcheck_reports_enabled_capabilities(self):
         result = run_selfcheck("default")
-        enabled = result.checks.get("enabled_modules", [])
+        enabled = result.checks.get("enabled_capabilities", [])
         if enabled:
-            assert sorted(enabled) == sorted(["config_translation", "knowledge_base"]) or len(enabled) >= 1
+            assert "config_translation" in enabled
 
     def test_selfcheck_forbidden_api_passes(self):
         result = run_selfcheck("default")

@@ -129,6 +129,7 @@ prompts:
       require_safe_llm_context: true
       require_citations_for_references: true
       max_artifact_refs: 5
+      max_knowledge_hits: 8
 
   - prompt_id: post_translate.review.v1
     task: post_translate_review

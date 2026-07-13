@@ -4,7 +4,7 @@
 Replaces scattered bare-string returns with rich Candidate objects.
 Each factory function produces a TranslationCandidate with correct
 provenance/confidence/module/origin fields, eliminating the need for
-quick_assess guesswork.
+unmatched-line guesswork.
 
 Design principles:
   - ONLY deterministic, low-risk commands are eligible for exact_candidate.
@@ -12,7 +12,7 @@ Design principles:
     permit) MUST never be matched by the factory as exact_candidate.
   - All factory match functions must produce provenance=EXACT_RULE and
     confidence=HIGH when they are certain the translation is correct.
-  - quick_assess() is the RETIRED fallback, NOT the primary path.
+  - unmatched lines are assessed conservatively, never treated as exact rules.
   - If unsure, return None — let the caller fall back to manual_review.
 
 Usage:
@@ -628,7 +628,7 @@ def candidate_zone(stripped: str, lower: str, from_vendor: str, to_vendor: str) 
         return exact_candidate(stripped, stripped, from_vendor, to_vendor, module="firewall.zone", confidence=Confidence.EXACT)
     # USG security-zone → hillstone/topsec: not exact
     if "security-zone" in lower and to_vendor in ("hillstone", "topsec"):
-        return None  # routed to retired/semantic_near
+        return None  # routed to conservative unmatched-line handling
     return None
 
 
@@ -679,7 +679,7 @@ def candidate_acl_header(stripped: str, lower: str, from_vendor: str, to_vendor:
 
 
 def candidate_acl_binding(stripped: str, lower: str, from_vendor: str, to_vendor: str) -> Optional[TranslationCandidate]:
-    """ACL binding on interface. Same-vendor: passthrough. Cross-vendor: let retired translate."""
+    """ACL binding on interface. Same-vendor passes through; cross-vendor requires review."""
     # Same-vendor: exact passthrough
     if from_vendor == to_vendor:
         if re.match(r"^(ip\s+)?access-group\s+\S+", lower, re.IGNORECASE):

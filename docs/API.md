@@ -35,7 +35,6 @@ All workspace-scoped endpoints require an explicit valid `workspace_id`. Missing
 | `GET` | `/api/tools/history?workspace_id=<ws>` | Tool invocation history |
 | `POST` | `/api/tools/dry-run?workspace_id=<ws>` | Tool dry-run metadata |
 | `GET` | `/api/capabilities` | Business capability catalog |
-| `GET` | `/api/modules` | Module display metadata |
 
 ## Approval
 

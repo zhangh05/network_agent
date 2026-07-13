@@ -1,7 +1,7 @@
 """
 Core data models for SSOT Runtime Engine.
 
-These define the Execution DAG IR and all runtime types.
+These define the QueryLoop call, result, budget, and audit types.
 No business logic — pure dataclasses and enums.
 """
 
@@ -22,25 +22,6 @@ class ExecutionStatus(enum.Enum):
     RETRYING = "retrying"
 
 
-class DAGStatus(enum.Enum):
-    """Validation status of the entire DAG."""
-    VALID = "valid"
-    INVALID_TOOL = "invalid_tool"
-    INVALID_ARGS = "invalid_args"
-    INVALID_DEPS = "invalid_deps"
-    CYCLIC = "cyclic"
-    UNSAFE_PATH = "unsafe_path"
-
-
-@dataclass
-class PlanNode:
-    """A single node from the Planner LLM output."""
-    id: str
-    tool: str
-    args: dict[str, Any] = field(default_factory=dict)
-    deps: list[str] = field(default_factory=list)
-
-
 class NodePriority(enum.Enum):
     HIGH = "high"
     NORMAL = "normal"
@@ -56,12 +37,10 @@ class RiskLevel(enum.Enum):
 
 @dataclass
 class ExecutionNode:
-    """A compiled, validated DAG node ready for execution."""
+    """A normalized QueryLoop tool call ready for policy and execution."""
     id: str
     tool: str
     args: dict[str, Any] = field(default_factory=dict)
-    deps: list[str] = field(default_factory=list)
-    depth: int = 0
     status: ExecutionStatus = ExecutionStatus.PENDING
     result: Any | None = None
     error: str | None = None
@@ -74,11 +53,7 @@ class ExecutionNode:
     node_run_id: str = ""
     approval_required: bool = False
     approval_granted: bool = False
-    # v3.10: action-alias normalization bookkeeping. The GraphCompiler
-    # rewrites any alias (e.g. ``session_get``) into the canonical
-    # ``action`` token, then records the original token + a flag on
-    # the node so audit / risk / trace can surface what really
-    # happened.
+    # Action-alias normalization bookkeeping for audit and diagnostics.
     action_original: str = ""
     action_normalized_from_alias: bool = False
 
@@ -93,25 +68,6 @@ class ExecutionNode:
             ExecutionStatus.FAILED,
             ExecutionStatus.SKIPPED,
         )
-
-
-@dataclass
-class ExecutionDAG:
-    """The compiled and validated execution DAG."""
-    nodes: list[ExecutionNode]
-    layers: dict[int, list[ExecutionNode]] = field(default_factory=dict)
-    total_nodes: int = 0
-    max_depth: int = 0
-    status: DAGStatus = DAGStatus.VALID
-    validation_errors: list[str] = field(default_factory=list)
-
-    @property
-    def is_valid(self) -> bool:
-        return self.status == DAGStatus.VALID and not self.validation_errors
-
-    def get_layer(self, depth: int) -> list[ExecutionNode]:
-        return self.layers.get(depth, [])
-
 
 @dataclass
 class StatelessContext:
@@ -147,7 +103,7 @@ class ToolResult:
     metadata: dict[str, Any] = field(default_factory=dict)
     # v4.1 (diagnostic preservation): raw error code from the tool
     # handler and the normalized code after the resolver. These
-    # are always present so audit/retry/finalizer never lose error
+    # are always present so audit/retry/response projection never lose error
     # provenance.
     error_code_raw: str = ""
     error_code_norm: str = ""
@@ -160,10 +116,7 @@ class SSOTRuntimeConfig:
     parallel_layer_timeout_ms: int = 300_000
     single_node_timeout_ms: int = 120_000
     planner_timeout_ms: int = 20_000
-    finalizer_timeout_ms: int = 15_000
-    enable_finalizer: bool = True
-    use_query_loop: bool = True  # v5.0: iterative LLM+tool loop with all 5 optimisations
-    max_query_loop_iterations: int = 20  # v5.0: max QueryLoop iterations
+    max_query_loop_iterations: int = 20
     max_nodes: int = 30
     max_depth: int = 8
     max_global_concurrency: int = 8
@@ -195,7 +148,7 @@ class SSOTRuntimeResult:
     planner_latency_ms: float = 0.0
     execution_latency_ms: float = 0.0
     merge_latency_ms: float = 0.0
-    finalizer_latency_ms: float = 0.0
+    response_latency_ms: float = 0.0
     max_layer_latency_ms: float = 0.0
     node_results: dict[str, ToolResult] = field(default_factory=dict)
     final_response: str = ""
@@ -221,29 +174,10 @@ class ExecutionBudget:
     max_total_seconds: int = 60
     max_planner_seconds: int = 20
     max_tool_seconds: int = 30
-    max_finalizer_seconds: int = 15
     max_nodes: int = 30
     max_depth: int = 8
     max_parallel_width: int = 8
     max_llm_calls: int = 50
-
-
-@dataclass
-class RollbackAction:
-    """A rollback step for a mutation node."""
-    node_id: str
-    rollback_tool: str
-    args: dict[str, Any] = field(default_factory=dict)
-    reason: str = ""
-
-
-@dataclass
-class RollbackPlan:
-    """Rollback assessment for the entire DAG run."""
-    rollback_available: bool = False
-    rollback_recommended: bool = False
-    actions: list[RollbackAction] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -255,8 +189,7 @@ class AuditRecord:
     user_request_hash: str = ""
     planner_model: str = ""
     llm_call_count: int = 0
-    dag_nodes: int = 0
-    dag_depth: int = 0
+    tool_call_count: int = 0
     risk_level: str = "low"
     approval_required: bool = False
     executed_nodes: list[dict[str, Any]] = field(default_factory=list)
@@ -283,25 +216,17 @@ class MetricSnapshot:
     """Structured metrics for every run."""
     total_duration_ms: float = 0.0
     planner_duration_ms: float = 0.0
-    compile_duration_ms: float = 0.0
     validation_duration_ms: float = 0.0
     execution_duration_ms: float = 0.0
-    finalizer_duration_ms: float = 0.0
+    response_duration_ms: float = 0.0
     llm_calls: int = 0
     tool_calls: int = 0
     tool_success: int = 0
     tool_failed: int = 0
     cache_hit_ratio: float = 0.0
-    dag_depth: int = 0
     max_parallel_width: int = 0
     risk_level: str = "low"
     context_compacted: bool = False
     context_estimated_chars: int = 0
     context_saved_chars: int = 0
     compact_detail: dict = field(default_factory=dict)
-
-
-# ============================================================================
-# v4.0: GraphStore replaces ad-hoc runtime state.
-# Runtime state is stored as immutable GraphStore events.
-# ============================================================================

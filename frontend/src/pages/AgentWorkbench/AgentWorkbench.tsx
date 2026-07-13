@@ -638,8 +638,8 @@ export function TaskWorkbench() {
         execution_completed: "工具执行完成",
         repair_attempt:      "重试节点",
         merge_completed:     "汇总执行结果",
-        finalizing_started:  "整理最终回复…",
-        finalizing_completed:"回复已就绪",
+        response_started:    "整理回复…",
+        response_completed:  "回复已就绪",
         turn_completed:      "轮次完成",
         heartbeat:           "仍在处理…",
       };
@@ -1066,7 +1066,7 @@ export function TaskWorkbench() {
             <div className="chat-bubble assistant sending-line">
               {/* P0 fix: live progress label — replaces the static
                   "思考中…" so the user sees which SSOT Runtime stage is running
-                  (planner / risk / exec / finalizing). Empty when not
+                  (planner / risk / exec / response). Empty when not
                   streaming or before the first event arrives. */}
               {m.progressText && (
                 <div className="ssot-runtime-progress-row" data-testid="ssot-runtime-progress">

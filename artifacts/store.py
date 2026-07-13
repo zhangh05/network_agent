@@ -6,8 +6,8 @@ sha256 = content fingerprint (for dedup reference, not for identity).
 source_path validated against allowed directories only.
 
 Current runtime storage model:
-- GraphStore is the SSOT for artifact projection writes
-- artifact content is stored through storage.file_store after GraphStore accepts
+- artifact metadata is written atomically by this store
+- artifact content is stored through storage.file_store
   the projection event
 - artifact metadata is stored in workspaces/<ws>/index/artifacts.jsonl as a
   read model carrying ssot_event_id
@@ -434,18 +434,6 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
         tags=tags or cls["tags"],
         redaction_applied=cls["contains_secret"],
     )
-
-    from core.graph.projection_events import append_artifact_written
-    event_id = append_artifact_written(
-        workspace_id=workspace_id,
-        artifact_id=art_id,
-        run_id=run_id,
-        session_id=session_id,
-        record=_record_meta_dict(rec),
-    )
-    rec.metadata = dict(rec.metadata or {})
-    rec.metadata["ssot_event_id"] = event_id
-    rec.metadata["projection_of"] = "GraphStore"
 
     _save_artifact_record(rec)
 

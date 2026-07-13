@@ -23,7 +23,6 @@ describe("agentResultFromWsDone", () => {
           },
         ],
         metadata: {
-          selected_skills: ["assistant_chat"],
           visible_tools: ["knowledge.manage"],
           source_count: 1,
         },

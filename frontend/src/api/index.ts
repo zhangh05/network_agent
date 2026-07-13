@@ -20,7 +20,6 @@ import type {
   KnowledgeSource,
   ReviewItem,
   RuntimeAuditTurn,
-  DecisionReport,
   RuntimeSummary,
   Session,
   SessionMessage,
@@ -38,8 +37,6 @@ import type {
   JobItem,
   JobEvent,
   MemoryRecord,
-  ModuleEntry,
-  SkillEntry,
   ToolPermission
 } from "../types";
 
@@ -283,20 +280,11 @@ export const capabilitiesApi = {
   /** GET /api/capabilities — business capability catalog projection. */
   manifest: (
     signal?: AbortSignal,
-  ): Promise<{ capabilities: BusinessCapability[]; enabled: string[] }> =>
-    apiRequest<{ capabilities: BusinessCapability[]; enabled: string[] }>(
+  ): Promise<{ capabilities: BusinessCapability[] }> =>
+    apiRequest<{ capabilities: BusinessCapability[] }>(
       { method: "GET", url: "/capabilities" },
       signal,
     ),
-};
-
-export const registryApi = {
-  modules: (signal?: AbortSignal): Promise<{ modules: ModuleEntry[] }> =>
-    apiRequest<{ modules: ModuleEntry[] }>({ method: "GET", url: "/modules" }, signal),
-  skills: (signal?: AbortSignal): Promise<{ skills: SkillEntry[] }> =>
-    apiRequest<{ skills: SkillEntry[] }>({ method: "GET", url: "/skills" }, signal),
-  status: (signal?: AbortSignal): Promise<Record<string, unknown>> =>
-    apiRequest<Record<string, unknown>>({ method: "GET", url: "/registry/status" }, signal),
 };
 
 export const toolsApi = {
@@ -752,18 +740,6 @@ export const runtimeAuditApi = {
       {
         method: "GET",
         url: `/workspaces/${workspace_id}/runs/${run_id}/trace`,
-      },
-      signal,
-    ),
-  decision: (
-    workspace_id: string,
-    run_id: string,
-    signal?: AbortSignal,
-  ): Promise<{ ok: boolean; item: DecisionReport; workspace_id: string }> =>
-    apiRequest<{ ok: boolean; item: DecisionReport; workspace_id: string }>(
-      {
-        method: "GET",
-        url: `/workspaces/${workspace_id}/runs/${run_id}/decision`,
       },
       signal,
     ),

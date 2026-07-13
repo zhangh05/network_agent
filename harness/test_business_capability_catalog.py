@@ -41,18 +41,9 @@ def test_catalog_no_legacy_tool_ids():
             assert tid not in legacy, f"{cap['capability_id']} refs legacy {tid}"
 
 
-def test_catalog_status_partition():
-    enabled = _catalog.list_enabled()
-    planned = _catalog.list_planned()
-    # All enabled are status=enabled, all planned are status=planned.
-    for c in enabled:
-        assert c["status"] == "enabled"
-    for c in planned:
-        assert c["status"] == "planned"
-    # No overlap.
-    enabled_ids = {c["capability_id"] for c in enabled}
-    planned_ids = {c["capability_id"] for c in planned}
-    assert enabled_ids.isdisjoint(planned_ids)
+def test_catalog_contains_only_current_enabled_capabilities():
+    assert _catalog.list_all() == _catalog.list_enabled()
+    assert all(c["status"] == "enabled" for c in _catalog.list_all())
 
 
 def test_catalog_get_returns_full_record():
@@ -68,7 +59,7 @@ def test_catalog_get_returns_full_record():
 def test_to_skill_dict_preserves_canonical_fields():
     cap = _catalog.list_enabled()[0]
     skill = _catalog.to_skill_dict(cap)
-    # Skill dict has legacy fields used by /api/skills + skill.manage
+    # skill.manage projects this stable capability-guidance shape.
     for key in ("skill_id", "display_name", "description", "capability_ids",
                 "module_ids", "tool_ids", "prompt_hints", "safety_notes",
                 "source", "status"):

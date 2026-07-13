@@ -159,15 +159,34 @@ class ToolResult:
         d: dict,
     ) -> "ToolResult":
         """Build a ToolResult from the dict shape returned by handlers."""
+        control_keys = {
+            "ok", "tool_id", "call_id", "status", "summary", "content",
+            "data", "artifacts", "source_count", "manual_review_count",
+            "errors", "warnings", "metadata", "raw", "redacted",
+        }
+        payload_data = dict(d.get("data") or {}) if isinstance(d.get("data"), dict) else {}
+        if isinstance(d.get("content"), dict):
+            payload_data.update(d["content"])
+        payload_data.update({k: v for k, v in d.items() if k not in control_keys})
+
+        explicit_content = d.get("content")
+        if isinstance(explicit_content, str):
+            content = explicit_content
+        elif payload_data:
+            content = json.dumps(
+                {"ok": bool(d.get("ok", False)), "summary": str(d.get("summary", "")), **payload_data},
+                ensure_ascii=False,
+            )
+        else:
+            content = str(d.get("summary", ""))
+
         return cls(
             call_id=call_id,
             tool_id=tool_id,
             ok=bool(d.get("ok", False)),
             summary=str(d.get("summary", "")),
-            content=str(d.get("content", d.get("summary", ""))),
-            data=(d.get("data") if isinstance(d.get("data"), dict)
-                  else (d.get("content") if isinstance(d.get("content"), dict)
-                        else {})),
+            content=content,
+            data=payload_data,
             artifacts=list(d.get("artifacts") or []),
             source_count=(int(d["source_count"]) if d.get("source_count") is not None
                           else None),

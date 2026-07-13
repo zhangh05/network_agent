@@ -131,37 +131,3 @@ def test_websocket_broadcast_is_workspace_scoped(monkeypatch):
     })
     assert len(one.messages) == 1
     assert two.messages == []
-
-
-def test_projected_registry_contract_has_real_module_owners():
-    from registry.loader import load_capabilities, load_module_registry, load_skill_registry
-    from registry.validator import validate_all
-
-    report = validate_all(
-        load_module_registry(reload=True),
-        load_skill_registry(reload=True),
-        load_capabilities(reload=True),
-    )
-    assert report.ok is True
-
-
-def test_default_hook_does_not_override_destructive_approval_policy():
-    from agent.hooks import HookDecision
-    from agent.runtime.default_hooks import _pre_tool_use_handler
-
-    destructive = _pre_tool_use_handler({}, {
-        "tool_id": "exec.run",
-        "arguments": {"command": "rm -f /tmp/example"},
-    })
-    code_text = _pre_tool_use_handler({}, {
-        "tool_id": "workspace.file",
-        "arguments": {"action": "write", "content": "subprocess.run(['echo', 'ok'])"},
-    })
-    secret = _pre_tool_use_handler({}, {
-        "tool_id": "workspace.file",
-        "arguments": {"content": 'api_key="secret-value-123"'},
-    })
-
-    assert destructive.decision != HookDecision.DENY
-    assert code_text.decision != HookDecision.DENY
-    assert secret.decision == HookDecision.DENY

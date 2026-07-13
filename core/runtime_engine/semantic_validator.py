@@ -1,13 +1,11 @@
 """
-Semantic DAG Validator — deep semantic checks beyond structural DAG integrity.
+Semantic validator for normalized QueryLoop tool calls.
 
 Validates:
   - Tool existence in registry
   - Argument schema conformity (required, type, enum, range)
   - Path safety (in workspace only)
   - Command safety (no destructive patterns)
-  - I/O contract compatibility between dependent nodes
-  - Hidden/implicit dependency detection
   - Dangerous operation marking
 
 Returns structured validation result with risk level.
@@ -20,31 +18,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .contracts import BUILTIN_CONTRACTS, get_contract, get_risk_level
-from .models import ExecutionDAG, ExecutionNode, RiskLevel
+from .models import ExecutionNode, RiskLevel
 from .command_policy import normalize_command, evaluate_command_policy
 
-
-# --- Dangerous command patterns shared with risk_policy ---
-
-FORBIDDEN_COMMANDS: list[str] = [  # deprecated: use command_policy.evaluate_command_policy()
-    r"\bformat\b",
-    r"\bshutdown\b",
-    r"\breboot\b",
-    r"\bdiskpart\b",
-    r"\breg\s+delete\b",
-    r"\breg\s+add\b",
-    r"\bbcdedit\b",
-    r"\bdel\s+/s\b",
-    r"\brd\s+/s\b",
-    r"\brm\s+-rf\b",
-    r"\btakeown\b",
-    r"\bcipher\b",
-    r"\bdelete\s+recursive\b",
-    r"\bwrite\s+system\s+directory\b",
-    r"\bmodify\s+registry\b",
-    r"\bdisable\s+firewall\b",
-    r"\bdisable\s+antivirus\b",
-]
 
 FORBIDDEN_ARGS: list[str] = [
     "force_delete", "recursive_delete", "rm_rf",
@@ -71,12 +47,11 @@ class SemanticValidationResult:
     valid: bool
     errors: list[SemanticError] = field(default_factory=list)
     warnings: list[SemanticError] = field(default_factory=list)
-    patched_graph: dict | None = None
     risk_level: str = "low"
 
 
 class SemanticValidator:
-    """Deep semantic validation for ExecutionDAG."""
+    """Validate the current QueryLoop call batch."""
 
     def __init__(self, tool_registry: dict[str, dict[str, Any]] | None = None):
         self._registry = tool_registry or {}
@@ -87,9 +62,8 @@ class SemanticValidator:
         """Return the canonical action enum for ``tool_id`` (None if unknown).
 
         v3.10: pulls directly from the registered ToolContract so the
-        validator stays strictly aligned with what the planner is
-        allowed to emit. The GraphCompiler has already normalized
-        any alias to its canonical form before this point, so the
+        validator stays aligned with what the model is allowed to emit.
+        QueryLoop has already normalized aliases before this point, so the
         set is intentional and the check is exact.
         """
         contract = get_contract(tool_id)
@@ -103,20 +77,14 @@ class SemanticValidator:
             return None
         return frozenset(str(x) for x in enum)
 
-    def validate(self, dag: ExecutionDAG) -> SemanticValidationResult:
+    def validate(self, nodes: list[ExecutionNode]) -> SemanticValidationResult:
         result = SemanticValidationResult(valid=True)
 
-        for node in dag.nodes:
-            self._validate_node(node, dag, result)
-
-        # Cross-node: contract compatibility
-        self._validate_contracts(dag, result)
-
-        # Cross-node: hidden deps detection
-        self._validate_hidden_deps(dag, result)
+        for node in nodes:
+            self._validate_node(node, result)
 
         # Compute risk level
-        result.risk_level = self._compute_risk_level(dag, result)
+        result.risk_level = self._compute_risk_level(nodes, result)
         result.valid = len(result.errors) == 0
 
         return result
@@ -124,7 +92,6 @@ class SemanticValidator:
     def _validate_node(
         self,
         node: ExecutionNode,
-        dag: ExecutionDAG,
         result: SemanticValidationResult,
     ) -> None:
         # A. Tool existence
@@ -201,27 +168,23 @@ class SemanticValidator:
                     message=f"Node '{node.id}' arg '{field_name}' expected array",
                 ))
 
-            # Enum validation — strictly canonical. The GraphCompiler
-            # normalized any planner alias to a canonical token at
-            # compile time (see ``core.runtime_engine/action_alias``), so
-            # by this point ``value`` must be in the canonical enum.
-            # If it isn't, the planner emitted something that is
-            # neither canonical nor an alias — i.e. truly unknown.
+            # Enum validation is strictly canonical. QueryLoop normally
+            # normalizes known aliases before this guard runs.
             enum_values = field_schema.get("enum")
             if enum_values and value not in enum_values:
                 # Defense in depth: also reject if value is in the
                 # alias table but not normalized. This means the
                 # normalization layer was bypassed (a future bug);
                 # we want a clear error rather than silent acceptance.
-                from .action_alias import ACTION_ALIASES
-                if value in ACTION_ALIASES:
+                from .action_alias import resolve_action_alias
+                resolution = resolve_action_alias(node.tool, str(value))
+                if resolution.matched:
                     result.errors.append(SemanticError(
                         node_id=node.id,
                         code="ACTION_ALIAS_NOT_NORMALIZED",
                         message=(
                             f"Node '{node.id}' arg '{field_name}' value '{value}' is a known alias "
-                            f"(→ '{ACTION_ALIASES[value]}') but was not normalized by GraphCompiler. "
-                            f"Rebuild the DAG through GraphCompiler.compile()."
+                            f"(→ '{resolution.canonical_action}') but was not normalized by QueryLoop."
                         ),
                     ))
                 else:
@@ -315,67 +278,15 @@ class SemanticValidator:
                 details=decision.to_dict(),
             ))
 
-    def _validate_contracts(
-        self,
-        dag: ExecutionDAG,
-        result: SemanticValidationResult,
-    ) -> None:
-        """Check I/O contract compatibility between dependent nodes."""
-        node_map = {n.id: n for n in dag.nodes}
-
-        for node in dag.nodes:
-            for dep_id in node.deps:
-                dep_node = node_map.get(dep_id)
-                if dep_node is None:
-                    continue
-
-                dep_contract = get_contract(dep_node.tool)
-                node_contract = get_contract(node.tool)
-
-                if dep_contract and node_contract:
-                    # Check if dependency output schema matches child input needs
-                    dep_output = dep_contract.output_schema.get("properties", {})
-                    node_input = node_contract.input_schema.get("properties", {})
-
-                    required_inputs = node_contract.input_schema.get("required", [])
-                    for req in required_inputs:
-                        if req not in dep_output and req not in node.args:
-                            result.warnings.append(SemanticError(
-                                node_id=node.id,
-                                code="POTENTIAL_MISSING_INPUT",
-                                message=f"Node '{node.id}' requires '{req}' but dependency '{dep_id}' ({dep_node.tool}) may not produce it",
-                            ))
-
-    def _validate_hidden_deps(
-        self,
-        dag: ExecutionDAG,
-        result: SemanticValidationResult,
-    ) -> None:
-        """Detect implicit dependencies that planner didn't declare."""
-        node_map = {n.id: n for n in dag.nodes}
-        for node in dag.nodes:
-            for key in node.args:
-                if isinstance(node.args[key], str) and "$" in node.args[key]:
-                    # Dynamic reference — ok, handled by tool_runtime
-                    continue
-            # Simple heuristic: if all peers at same depth are deps of children
-            # but this node isn't, flag it
-            peer_ids = {n.id for n in dag.nodes if n.depth == node.depth and n.id != node.id}
-            for peer_id in peer_ids:
-                peer = node_map.get(peer_id)
-                if peer and node.id not in peer.deps and peer.id not in node.deps:
-                    # Both independent — fine
-                    pass
-
     def _compute_risk_level(
         self,
-        dag: ExecutionDAG,
+        nodes: list[ExecutionNode],
         result: SemanticValidationResult,
     ) -> str:
         """Compute composite risk level from nodes and errors."""
         max_risk = RiskLevel.LOW
 
-        for node in dag.nodes:
+        for node in nodes:
             node_risk = get_risk_level(node.tool)
             try:
                 rl = RiskLevel(node_risk)
@@ -388,8 +299,8 @@ class SemanticValidator:
                     max_risk = rl
 
         # Combo escalation
-        write_count = sum(1 for n in dag.nodes if get_contract(n.tool) and get_contract(n.tool).side_effect in ("write_file", "mutate_local"))
-        exec_count = sum(1 for n in dag.nodes if get_contract(n.tool) and get_contract(n.tool).side_effect == "execute_command")
+        write_count = sum(1 for n in nodes if get_contract(n.tool) and get_contract(n.tool).side_effect in ("write_file", "mutate_local"))
+        exec_count = sum(1 for n in nodes if get_contract(n.tool) and get_contract(n.tool).side_effect == "execute_command")
 
         if write_count >= 3 and max_risk == RiskLevel.MEDIUM:
             max_risk = RiskLevel.HIGH

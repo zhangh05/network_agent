@@ -30,9 +30,6 @@ class AgentResult:
     #            {"type":"tool_call","tool_id":"...","ok":true,"summary":"..."}
     content_parts: list = field(default_factory=list)
 
-    # v3.3.4: transient finalization context (NOT serialized in to_dict)
-    _finalization_ctx: object = None
-
     def to_dict(self) -> dict:
         # Collect artifact_ids from tool_calls for job/artifact tracking
         output_artifacts = []

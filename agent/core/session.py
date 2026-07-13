@@ -14,7 +14,6 @@ class AgentSession:
     session_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     workspace_id: str = ""
     history: list = field(default_factory=list)
-    services: object = None
     active_turn: object = None
     metadata: dict = field(default_factory=dict)
 
@@ -37,4 +36,4 @@ class AgentSession:
         from agent.runtime.ssot_runtime import run_ssot_turn
         turn = AgentTurn.from_op(op)
         self.active_turn = turn
-        return run_ssot_turn(self, turn, self.services)
+        return run_ssot_turn(self, turn)

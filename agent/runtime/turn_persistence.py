@@ -1,7 +1,4 @@
-"""Turn persistence — write run records, messages, and trace events to disk.
-
-Extracted from loop.py to keep the turn runner focused on the agentic loop.
-"""
+"""Turn persistence — write run records, messages, and trace events to disk."""
 
 import json
 from datetime import datetime, timezone
@@ -43,8 +40,6 @@ def persist_run_record(session, turn, result, context) -> None:
                     if k in md:
                         skill_results[k] = md[k]
 
-        selected_skill = _selected_skill_for_record(context)
-        active_module = _active_module_for_record(context, selected_skill)
         result_metadata = (
             result.metadata if result and getattr(result, "metadata", None) else {}
         )
@@ -82,8 +77,6 @@ def persist_run_record(session, turn, result, context) -> None:
                 "workspace_updated": False,
                 "artifact_refs": artifact_refs,
             },
-            active_module=active_module,
-            selected_skill=selected_skill,
             runtime_mode="ssot_runtime",
             final_response=final_response,
             warnings=(result.warnings if result and result.warnings else []),
@@ -155,15 +148,6 @@ def persist_trace(run_id: str, ws_id: str, events: list) -> None:
         "total_duration_ms": 0,
         "persisted_at": now_iso(),
     }
-    from core.graph.projection_events import append_trace_written
-    event_id = append_trace_written(
-        workspace_id=ws_id,
-        run_id=run_id,
-        trace_id=record["trace_id"],
-        event_count=record["event_count"],
-    )
-    record["ssot_event_id"] = event_id
-    record["projection_of"] = "GraphStore"
     tmp = trace_path.with_suffix(".trace.tmp")
     tmp.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.rename(trace_path)
@@ -179,9 +163,7 @@ def _synthetic_trace_events(run_id: str, result) -> list:
     trace_id = getattr(result, "trace_id", "") or run_id
     reason = "no_real_trace_from_provider"
     return [
-        {"name": "router", "run_id": run_id, "trace_id": trace_id,
-         "synthetic": True, "reason": reason},
-        {"name": "context_loader", "run_id": run_id, "trace_id": trace_id,
+        {"name": "turn_start", "run_id": run_id, "trace_id": trace_id,
          "synthetic": True, "reason": reason},
         {"name": "model", "run_id": run_id, "trace_id": trace_id,
          "synthetic": True, "reason": reason},
@@ -191,12 +173,7 @@ def _synthetic_trace_events(run_id: str, result) -> list:
 
 
 def _normalize_trace_events(run_id: str, events: list) -> list:
-    """Normalize trace events — mark missing required events as synthetic.
-
-    Events that are missing from the trace (router, context_loader,
-    capability_call) are marked with synthetic: true + missing: true so
-    inspectors can distinguish them from real execution events.
-    """
+    """Normalize persisted trace events to the current event contract."""
     normalized = []
     for event in list(events or []):
         if not isinstance(event, dict):
@@ -206,11 +183,6 @@ def _normalize_trace_events(run_id: str, events: list) -> list:
         item.setdefault("run_id", run_id)
         normalized.append(item)
 
-    # v3.8: Removed phantom "required" trace nodes (router, context_loader,
-    # capability_call). These are pipeline-internal concepts, not user-facing
-    # trace events. The real trace covers model/tool/final events only.
-    # Previously every run would show "缺失 3" because the runner never emits
-    # these internal nodes as trace events.
     return normalized
 
 
@@ -218,8 +190,7 @@ def _merge_result_projection(run_id: str, ws_id: str, result, context) -> None:
     """Add turn-level runtime diagnostics to the run record.
 
     The base run store intentionally writes compact summaries. Runtime
-    debugging needs the decision surface too: selected tools, planner
-    scene, final no-tool reason, and model response metadata.
+    debugging needs actual tool, retry, tracking, and model response metadata.
     """
     if not result:
         return
@@ -238,10 +209,8 @@ def _merge_result_projection(run_id: str, ws_id: str, result, context) -> None:
     metadata = dict(result_dict.get("metadata") or {})
     if context and getattr(context, "metadata", None):
         for key in (
-            "tool_scene", "rule_tool_scene", "tool_planner",
-            "tool_planning_decision", "visible_tools", "selected_capabilities", "selected_skills",
-            "model_responses", "required_tool_retry_used",
-            "visibility_violations", "decision_report_path",
+            "visible_tools", "selected_capabilities", "model_responses",
+            "required_tool_retry_used", "visibility_violations",
         ):
             if key in context.metadata:
                 metadata.setdefault(key, context.metadata[key])
@@ -319,39 +288,6 @@ def _is_sensitive_key(key: str) -> bool:
         "secret", "password", "token", "api_key", "authorization",
         "credential", "private_key", "source_config", "raw_config",
     ))
-
-
-def _selected_skill_for_record(context) -> str:
-    """Pick the user-meaningful skill for run records."""
-    if not context:
-        return ""
-    if getattr(context, "skill_snapshot", None):
-        value = context.skill_snapshot.get("skill_id", "")
-        if value:
-            return str(value)
-    metadata = getattr(context, "metadata", None) or {}
-    selected = metadata.get("selected_capabilities") or metadata.get("selected_skills") or []
-    if isinstance(selected, str):
-        selected = [selected]
-    for cap in selected:
-        if cap and cap != "assistant_chat":
-            return str(cap)
-    return str(selected[0]) if selected else ""
-
-
-def _active_module_for_record(context, selected_skill: str) -> str:
-    if context and getattr(context, "module_snapshot", None):
-        value = context.module_snapshot.get("module_id", "")
-        if value:
-            return str(value)
-    if selected_skill and selected_skill != "assistant_chat":
-        return selected_skill
-    metadata = getattr(context, "metadata", None) or {}
-    visible_tools = metadata.get("visible_tools") or []
-    if isinstance(visible_tools, str):
-        visible_tools = [visible_tools]
-    first_tool = str(visible_tools[0]) if visible_tools else ""
-    return first_tool.split(".", 1)[0] if "." in first_tool else ""
 
 
 def _created_at_for_turn(turn, context) -> str:

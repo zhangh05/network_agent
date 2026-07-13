@@ -2,7 +2,7 @@
 Metrics System for SSOT Runtime Engine.
 
 Every run must emit structured metrics:
-  - Timing breakdown (planner, compile, validation, execution, finalizer)
+  - Timing breakdown (reasoning, validation, execution, response)
   - LLM call count (bounded by the QueryLoop runtime budget)
   - Tool call count (success/failure)
   - QueryLoop execution concurrency
@@ -17,12 +17,7 @@ import time
 from typing import Any
 
 from .models import (
-    ExecutionDAG,
-    ExecutionNode,
-    ExecutionStatus,
     MetricSnapshot,
-    SSOTRuntimeConfig,
-    StatelessContext,
     ToolResult,
 )
 
@@ -36,26 +31,8 @@ class MetricsCollector:
     def capture_planner(self, duration_ms: float) -> None:
         self._snapshot.planner_duration_ms = duration_ms
 
-    def capture_compile(self, duration_ms: float) -> None:
-        self._snapshot.compile_duration_ms = duration_ms
-
     def capture_validation(self, duration_ms: float) -> None:
         self._snapshot.validation_duration_ms = duration_ms
-
-    def capture_execution(
-        self,
-        duration_ms: float,
-        node_results: dict[str, ToolResult],
-        dag: ExecutionDAG,
-    ) -> None:
-        self._snapshot.execution_duration_ms = duration_ms
-        self._snapshot.tool_calls = len(node_results)
-        self._snapshot.tool_success = sum(1 for r in node_results.values() if r.success)
-        self._snapshot.tool_failed = sum(1 for r in node_results.values() if not r.success)
-        self._snapshot.dag_depth = dag.max_depth
-        self._snapshot.max_parallel_width = max(
-            (len(layer) for layer in dag.layers.values()), default=0
-        )
 
     def capture_query_loop_execution(
         self,
@@ -69,10 +46,9 @@ class MetricsCollector:
         self._snapshot.tool_success = sum(1 for r in node_results.values() if r.success)
         self._snapshot.tool_failed = sum(1 for r in node_results.values() if not r.success)
         self._snapshot.max_parallel_width = max(0, int(max_parallel_width or 0))
-        self._snapshot.dag_depth = 0
 
-    def capture_finalizer(self, duration_ms: float) -> None:
-        self._snapshot.finalizer_duration_ms = duration_ms
+    def capture_response(self, duration_ms: float) -> None:
+        self._snapshot.response_duration_ms = duration_ms
 
     def capture_total(self, duration_ms: float) -> None:
         self._snapshot.total_duration_ms = duration_ms
@@ -123,16 +99,14 @@ class MetricsCollector:
         return {
             "total_duration_ms": s.total_duration_ms,
             "planner_duration_ms": s.planner_duration_ms,
-            "compile_duration_ms": s.compile_duration_ms,
             "validation_duration_ms": s.validation_duration_ms,
             "execution_duration_ms": s.execution_duration_ms,
-            "finalizer_duration_ms": s.finalizer_duration_ms,
+            "response_duration_ms": s.response_duration_ms,
             "llm_calls": s.llm_calls,
             "tool_calls": s.tool_calls,
             "tool_success": s.tool_success,
             "tool_failed": s.tool_failed,
             "cache_hit_ratio": s.cache_hit_ratio,
-            "dag_depth": s.dag_depth,
             "max_parallel_width": s.max_parallel_width,
             "risk_level": s.risk_level,
             "context_compacted": s.context_compacted,

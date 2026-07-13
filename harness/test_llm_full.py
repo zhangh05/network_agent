@@ -191,8 +191,8 @@ class TestBoundary:
     def test_executor_no_llm(self):
         """Executor must not import agent.llm or call LLM APIs directly.
         Passing state.context llm metadata is allowed (read-only aggregation).
-        v3.1: check runtime permission layer."""
-        fp=os.path.join(ROOT,"agent","runtime","permission_check.py")
+        Check the canonical executor used by ToolRuntimeClient."""
+        fp=os.path.join(ROOT,"core","tools","executor.py")
         with open(fp,encoding="utf-8") as f:
             content = f.read()
         # Must not import agent.llm

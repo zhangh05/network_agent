@@ -21,8 +21,7 @@ Background (5-layer audit, v3.10):
       section, with a re-check inside the lock (the classic
       double-checked locking pattern).
     * A ``get_default_client_build_count()`` counter exposes how
-      many times the heavy ``register_builtin_tools`` /
-      ``register_all_general_tools`` work has actually run, so
+      many times canonical registry construction has actually run, so
       tests can assert the singleton is built at most once even
       under contention.
     * A ``reset_default_client_for_tests()`` helper drops the

@@ -1,6 +1,6 @@
 # modules/config_translation/core/__init__.py
 # Minimal init — RuleBasedTranslator is the sole public entry point.
-# No GraphAgent / LLM / retired fallback path.
+# Deterministic configuration translation core.
 
 from modules.config_translation.core.rule_translator import RuleBasedTranslator
 

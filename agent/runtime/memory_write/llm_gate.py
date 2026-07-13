@@ -158,16 +158,13 @@ class MemoryLLMGate:
 
     @staticmethod
     def _load_prompt() -> str:
-        """Load the memory_gating system prompt — template first, hardcoded fallback."""
-        # Try template system first
-        try:
-            from prompts.loader import render_prompt
-            result = render_prompt("memory_gating", {}, "")
-            if result and result.text:
-                return result.text
-        except Exception:
-            pass
-        return ""
+        """Load the registered memory-gating prompt or fail the batch closed."""
+        from prompts.loader import render_prompt
+
+        result = render_prompt("memory_gating", {}, "")
+        if not result.text.strip():
+            raise RuntimeError("memory_gating prompt rendered empty")
+        return result.text
 
     @staticmethod
     def _call_llm(messages: list[dict]) -> str:

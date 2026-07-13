@@ -2,10 +2,9 @@
 Budget Controller for SSOT Runtime Engine.
 
 Per-request execution budget enforced at every stage:
-  - Planner timeout
-  - Executor global timeout
-  - Per-node timeout
-  - Max DAG nodes, depth, width
+  - LLM call timeout
+  - Tool execution timeout
+  - Max tool calls and parallel width
   - Max LLM calls
 
 Budget violations MUST fail fast — never allow the system to hang.
@@ -17,7 +16,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from .models import ExecutionBudget, ExecutionDAG, ExecutionNode, SSOTRuntimeConfig
+from .models import ExecutionBudget, SSOTRuntimeConfig
 
 
 @dataclass
@@ -38,7 +37,6 @@ class BudgetController:
             max_total_seconds=cfg.max_total_seconds,
             max_planner_seconds=cfg.planner_timeout_ms // 1000,
             max_tool_seconds=cfg.max_tool_seconds,
-            max_finalizer_seconds=cfg.finalizer_timeout_ms // 1000,
             max_nodes=cfg.max_nodes,
             max_depth=cfg.max_depth,
             max_parallel_width=cfg.max_layer_concurrency,
@@ -80,31 +78,6 @@ class BudgetController:
         self._llm_calls += 1
         return BudgetStatus(ok=True, elapsed_total_ms=elapsed, llm_calls_used=self._llm_calls)
 
-    def check_dag(self, dag: ExecutionDAG) -> BudgetStatus:
-        """Validate DAG against budget constraints."""
-        elapsed = (time.monotonic() - self._start_time) * 1000
-
-        if dag.total_nodes > self._budget.max_nodes:
-            return BudgetStatus(
-                ok=False, exceeded="MAX_NODES_EXCEEDED",
-                elapsed_total_ms=elapsed,
-            )
-        if dag.max_depth > self._budget.max_depth:
-            return BudgetStatus(
-                ok=False, exceeded="MAX_DEPTH_EXCEEDED",
-                elapsed_total_ms=elapsed,
-            )
-
-        # Check layer width
-        for depth, nodes in dag.layers.items():
-            if len(nodes) > self._budget.max_parallel_width:
-                return BudgetStatus(
-                    ok=False, exceeded="MAX_PARALLEL_WIDTH_EXCEEDED",
-                    elapsed_total_ms=elapsed,
-                )
-
-        return BudgetStatus(ok=True, elapsed_total_ms=elapsed)
-
     def check_execution(self) -> BudgetStatus:
         """Check budget mid-execution."""
         elapsed = (time.monotonic() - self._start_time) * 1000
@@ -117,26 +90,6 @@ class BudgetController:
             return BudgetStatus(ok=False, exceeded="TOOL_TIME_EXCEEDED", elapsed_total_ms=elapsed)
 
         return BudgetStatus(ok=True, elapsed_total_ms=elapsed)
-
-    def check_finalizer(self) -> BudgetStatus:
-        """Check budget before starting the finalizer call.
-
-        The per-finalizer timeout is enforced by the LLM invocation itself.
-        This guard must not compare total request elapsed time with the
-        finalizer timeout, otherwise a slow-but-successful tool call would skip
-        synthesis and leak raw tool dictionaries to the user.
-        """
-        elapsed = (time.monotonic() - self._start_time) * 1000
-        total_limit_ms = self._budget.max_total_seconds * 1000
-
-        if elapsed > total_limit_ms:
-            return BudgetStatus(ok=False, exceeded="TOTAL_TIME_EXCEEDED", elapsed_total_ms=elapsed)
-
-        # LLM check
-        if self._llm_calls >= self._budget.max_llm_calls:
-            return BudgetStatus(ok=False, exceeded="LLM_CALLS_EXCEEDED", elapsed_total_ms=elapsed, llm_calls_used=self._llm_calls)
-
-        return BudgetStatus(ok=True, elapsed_total_ms=elapsed, llm_calls_used=self._llm_calls)
 
     def elapsed_ms(self) -> float:
         return (time.monotonic() - self._start_time) * 1000

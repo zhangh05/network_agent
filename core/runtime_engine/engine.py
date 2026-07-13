@@ -32,8 +32,8 @@ from .query_loop import MAX_VALIDATION_CORRECTION_ROUNDS, QueryLoop, QueryLoopRe
 from .runtime_contracts import ExecutionContract
 from .stage_events import (
     EXECUTION_COMPLETED,
-    FINALIZING_COMPLETED,
-    FINALIZING_STARTED,
+    RESPONSE_COMPLETED,
+    RESPONSE_STARTED,
     HEARTBEAT,
     PLANNER_COMPLETED,
     PLANNER_STARTED,
@@ -98,7 +98,7 @@ class SSOTRuntimeEngine:
         self._tool_runtime.register(tool_id, handler)
 
     # ========================================================================
-    # 15-STAGE PRODUCTION PIPELINE
+    # QUERYLOOP PRODUCTION PIPELINE
     # ========================================================================
 
     def _emit_stage(self, stage: str, t_start: float, **extra: Any) -> None:
@@ -114,7 +114,7 @@ class SSOTRuntimeEngine:
         """
         if self._emitter is None:
             try:
-                from agent.runtime.query_engine import StreamEmitter
+                from agent.runtime.stream_emitter import StreamEmitter
             except Exception:
                 StreamEmitter = None
             if StreamEmitter is None:
@@ -175,12 +175,12 @@ class SSOTRuntimeEngine:
     async def run(
         self,
         user_input: str,
-        workspace_id: str = "default",
+        workspace_id: str = "",
         session_id: str = "",
         cwd: str = "",
         extras: dict[str, Any] | None = None,
     ) -> SSOTRuntimeResult:
-        """Execute a single user request through the bank-grade pipeline.
+        """Execute one user request through the canonical QueryLoop pipeline.
 
         Args:
             extras: caller-supplied metadata map that lands in
@@ -220,7 +220,7 @@ class SSOTRuntimeEngine:
                 extras={},
             )
             return self._build_result(
-                fallback_ctx, None, {}, "运行时异常，当前请求未完成。请查看系统诊断或稍后重试。", errors, metrics, budget, t_total,
+                fallback_ctx, {}, "运行时异常，当前请求未完成。请查看系统诊断或稍后重试。", errors, metrics, budget, t_total,
                 "critical", False,
             )
 
@@ -238,8 +238,6 @@ class SSOTRuntimeEngine:
         node_results: dict | None = None,
     ) -> SSOTRuntimeResult:
         """Internal run method wrapped by top-level try/except."""
-        from .runtime_stability import SystemUnstableError  # noqa: F401
-
         if metrics is None:
             metrics = MetricsCollector()
         if budget is None:
@@ -297,17 +295,15 @@ class SSOTRuntimeEngine:
                 ))
                 await self._stop_heartbeat()
                 return self._build_result(
-                    ctx, None, node_results, final_response,
+                    ctx, node_results, final_response,
                     errors, metrics, budget, t_total,
                     risk_level="high", approval_required=False,
                     extra={"contract_report": contract_report},
                 )
             ctx.extras["contract_report"] = contract_report
 
-            dag = None
             risk_level = "low"
             approval_required = False
-            rollback_plan = None
 
             # ── v3.11: Fast-path classifier ───────────────────────────────
             # Simple greetings / definition questions skip the planner
@@ -362,7 +358,7 @@ class SSOTRuntimeEngine:
                 )
 
             if fast.enabled:
-                self._emit_stage(FINALIZING_STARTED, t_total)
+                self._emit_stage(RESPONSE_STARTED, t_total)
                 direct_latency_start = time.monotonic()
 
                 try:
@@ -389,15 +385,15 @@ class SSOTRuntimeEngine:
                     time.monotonic() - direct_latency_start
                 ) * 1000
 
-                self._emit_stage(FINALIZING_COMPLETED, t_total)
+                self._emit_stage(RESPONSE_COMPLETED, t_total)
                 self._emit_stage(TURN_COMPLETED, t_total)
 
-                metrics.capture_finalizer(direct_answer_latency_ms)
+                metrics.capture_response(direct_answer_latency_ms)
                 metrics.set_llm_calls(budget.llm_calls or 1)
 
                 await self._stop_heartbeat()
                 return self._build_result(
-                    ctx, None, node_results, final_response,
+                    ctx, node_results, final_response,
                     errors, metrics, budget, t_total, "low", False,
                     extra={
                         "fast_path": True,
@@ -414,13 +410,13 @@ class SSOTRuntimeEngine:
 
             clarification = build_operational_clarification(ctx.user_input, task_intent)
             if clarification:
-                self._emit_stage(FINALIZING_STARTED, t_total)
-                self._emit_stage(FINALIZING_COMPLETED, t_total)
+                self._emit_stage(RESPONSE_STARTED, t_total)
+                self._emit_stage(RESPONSE_COMPLETED, t_total)
                 self._emit_stage(TURN_COMPLETED, t_total)
-                metrics.capture_finalizer(0.0)
+                metrics.capture_response(0.0)
                 await self._stop_heartbeat()
                 return self._build_result(
-                    ctx, None, node_results, clarification["response"],
+                    ctx, node_results, clarification["response"],
                     errors, metrics, budget, t_total, "low", False,
                     extra={
                         "planner_skipped": True,
@@ -436,62 +432,59 @@ class SSOTRuntimeEngine:
             # The loop owns planner LLM calls, tool execution, bounded tracking,
             # retry metadata, and final synthesis. This keeps active runtime
             # state in one place instead of splitting it across parallel planners.
-            if getattr(self._config, "use_query_loop", True):
-                self._emit_stage(PLANNER_STARTED, t_total)
+            self._emit_stage(PLANNER_STARTED, t_total)
 
-                query_loop = QueryLoop(
-                    self._config, self._tool_registry,
-                    self._tool_runtime,
-                    llm_invoke=self._llm_invoke,
-                    emitter=self._emitter,
-                )
-                loop_result = await query_loop.run(ctx, budget, metrics)
+            query_loop = QueryLoop(
+                self._config, self._tool_registry,
+                self._tool_runtime,
+                llm_invoke=self._llm_invoke,
+                emitter=self._emitter,
+            )
+            loop_result = await query_loop.run(ctx, budget, metrics)
 
-                self._emit_stage(PLANNER_COMPLETED, t_total,
-                                 plan_nodes=loop_result.iterations)
-                self._emit_stage(EXECUTION_COMPLETED, t_total,
-                                 tool_calls=loop_result.total_tool_calls)
+            self._emit_stage(PLANNER_COMPLETED, t_total,
+                             iterations=loop_result.iterations)
+            self._emit_stage(EXECUTION_COMPLETED, t_total,
+                             tool_calls=loop_result.total_tool_calls)
 
-                # Build tool_results in the format the engine expects
-                for r in loop_result.tool_results:
-                    node_results[r.call_id] = ToolResult(
+            for r in loop_result.tool_results:
+                node_results[r.call_id] = ToolResult(
                         node_id=r.call_id,
                         tool=r.tool_name,
                         success=r.ok,
                         data=r.output,
                         error=r.error,
                         latency_ms=float(r.latency_ms or 0.0),
-                    )
+                )
 
-                final_response = loop_result.final_response
-                dag = None
-                risk_level = loop_result.risk_level or "low"
-                approval_required = bool(loop_result.approval_required)
-                if loop_result.error and loop_result.error not in {
+            final_response = loop_result.final_response
+            risk_level = loop_result.risk_level or "low"
+            approval_required = bool(loop_result.approval_required)
+            if loop_result.error and loop_result.error not in {
                     "approval_required",
                     "duplicate_successful_tool_call",
                     "duplicate_tool_call",
-                }:
-                    first_loop_error = loop_result.errors[0] if loop_result.errors else loop_result.error
-                    loop_error_code = self._resolve_loop_error_code(
+            }:
+                first_loop_error = loop_result.errors[0] if loop_result.errors else loop_result.error
+                loop_error_code = self._resolve_loop_error_code(
                         loop_result.error, first_loop_error, loop_result.hard_block
-                    )
-                    errors.append(build_error(
+                )
+                errors.append(build_error(
                         loop_error_code,
                         first_loop_error,
                         stage="query_loop",
                         risk_level=risk_level,
-                    ))
-                metrics.set_llm_calls(loop_result.llm_calls)
-                metrics.capture_query_loop_execution(
+                ))
+            metrics.set_llm_calls(loop_result.llm_calls)
+            metrics.capture_query_loop_execution(
                     loop_result.metrics.get("execution_duration_ms", 0.0),
                     node_results,
                     loop_result.metrics.get("max_parallel_width", 0),
-                )
-                await self._stop_heartbeat()
+            )
+            await self._stop_heartbeat()
 
-                return self._build_result(
-                    ctx, dag, node_results, final_response,
+            return self._build_result(
+                    ctx, node_results, final_response,
                     errors, metrics, budget, t_total,
                     risk_level, approval_required,
                     extra={
@@ -506,20 +499,6 @@ class SSOTRuntimeEngine:
                         "hard_block": bool(loop_result.hard_block),
                         **loop_result.metrics,
                     },
-                )
-
-            # QueryLoop is mandatory. If config disables it, fail closed.
-            errors.append(build_error(
-                SSOTRuntimeErrorCode.ENGINE_UNREACHABLE,
-                "QueryLoop is disabled. QueryLoop is the only supported engine.",
-                stage="engine", risk_level="high",
-            ))
-            await self._stop_heartbeat()
-            return self._build_result(
-                ctx, None, node_results,
-                "抱歉，QueryLoop 引擎已禁用，无法处理您的请求。",
-                errors, metrics, budget, t_total,
-                risk_level="high", approval_required=False,
             )
         finally:
             request_span.stop()
@@ -589,7 +568,6 @@ class SSOTRuntimeEngine:
     def _build_result(
         self,
         ctx: StatelessContext,
-        dag,
         node_results: dict[str, ToolResult],
         final_response: str,
         errors: list[SSOTRuntimeError],
@@ -598,13 +576,12 @@ class SSOTRuntimeEngine:
         t_total: float,
         risk_level: str,
         approval_required: bool,
-        rollback_plan=None,
         extra: dict[str, Any] | None = None,
     ) -> SSOTRuntimeResult:
         total_ms = (time.monotonic() - t_total) * 1000
         metrics.capture_total(total_ms)
         self._audit.create_record(
-            ctx, dag, node_results,
+            ctx, node_results,
             risk_level=risk_level,
             approval_required=approval_required,
             llm_call_count=budget.llm_calls,
@@ -643,7 +620,7 @@ class SSOTRuntimeEngine:
             planner_latency_ms=m.planner_duration_ms,
             execution_latency_ms=m.execution_duration_ms,
             merge_latency_ms=0.0,
-            finalizer_latency_ms=m.finalizer_duration_ms,
+            response_latency_ms=m.response_duration_ms,
             max_layer_latency_ms=0.0,
             node_results=node_results,
             final_response=final_response,
@@ -660,8 +637,6 @@ class SSOTRuntimeEngine:
                 "llm_calls": budget.llm_calls,
                 "structured_errors": [e.to_dict() for e in errors],
                 "metrics": metrics.to_dict(),
-                "rollback_available": rollback_plan.rollback_available if rollback_plan else False,
-                "rollback_recommended": rollback_plan.rollback_recommended if rollback_plan else False,
                 "alias_normalizations": ctx.extras.get("alias_normalizations", []),
                 "plan_enrichment_events": ctx.extras.get("plan_enrichment_events", []),
                 "pre_exec_repair_events": ctx.extras.get("pre_exec_repair_events", []),
@@ -809,7 +784,7 @@ class TaskIntentResult:
     @property
     def requires_execution(self) -> bool:
         """v4 contract alias: the user request requires the
-        runtime to produce a real execution (tool calls / DAG).
+        runtime to produce real tool execution.
 
         Returns False for ``conversational_followup`` even when
         ``requires_tool_likely`` is True — a meta-question about
@@ -1019,7 +994,7 @@ class FinalResponseValidatorResult:
     valid: bool = True
     reason: str = ""
     matched_placeholder: str = ""
-    should_retry_finalizer: bool = False
+    should_retry_response: bool = False
     has_analysis_fields: bool = False
     has_business_result: bool = False
     has_explicit_failure_reason: bool = False
@@ -1041,7 +1016,7 @@ def validate_final_response(
     if not response:
         rr.valid = False
         rr.reason = "empty response for task request"
-        rr.should_retry_finalizer = True
+        rr.should_retry_response = True
         return rr
 
     # ── Step 1: check analysis / business-result fields ───────────
@@ -1063,14 +1038,14 @@ def validate_final_response(
         rr.valid = False
         rr.reason = f"placeholder-like response"
         rr.matched_placeholder = "bogus_pattern"
-        rr.should_retry_finalizer = True
+        rr.should_retry_response = True
         return rr
 
     # ── Step 3: very short response without analysis → invalid ────
     if len(response) < 30:
         rr.valid = False
         rr.reason = "very short response without analysis fields"
-        rr.should_retry_finalizer = True
+        rr.should_retry_response = True
         return rr
 
     # ── Step 4: longer but still looks like no analysis completed ─
@@ -1079,79 +1054,10 @@ def validate_final_response(
     if any(w in response for w in _no_analysis_words):
         rr.valid = False
         rr.reason = "response mentions tool success but no analysis"
-        rr.should_retry_finalizer = True
+        rr.should_retry_response = True
         return rr
 
     return rr
-
-
-# ── v6: Convergence validation gates ───────────────────────────────────────
-
-
-def _v6_validate_tool_truth(node_results: dict) -> None:
-    """v6: every tool result has error_code_norm populated."""
-    for nid, r in node_results.items():
-        assert r.error_code_norm is not None, (
-            f"node {nid}: error_code_norm is None"
-        )
-
-
-def _v6_validate_causal_order(ctx) -> None:
-    """v6: ctx carries causal_order_valid flag."""
-    assert ctx.extras.get("causal_order_valid"), (
-        "causal_order_valid flag missing from context"
-    )
-
-
-def _v6_validate_plan_consistency(ctx) -> None:
-    """v6: plan was schema-validated."""
-    assert ctx.extras.get("plan_schema_validated"), (
-        "plan_schema_validated flag missing from context"
-    )
-
-
-# ── Ultimate Stability: issue collector ────────────────────────────────────
-
-
-def _collect_stability_issues(ctx, result, errors, collector) -> None:
-    """v6+: collect all runtime issues into a stability report.
-
-    Classifies errors, tool failures, contract violations, and
-    missing context into a single IssueCollector so the terminal
-    stop-condition gate can decide whether the system is stable.
-    """
-    from .runtime_stability import Severity, IssueCategory
-
-    # Tool errors → TOOL category
-    if result.node_results:
-        for nid, tr in result.node_results.items():
-            if not tr.success:
-                collector.add(
-                    Severity.HIGH, IssueCategory.TOOL,
-                    f"tool:{tr.tool}", str(tr.error or ""),
-                    node_id=nid,
-                    error_code_norm=tr.error_code_norm,
-                )
-
-    # Structured errors from pipeline
-    structured = result.metadata.get("structured_errors", [])
-    for se in structured:
-        sev = Severity.HIGH if se.get("risk_level") in ("high", "critical") else Severity.MEDIUM
-        category = IssueCategory.CONTRACT if "CONTRACT" in str(se.get("code", "")) else IssueCategory.EXECUTION
-        collector.add(
-            sev, category,
-            se.get("stage", "engine"),
-            se.get("message", ""),
-            code=se.get("code"),
-        )
-
-    # Empty result but had task intent
-    if not result.node_results and not result.final_response:
-        collector.add(
-            Severity.HIGH, IssueCategory.EXECUTION,
-            "engine.run",
-            "no tool results and no final response",
-        )
 
 
 def plan_nodes_empty_for_task(user_input: str) -> bool:

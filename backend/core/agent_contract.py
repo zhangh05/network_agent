@@ -72,8 +72,6 @@ def normalize_agent_result(result: dict, workspace_id: str) -> dict:
     result.setdefault("turn_id", result.get("run_id") or result.get("request_id") or "")
     result.setdefault("trace_id", "")
     result.setdefault("intent", "assistant_chat")
-    result.setdefault("active_module", None)
-    result.setdefault("selected_skill", None)
     result.setdefault("final_response", "")
     result.setdefault("tool_calls", [])
     result.setdefault("warnings", [])

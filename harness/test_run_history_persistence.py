@@ -10,7 +10,6 @@ class TestRunHistoryPersistence:
         from workspace.run_store import write_run_record, get_run
         state = NetworkAgentState(
             user_input="你好", intent="assistant_chat",
-            active_module="assistant", selected_skill="none",
             workspace_id="default",
         )
         state.error = None

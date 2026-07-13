@@ -3,9 +3,9 @@ Audit Log for SSOT Runtime Engine.
 
 Every request generates an immutable audit record with:
   - request-level metadata
-  - executed/blocked/failed nodes
+  - executed/blocked/failed tool calls
   - sensitive field redaction
-  - per-node traceability (request_id + node_run_id)
+  - per-call traceability
 
 Audit records are NOT writable by normal execution flows.
 """
@@ -19,10 +19,6 @@ from typing import Any
 
 from .models import (
     AuditRecord,
-    ExecutionDAG,
-    ExecutionNode,
-    ExecutionStatus,
-    SSOTRuntimeConfig,
     StatelessContext,
     ToolResult,
 )
@@ -44,7 +40,6 @@ class AuditLogger:
     def create_record(
         self,
         ctx: StatelessContext,
-        dag: ExecutionDAG | None,
         node_results: dict[str, ToolResult],
         risk_level: str = "low",
         approval_required: bool = False,
@@ -62,50 +57,31 @@ class AuditLogger:
         blocked = []
         failed = []
 
-        if dag:
-            for node in dag.nodes:
-                result = node_results.get(node.id)
-                node_entry = {
-                    "node_id": node.id,
-                    "tool": node.tool,
-                    "node_run_id": node.node_run_id or str(uuid.uuid4())[:8],
-                    "args": self._redact_args(node.args),
-                    "depth": node.depth,
-                    "status": node.status.value,
-                    "latency_ms": node.latency_ms,
-                }
-                # v3.10: action-alias provenance. When GraphCompiler
-                # normalized a planner alias (``session_get`` →
-                # ``session``), we record both the original and the
-                # canonical token so the audit trail can spot
-                # planner terminology drift without losing the
-                # canonical surface.
-                if node.action_normalized_from_alias:
-                    node_entry["action_original"] = node.action_original
-                    node_entry["action_normalized_from_alias"] = True
+        for call_id, result in node_results.items():
+            entry = {
+                "call_id": call_id,
+                "tool": result.tool,
+                "status": "success" if result.success else "failed",
+                "latency_ms": result.latency_ms,
+                "retry_count": result.retry_count,
+            }
+            if result.success:
+                entry["result_summary"] = self._redact_result(result.data)
+                executed.append(entry)
+            else:
+                entry["error"] = result.error or "tool_failed"
+                failed.append(entry)
 
-                if node.status == ExecutionStatus.SUCCESS:
-                    node_entry["result_summary"] = self._redact_result(result.data) if result else None
-                    executed.append(node_entry)
-                elif node.status == ExecutionStatus.FAILED:
-                    node_entry["error"] = result.error if result else node.error
-                    failed.append(node_entry)
-                elif node.status == ExecutionStatus.SKIPPED:
-                    blocked.append(node_entry)
-        else:
-            for item in ctx.extras.get("audit_blocked_nodes") or []:
-                if not isinstance(item, dict):
-                    continue
-                blocked.append({
-                    "node_id": str(item.get("node_id") or ""),
-                    "tool": str(item.get("tool") or ""),
-                    "node_run_id": str(item.get("node_run_id") or uuid.uuid4().hex[:8]),
-                    "args": self._redact_args(dict(item.get("args") or {})),
-                    "depth": int(item.get("depth") or 0),
-                    "status": str(item.get("status") or "skipped"),
-                    "latency_ms": float(item.get("latency_ms") or 0.0),
-                    "error": str(item.get("error") or "blocked"),
-                })
+        for item in ctx.extras.get("audit_blocked_nodes") or []:
+            if not isinstance(item, dict):
+                continue
+            blocked.append({
+                "call_id": str(item.get("call_id") or item.get("node_id") or ""),
+                "tool": str(item.get("tool") or ""),
+                "args": self._redact_args(dict(item.get("args") or {})),
+                "status": "blocked",
+                "error": str(item.get("error") or "blocked"),
+            })
 
         record = AuditRecord(
             request_id=ctx.request_id,
@@ -114,8 +90,7 @@ class AuditLogger:
             user_request_hash=request_hash,
             planner_model=planner_model,
             llm_call_count=llm_call_count,
-            dag_nodes=dag.total_nodes if dag else 0,
-            dag_depth=dag.max_depth if dag else 0,
+            tool_call_count=len(node_results) + len(blocked),
             risk_level=risk_level,
             approval_required=approval_required,
             executed_nodes=executed,

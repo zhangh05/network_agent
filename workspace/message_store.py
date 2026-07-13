@@ -1,16 +1,13 @@
-"""SessionMessageStore — chat-message read-model projection for a session.
+"""SessionMessageStore — canonical persisted chat messages for a session.
 
-v1.0.3.1: independent full-message storage.
-
-This store writes complete user/assistant messages as a GraphStore-backed
-projection:
+This store writes complete user/assistant messages:
   - `workspaces/<ws>/sessions/<sid>/messages/<run_id>:user.json`
   - `workspaces/<ws>/sessions/<sid>/messages/<run_id>:assistant.json`
   - Content is redaction-safe (no keys, no full configs).
   - Content > ARTIFACT_THRESHOLD (50 KB) is written as an artifact
     instead, and the message carries an `artifact_ref`.
 
-GraphStore is the SSOT. These files are optimized read models for UI/history.
+These records are the durable source consumed by UI and conversation history.
 """
 
 from __future__ import annotations
@@ -138,20 +135,6 @@ class SessionMessageStore:
                 "content": safe_content,
                 "metadata": meta,
             }
-
-        from core.graph.projection_events import append_message_written
-        msg_id_preview = f"{rid}:{role}"
-        event_id = append_message_written(
-            workspace_id=self.ws_id,
-            session_id=self.session_id,
-            run_id=rid,
-            message_id=msg_id_preview,
-            role=role,
-            artifact_ref=record.get("artifact_ref") or {},
-        )
-        meta["ssot_event_id"] = event_id
-        meta["projection_of"] = "GraphStore"
-        record["metadata"] = meta
 
         msg_path = self._msg_path(rid, role)
         _atomic_write(msg_path, record)

@@ -296,20 +296,18 @@ class TestProviderErrorReturnsRedactedRealError:
 
     def test_provider_exception_returns_redacted_error_in_answer(self):
         """When provider raises, answer must contain redacted real error."""
-        with patch("prompts.loader.get_prompt_by_task",
-                   side_effect=Exception("fb")):
-            with patch("agent.llm.provider.generate",
-                       side_effect=ConnectionError(
-                           "Connection refused: api.minimax.chat:443"
-                       )):
-                from agent.llm.runtime import safe_generate
-                output = safe_generate("result_summarize", safe_context={})
+        with patch("agent.llm.provider.generate",
+                   side_effect=ConnectionError(
+                       "Connection refused: api.minimax.chat:443"
+                   )):
+            from agent.llm.runtime import safe_generate
+            output = safe_generate("result_summarize", safe_context={})
 
-                assert output.llm_used is False
-                assert "Connection refused" in output.answer \
-                    or "Provider error" in output.answer
-                assert "I apologize" not in output.answer
-                assert "technical difficulties" not in output.answer
+            assert output.llm_used is False
+            assert "Connection refused" in output.answer \
+                or "Provider error" in output.answer
+            assert "I apologize" not in output.answer
+            assert "technical difficulties" not in output.answer
 
     def test_provider_response_error_returns_redacted_error_in_answer(self):
         from agent.llm.schemas import LLMResponse
@@ -319,31 +317,26 @@ class TestProviderErrorReturnsRedactedRealError:
             provider="mock", model="mock",
         )
 
-        with patch("prompts.loader.get_prompt_by_task",
-                   side_effect=Exception("fb")):
-            with patch("agent.llm.provider.generate",
-                       return_value=mock_resp):
-                from agent.llm.runtime import safe_generate
-                output = safe_generate("result_summarize", safe_context={})
+        with patch("agent.llm.provider.generate", return_value=mock_resp):
+            from agent.llm.runtime import safe_generate
+            output = safe_generate("result_summarize", safe_context={})
 
-                assert output.llm_used is False
-                assert ("Unauthorized" in output.answer
-                        or "401" in output.answer
-                        or "Provider unavailable" in output.answer)
-                assert "I apologize" not in output.answer
+            assert output.llm_used is False
+            assert ("Unauthorized" in output.answer
+                    or "401" in output.answer
+                    or "Provider unavailable" in output.answer)
+            assert "I apologize" not in output.answer
 
     def test_provider_error_redacts_secret(self):
-        with patch("prompts.loader.get_prompt_by_task",
-                   side_effect=Exception("fb")):
-            with patch("agent.llm.provider.generate",
-                       side_effect=OSError(
-                           "Authorization failed: Bearer sk-1234567890abcdef"
-                       )):
-                from agent.llm.runtime import safe_generate
-                output = safe_generate("result_summarize", safe_context={})
+        with patch("agent.llm.provider.generate",
+                   side_effect=OSError(
+                       "Authorization failed: Bearer sk-1234567890abcdef"
+                   )):
+            from agent.llm.runtime import safe_generate
+            output = safe_generate("result_summarize", safe_context={})
 
-                assert ("[REDACTED]" in output.answer
-                        or "[REDACTED]" in output.fallback_reason)
+            assert ("[REDACTED]" in output.answer
+                    or "[REDACTED]" in output.fallback_reason)
 
 
 # ────────────────────────────────────────────────────────────
@@ -376,18 +369,15 @@ class TestDisabledOrMissingKeyStillFailsNormally:
             provider="mock", model="mock",
         )
 
-        with patch("prompts.loader.get_prompt_by_task",
-                   side_effect=Exception("fb")):
-            with patch("agent.llm.provider.generate",
-                       return_value=mock_resp):
-                from agent.llm.runtime import safe_generate
-                output = safe_generate("result_summarize", safe_context={})
+        with patch("agent.llm.provider.generate", return_value=mock_resp):
+            from agent.llm.runtime import safe_generate
+            output = safe_generate("result_summarize", safe_context={})
 
-                assert output.llm_used is False
-                assert output.answer != ""
-                assert ("API key" in output.answer
-                        or "API key" in output.fallback_reason
-                        or "Provider unavailable" in output.answer)
+            assert output.llm_used is False
+            assert output.answer != ""
+            assert ("API key" in output.answer
+                    or "API key" in output.fallback_reason
+                    or "Provider unavailable" in output.answer)
 
     def test_enabled_but_provider_type_disabled(self):
         with patch("agent.llm.config.resolve_provider_config") as mock_cfg:

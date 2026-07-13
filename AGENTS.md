@@ -53,7 +53,7 @@ User input
 
 **5 optimisations:**
 1. **Prompt Cache** — tool definitions in sorted order, system+tools prefix never changes
-2. **Planner+Finalizer merged** — single LLM stream outputs both tool_calls and natural language
+2. **One runtime contract** — the same QueryLoop produces tool calls and the natural-language response
 3. **Iterative execution** — tool results fed back to LLM for dynamic decisions
 4. **Streaming tool exec** — read-only tools execute in parallel, writes serialised
 5. **Auto-compact** — old turns summarised when context exceeds COMPACT_THRESHOLD_CHARS (40K)
@@ -64,7 +64,7 @@ User input
 |------|---------|
 | `core/runtime_engine/query_loop.py` | QueryLoop, StreamingToolExecutor, auto-compact |
 | `core/runtime_engine/engine.py` | SSOTRuntimeEngine with QueryLoop integration |
-| `core/runtime_engine/models.py` | SSOTRuntimeConfig (use_query_loop, max_query_loop_iterations) |
+| `core/runtime_engine/models.py` | SSOTRuntimeConfig and QueryLoop execution models |
 | `core/runtime_engine/tool_runtime.py` | ToolRuntime.invoke_raw() for direct handler execution |
 
 **Tool name format:**

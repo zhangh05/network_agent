@@ -133,14 +133,6 @@ def agent_message():
             return jsonify({"ok": False, "error": "agent_no_result"}), 500
         result_payload = result.to_dict()
         result_payload = _normalize_agent_result(result_payload, ws_id)
-        _apply_current_contract_hints(result_payload, user_input, payload)
-
-        # v3.3.4: Run deferred finalization after result extraction
-        try:
-            from agent.runtime.result_builder import run_deferred_finalization
-            run_deferred_finalization(result)
-        except Exception:
-            pass
 
         # ── Job: one per session, accumulating runs underneath ──
         effective_session_id = session_id or result_payload.get("session_id", "")
@@ -229,19 +221,3 @@ def _stream_sse_response(result: dict, mode: str = "event_replay"):
             "X-Accel-Buffering": "no",
         },
     )
-
-
-def _apply_current_contract_hints(result_payload: dict, user_input: str, payload: dict) -> None:
-    """Attach module hints used by the current workbench UI."""
-    text = (user_input or "").lower()
-    payload = payload or {}
-    if not result_payload.get("active_module"):
-        if payload.get("source_config") or "translate" in text or "翻译" in text:
-            result_payload["active_module"] = "config_translation"
-        elif "knowledge" in text or "知识" in text:
-            result_payload["active_module"] = "knowledge"
-    if any(k in text for k in ("拓扑", "topology")):
-        warnings = result_payload.setdefault("warnings", [])
-        planned_warning = "planned: topology capability coming_soon"
-        if planned_warning not in warnings:
-            warnings.append(planned_warning)

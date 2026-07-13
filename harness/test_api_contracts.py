@@ -248,62 +248,20 @@ class TestArtifactApiContract:
         assert "'file' not in request.files" in source or '"file" not in request.files' in source
 
 
-class TestDecisionReportApiContract:
-    def test_decision_route_exists(self):
-        from backend.api.decision_routes import register_decision_routes
-        import inspect
-        source = inspect.getsource(register_decision_routes)
-        assert "api_run_decision" in source
-
-    def test_decision_route_uses_canonical_response_helpers(self):
-        from backend.api.decision_routes import register_decision_routes
-        import inspect
-        source = inspect.getsource(register_decision_routes)
-        assert "item_response" in source
-        assert "error_response" in source
-
-    def test_decision_route_returns_single_item_envelope(self, monkeypatch):
-        from flask import Flask
-        from backend.api.decision_routes import register_decision_routes
-        from agent.runtime.decision_report import writer
-
-        monkeypatch.setattr(
-            writer,
-            "read_decision_report",
-            lambda run_id, ws_id: {
-                "schema_version": "decision_report.v2",
-                "run_id": run_id,
-                "workspace_id": ws_id,
-            },
-        )
-        app = Flask(__name__)
-        register_decision_routes(app)
-        response = app.test_client().get(
-            "/api/workspaces/default/runs/run_1/decision",
-        )
-        payload = response.get_json()
-        assert response.status_code == 200
-        assert payload["ok"] is True
-        assert payload["item"]["run_id"] == "run_1"
-        assert payload["workspace_id"] == "default"
-
-
 class TestRunSidecarFiltering:
-    def test_run_store_excludes_trace_and_decision_sidecars(self):
+    def test_run_store_excludes_trace_sidecars(self):
         from pathlib import Path
         from workspace.run_store import _is_run_record_file
 
         assert _is_run_record_file(Path("run_1.json"))
         assert not _is_run_record_file(Path("run_1.trace.json"))
-        assert not _is_run_record_file(Path("run_1.decision.json"))
 
-    def test_workspace_manager_excludes_trace_and_decision_sidecars(self):
+    def test_workspace_manager_excludes_trace_sidecars(self):
         from pathlib import Path
         from workspace.manager import _is_run_record_file
 
         assert _is_run_record_file(Path("run_1.json"))
         assert not _is_run_record_file(Path("run_1.trace.json"))
-        assert not _is_run_record_file(Path("run_1.decision.json"))
 
 
 class TestPcapApiContract:

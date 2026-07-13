@@ -225,9 +225,8 @@ def _scripts_dir(workspace_id: str, script_type: str = "general") -> Path:
 def load_vendor_commands(workspace_id: str, vendor: str, *, script_type: str = "general") -> dict | None:
     """Return workspace-level command overrides for *vendor* and *script_type*, or None.
 
-    v4.3: Returns a dict with {commands, pre_commands, post_commands}.
-    pre_commands / post_commands is None when the field is missing in the
-    JSON file (legacy format) — callers should fall back to built-in defaults.
+    Returns a dict with ``commands``, ``pre_commands``, and ``post_commands``.
+    All three fields are required lists in the current script schema.
     """
     fp = _scripts_dir(workspace_id, script_type) / f"{vendor}.json"
     if not fp.is_file():
@@ -240,10 +239,14 @@ def load_vendor_commands(workspace_id: str, vendor: str, *, script_type: str = "
         return None
     raw_pre = data.get("pre_commands")
     raw_post = data.get("post_commands")
+    if not isinstance(data.get("commands"), list):
+        return None
+    if not isinstance(raw_pre, list) or not isinstance(raw_post, list):
+        return None
     return {
         "commands": _clean_commands(data.get("commands")),
-        "pre_commands": _clean_commands(raw_pre) if isinstance(raw_pre, list) else None,
-        "post_commands": _clean_commands(raw_post) if isinstance(raw_post, list) else None,
+        "pre_commands": _clean_commands(raw_pre),
+        "post_commands": _clean_commands(raw_post),
     }
 
 

@@ -2,8 +2,8 @@
 
 The backend must not leak any pre-v3.9.2 tool name to the frontend
 or to LLM prompts. The legacy ids must be absent from:
-  - /api/skills (skill list response)
-  - /api/capabilities (module list response)
+  - skill.manage (capability guidance response)
+  - /api/capabilities (business capability response)
   - the LLM tool catalog compiled from the ToolRegistry
 """
 
@@ -81,37 +81,24 @@ def test_canonical_registry_lists_all_22():
     assert set(CANONICAL_REGISTRY.keys()) == set(TOOL_NAMESPACE)
 
 
-def test_default_runtime_services_exposes_22_tools():
-    from agent.runtime.services import default_runtime_services
-    services = default_runtime_services()
-    registry = services.tool_service.registry
-    tool_ids = {t.tool_id for t in registry.list_all()}
+def test_default_runtime_client_exposes_canonical_tools():
+    from core.tools.integration import get_default_tool_runtime_client
+    tool_ids = {t["tool_id"] for t in get_default_tool_runtime_client().list_tools()}
     assert tool_ids == set(TOOL_NAMESPACE), (
         f"registry mismatch: missing {set(TOOL_NAMESPACE) - tool_ids}, "
         f"extra {tool_ids - set(TOOL_NAMESPACE)}"
     )
 
 
-def test_default_runtime_services_capability_catalog_is_picklable():
-    """State deepcopy must work — capability_catalog must be plain data."""
+def test_capability_catalog_is_picklable():
+    """The capability catalog must remain plain data."""
     import copy
-    from agent.runtime.services import default_runtime_services
-    services = default_runtime_services()
-    cat = services.capability_catalog
+    from agent.capabilities import catalog
+    cat = catalog.list_all()
     assert isinstance(cat, list)
     # Should be deepcopy-able without raising.
     snap = copy.deepcopy(cat)
     assert snap == cat
-
-
-def test_no_register_capability_tools_method():
-    """ToolRegistry must not expose the legacy register_capability_tools
-    path. v3.9.4: tools come only from ToolRuntimeClient."""
-    from agent.tools.registry import ToolRegistry
-    assert not hasattr(ToolRegistry, "register_capability_tools") or \
-        getattr(ToolRegistry, "register_capability_tools", None) is None, (
-        "ToolRegistry.register_capability_tools must be removed in v3.9.4"
-    )
 
 
 def test_legacy_tool_ids_absent_from_skill_manage_handlers():

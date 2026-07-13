@@ -10,7 +10,6 @@ network_agent/
 │   ├── modules/                # Domain implementations used by canonical tools
 │   ├── prompts/                # Prompt templates
 │   ├── runtime/                # SSOT Runtime adapter, result projection, durable state
-│   ├── skills/                 # Skill metadata and skill.manage data source
 │   └── tools/                  # Agent-facing router/registry adapter
 ├── artifacts/                  # Artifact records and content store
 ├── backend/
@@ -30,15 +29,11 @@ network_agent/
 ├── runtime/                    # Diagnostics/selfcheck utilities
 ├── storage/                    # File store abstractions
 ├── core/                       # SSOT Runtime engine, canonical tools, core utilities
-│   ├── constraints/
 │   ├── context/
-│   ├── execution/              # ExecutionEngine
-│   ├── graph/                  # EventClock, GraphStore
-│   ├── kernel/                 # Kernel
 │   ├── llm/                    # LLMProvider registry/config
 │   ├── reports/                # Report renderers
 │   ├── runtime/                # Diagnostics/Selfcheck/Retention
-│   ├── runtime_engine/         # SSOT Runtime engine (planner/DAG/finalizer)
+│   ├── runtime_engine/         # SSOT QueryLoop runtime, budgets, tracking, audit
 │   ├── time/
 │   ├── tools/                  # 23 network-agent tools, manifest, policy, executor
 │   └── workspaces/             # Workspace abstractions

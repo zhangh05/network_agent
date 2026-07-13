@@ -338,7 +338,7 @@ def _api_generate_stream(url: str, body_dict: dict, cfg: dict, req: "LLMRequest"
     Accumulates the full response while pushing tokens in real-time.
     """
     import requests as _requests
-    from agent.runtime.query_engine import StreamEmitter
+    from agent.runtime.stream_emitter import StreamEmitter
 
     headers = {
         "Content-Type": "application/json",
@@ -514,7 +514,7 @@ def _api_generate_stream(url: str, body_dict: dict, cfg: dict, req: "LLMRequest"
 def _push_stream_token(token: str):
     """Push a streaming token via StreamEmitter realtime callback."""
     try:
-        from agent.runtime.query_engine import StreamEmitter
+        from agent.runtime.stream_emitter import StreamEmitter
         cb = StreamEmitter._get_realtime()
         if cb:
             cb({"type": "token", "content": token, "timestamp": time.time()})

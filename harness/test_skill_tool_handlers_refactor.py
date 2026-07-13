@@ -10,8 +10,6 @@ from core.tools.general_tools.skill_tools import (
     handle_skill_list,
     handle_skill_load,
     handle_skill_find,
-    handle_skill_create,
-    handle_skill_install,
     handle_skill_inspect,
 )
 from core.tools.schemas import ToolInvocation
@@ -42,29 +40,15 @@ def test_skill_load_returns_capability_contract():
 
 
 def test_skill_find_searches_manifests():
-    out = handle_skill_find(_inv("skill.search", {"query": "pcap"}))
+    out = handle_skill_find(_inv("skill.manage", {"query": "pcap"}))
     assert out.get("ok")
     results = out.get("results", [])
     ids = {r["skill_id"] for r in results}
     assert "pcap_analysis" in ids
 
 
-def test_skill_create_disabled():
-    out = handle_skill_create(_inv("skill.create", {"name": "x"}))
-    assert not out.get("ok")
-    assert out.get("status") == "blocked"
-    assert "disabled" in out.get("summary", "").lower()
-
-
-def test_skill_install_disabled():
-    out = handle_skill_install(_inv("skill.install", {"source": "# X"}))
-    assert not out.get("ok")
-    assert out.get("status") == "blocked"
-    assert "disabled" in out.get("summary", "").lower()
-
-
 def test_skill_inspect_returns_manifest_not_content():
-    out = handle_skill_inspect(_inv("skill.get", {"skill_name": "workspace_read"}))
+    out = handle_skill_inspect(_inv("skill.manage", {"skill_name": "workspace_read"}))
     assert out.get("ok")
     assert "skill_id" in out
     assert "capability_ids" in out

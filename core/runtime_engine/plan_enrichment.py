@@ -21,20 +21,18 @@ class PlanEnrichment:
     reason: str
 
 
-def enrich_dag_from_user_request(dag, user_input: str) -> list[PlanEnrichment]:
-    """Mutate DAG args with safe inferred parameters and return audit events."""
-    if dag is None:
-        return []
+def enrich_tool_calls_from_user_request(nodes: list[Any], user_input: str) -> list[PlanEnrichment]:
+    """Enrich normalized QueryLoop calls with safe inferred parameters."""
     text = str(user_input or "")
     events: list[PlanEnrichment] = []
-    for node in getattr(dag, "nodes", []) or []:
+    for node in nodes:
         if getattr(node, "tool", "") == "web.manage":
             events.extend(_enrich_weather_node(node, text))
     return events
 
 
-def enrich_plan_nodes_from_user_request(nodes: list[Any], user_input: str) -> list[PlanEnrichment]:
-    """Mutate planner nodes before DAG compilation for intent-level repairs.
+def enrich_model_calls_from_user_request(nodes: list[Any], user_input: str) -> list[PlanEnrichment]:
+    """Mutate model tool calls before execution for intent-level repairs.
 
     This is still deterministic and read/safe: it only corrects weather action
     selection and adds an inspection launcher when the user explicitly asked for
@@ -59,12 +57,11 @@ def enrich_plan_nodes_from_user_request(nodes: list[Any], user_input: str) -> li
     if _is_inspection_request(text) and not has_inspection:
         scope = _inspection_scope_from_text(text)
         node_id = _next_node_id(nodes)
-        from .models import PlanNode
-        nodes.append(PlanNode(
+        from .models import ExecutionNode
+        nodes.append(ExecutionNode(
             id=node_id,
             tool="inspection.manage",
             args={"action": "run", "scope": scope},
-            deps=device_lookup_ids,
         ))
         events.append(PlanEnrichment(
             node_id=node_id,

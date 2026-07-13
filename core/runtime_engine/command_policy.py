@@ -1,7 +1,7 @@
 """
 Command Policy Engine — v1.0 hardened command normalization and policy evaluation.
 
-Replaces simple regex-based FORBIDDEN_COMMANDS with a proper multi-stage check:
+Uses a structured multi-stage command check:
 
   1. normalize_command(raw) → NormalizedCommand
      - Extracts executable, strips .exe, handles Windows paths

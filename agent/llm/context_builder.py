@@ -17,7 +17,6 @@ def build_safe_context(state: NetworkAgentState) -> dict:
 
     ctx = {
         "intent": state.intent,
-        "active_module": state.active_module,
         "translator_entry": result.get("translator_entry", "unknown"),
         "verification_status": verification.get("status", "unknown"),
     }

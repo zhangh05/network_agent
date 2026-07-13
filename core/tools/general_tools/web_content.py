@@ -12,14 +12,9 @@ Caching:
 Truncation:
     Paragraph-boundary-aware: never cuts mid-sentence.
 
-Design note (v3.12): The "article" mode (readability-lxml) was retired as the
-default because reliability < 100% — readability often returned empty content
-for modern SPA pages, navigation pages, and JS-rendered sites.  The "full"
-mode (markdownify) now serves as primary: it converts the entire HTML to
-Markdown (including nav, headers, footers) — "dirty" but never empty.  The
-LLM filters noise more reliably than readability extracts signal.
-
-This mirrors Claude Code's approach: Turndown → Markdown → LLM extraction.
+The full mode converts available HTML to Markdown and preserves page structure.
+Structured mode extracts supported tables, code, and lists. JavaScript-only
+pages may still require browser.manage for rendered content.
 """
 
 

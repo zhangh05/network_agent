@@ -20,7 +20,7 @@ def _pkg_as_dict(pkg: dict) -> dict:
     from agent.capabilities.catalog import to_skill_dict
     d = to_skill_dict(pkg)
     # The frontend displays enabled packages as active.
-    d["status"] = "active" if pkg["status"] == "enabled" else pkg["status"]
+    d["status"] = "active"
     return d
 
 
@@ -53,10 +53,6 @@ def handle_skill_list(inv: ToolInvocation) -> dict:
         return _error_inv(inv, str(e)[:200])
 
 
-def handle_skill_request_load(inv: ToolInvocation) -> dict:
-    return handle_skill_load(inv)
-
-
 def handle_skill_load(inv: ToolInvocation) -> dict:
     """Load a skill by capability_id; returns tool_ids, prompt_hints, etc."""
     args = inv.arguments or {}
@@ -70,7 +66,7 @@ def handle_skill_load(inv: ToolInvocation) -> dict:
         if pkg["capability_id"] == skill_name:
             payload = {
                 "skill_id": pkg["capability_id"],
-                "status": "active" if pkg["status"] == "enabled" else pkg["status"],
+                "status": "active",
                 "capability_ids": [pkg["capability_id"]],
                 "module_ids": list(pkg["module_ids"]),
                 "tool_ids": list(pkg["recommended_tool_ids"]),
@@ -87,7 +83,7 @@ def handle_skill_load(inv: ToolInvocation) -> dict:
         if lower in pkg["capability_id"].lower() or lower in pkg["display_name"].lower():
             payload = {
                 "skill_id": pkg["capability_id"],
-                "status": "active" if pkg["status"] == "enabled" else pkg["status"],
+                "status": "active",
                 "capability_ids": [pkg["capability_id"]],
                 "module_ids": list(pkg["module_ids"]),
                 "tool_ids": list(pkg["recommended_tool_ids"]),
@@ -115,27 +111,6 @@ def handle_skill_find(inv: ToolInvocation) -> dict:
         return _error_inv(inv, str(e)[:200])
 
 
-def handle_skill_create(inv: ToolInvocation) -> dict:
-    """Skill creation is disabled."""
-    return {
-        "ok": False,
-        "tool_id": inv.tool_id,
-        "status": "blocked",
-        "summary": "Skill creation is disabled; use an existing capability.",
-        "errors": ["skill_create_disabled"],
-    }
-
-
-def handle_skill_install(inv: ToolInvocation) -> dict:
-    return {
-        "ok": False,
-        "tool_id": inv.tool_id,
-        "status": "blocked",
-        "summary": "Skill installation is disabled; use an existing capability.",
-        "errors": ["skill_install_disabled"],
-    }
-
-
 def handle_skill_inspect(inv: ToolInvocation) -> dict:
     """Return skill details."""
     args = inv.arguments or {}
@@ -153,10 +128,7 @@ def handle_skill_inspect(inv: ToolInvocation) -> dict:
 
 __all__ = [
     "handle_skill_list",
-    "handle_skill_request_load",
     "handle_skill_load",
     "handle_skill_find",
-    "handle_skill_create",
-    "handle_skill_install",
     "handle_skill_inspect",
 ]

@@ -155,7 +155,7 @@ def test_sub_agent_run_record_written(tmp_path, monkeypatch):
 
 
 def test_approval_timeout_helper_reads_env(monkeypatch):
-    # v3.10: legacy helpers ``agent.runtime.loop._get_approval_timeout``
+    # Approval timeout helpers do not exist outside ApprovalStore.
     # and the ``APPROVAL_TIMEOUT_*_S`` env constants lived on the
     # TurnRunner path that the SSOT Runtime hard cut (ff38bab) removed.
     # Approval-timeout knobs are now declared in

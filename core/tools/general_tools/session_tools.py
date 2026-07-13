@@ -83,7 +83,6 @@ def handle_run_list_recent(inv: ToolInvocation) -> dict:
                 "run_id": r.get("run_id", ""),
                 "intent": r.get("intent", ""),
                 "status": r.get("status", "ok"),
-                "active_module": r.get("active_module", ""),
                 "created_at": r.get("created_at", ""),
             })
         return _ok(inv, "", {"runs": results, "count": len(results)})
@@ -103,7 +102,6 @@ def handle_run_get_summary(inv: ToolInvocation) -> dict:
             "run_id": run_id,
             "intent": r.get("intent", ""),
             "status": r.get("status", "ok"),
-            "active_module": r.get("active_module", ""),
         })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])

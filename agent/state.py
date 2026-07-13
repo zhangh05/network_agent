@@ -38,11 +38,9 @@ class NetworkAgentState:
     request_id: str = field(default_factory=uuid7)
     user_input: str = ""
     intent: Optional[str] = None
-    active_module: Optional[str] = None
     workspace_id: str = ""  # v3.10: must be set explicitly, no default fallback
     session_id: Optional[str] = None
 
-    selected_skill: Optional[str] = None
     payload: Dict[str, Any] = field(default_factory=dict)
     context: Dict[str, Any] = field(default_factory=dict)
     memory_hits: List[Dict[str, Any]] = field(default_factory=list)
@@ -86,8 +84,6 @@ class NetworkAgentState:
         return {
             "request_id": self.request_id,
             "intent": self.intent,
-            "active_module": self.active_module,
-            "selected_skill": self.selected_skill,
             "runtime_mode": self.runtime_mode,
             "verification": self.verification,
             "warnings": self.warnings,

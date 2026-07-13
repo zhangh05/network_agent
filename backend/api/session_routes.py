@@ -118,8 +118,7 @@ def handle_session_detail(session_id):
         if recent_runs:
             latest = recent_runs[0]
             ctx = {}
-            for key in ("active_module", "capability", "intent", "runtime_mode",
-                       "llm_metadata", "selected_skill"):
+            for key in ("capability", "intent", "runtime_mode", "llm_metadata"):
                 if latest.get(key):
                     ctx[key] = latest[key]
             result["context"] = ctx

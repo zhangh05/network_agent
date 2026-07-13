@@ -39,13 +39,8 @@ def _restore_session_history(session, session_id: str, workspace_id: str):
 
 
 class AgentApp:
-    def __init__(self, services=None):
-        if services is None:
-            from agent.runtime.services import default_runtime_services
-            services = default_runtime_services()
-        self.services = services
+    def __init__(self):
         self.session_manager = SessionManager(
-            services=self.services,
             restore_callback=_restore_session_history,
         )
 

@@ -1,7 +1,7 @@
 """
 Risk Policy Engine for SSOT Runtime Engine.
 
-Assesses DAG-wide risk level, distinguishes between:
+Assesses the current QueryLoop tool-call batch and distinguishes between:
   - **allow**: safe to run directly
   - **approval_required**: needs user confirmation (frontend approval bubble)
   - **hard_block**: absolutely forbidden, cannot be overridden
@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .contracts import BUILTIN_CONTRACTS, get_contract, get_risk_level
-from .models import ExecutionDAG, ExecutionNode, RiskLevel
+from .models import ExecutionNode, RiskLevel
 from .command_policy import normalize_command, evaluate_command_policy
 
 
@@ -59,7 +59,7 @@ _SYSTEM_DESTROY_PATTERNS: list[tuple[str, str]] = [
 
 @dataclass
 class RiskAssessment:
-    """Result of a DAG-level risk policy check."""
+    """Result of a tool-call batch risk check."""
     risk_level: str = "low"
     safe_to_run: bool = True
     requires_approval: bool = False
@@ -75,7 +75,7 @@ class RiskAssessment:
 
 
 class RiskPolicyEngine:
-    """Risk assessment for execution DAGs.
+    """Risk assessment for normalized QueryLoop tool calls.
 
     Rules:
       - credential_access / system dir delete → **hard_block**
@@ -93,7 +93,7 @@ class RiskPolicyEngine:
         self._max_exec_allow = getattr(cfg, "rp_max_exec_allow", 5)
         self._max_exec_approval = getattr(cfg, "rp_max_exec_approval", 20)
 
-    def assess(self, dag: ExecutionDAG) -> RiskAssessment:
+    def assess(self, nodes: list[ExecutionNode]) -> RiskAssessment:
         assessment = RiskAssessment()
 
         exec_count = 0
@@ -101,7 +101,7 @@ class RiskPolicyEngine:
         cred_count = 0
         external_count = 0
 
-        for node in dag.nodes:
+        for node in nodes:
             contract = get_contract(node.tool)
             if contract is None:
                 continue
@@ -242,11 +242,11 @@ class RiskPolicyEngine:
         # ── Combo escalation ──
         self._apply_combo_escalation(
             assessment, exec_count, write_count,
-            external_count, cred_count, dag,
+            external_count, cred_count, nodes,
         )
 
         # ── Compute composite risk ──
-        assessment.risk_level = self._compute_composite(dag)
+        assessment.risk_level = self._compute_composite(nodes)
 
         # ── If hard_block is already set, nothing else matters ──
         if assessment.hard_block:
@@ -268,10 +268,9 @@ class RiskPolicyEngine:
         write_count: int,
         external_count: int,
         cred_count: int,
-        dag: ExecutionDAG,
+        nodes: list[ExecutionNode],
     ) -> None:
-        nodes = list(getattr(dag, "nodes", []) or [])
-        total_nodes = int(getattr(dag, "total_nodes", len(nodes)) or len(nodes))
+        total_nodes = len(nodes)
 
         # 3+ writes → warning only. The user-facing policy is destructive-only
         # approval; ordinary batches stay usable and are bounded elsewhere.
@@ -306,10 +305,10 @@ class RiskPolicyEngine:
                 "Combo: exec + external + credential context detected"
             )
 
-    def _compute_composite(self, dag: ExecutionDAG) -> str:
+    def _compute_composite(self, nodes: list[ExecutionNode]) -> str:
         max_risk = RiskLevel.LOW
         risk_order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
-        for node in dag.nodes:
+        for node in nodes:
             node_risk = get_risk_level(node.tool)
             try:
                 rl = RiskLevel(node_risk)

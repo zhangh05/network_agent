@@ -450,13 +450,11 @@ def _normalize_for_compare(line: str) -> str:
     return " ".join(line.strip().split()).lower()
 
 
-def quick_assess(line: str, source_platform: str, target_platform: str) -> tuple[Provenance, Confidence]:
-    """[RETIRED FALLBACK] Quick safety assessment for retired translator outputs.
+def assess_unmatched_line(line: str, source_platform: str, target_platform: str) -> tuple[Provenance, Confidence]:
+    """Assess an unmatched same-vendor line before conservative passthrough.
 
-    NOTE: This is NOT the primary classification path. New code MUST use
-    try_make_candidate() and DeployablePolicy.classify_translation().
-    quick_assess exists only as a fallback when the candidate factory
-    cannot match a source line.
+    Candidate factories and DeployablePolicy remain the primary path. This
+    function handles only lines that no deterministic candidate matched.
 
     Checks common patterns that indicate a line is likely a valid target-vendor
     translation (not source residue, not verbatim copy).

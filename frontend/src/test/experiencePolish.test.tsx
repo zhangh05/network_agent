@@ -144,8 +144,8 @@ describe("Experience polish", () => {
       status: 200,
       data: {
         runs: [
-          { run_id: "run-a", turn_id: "", trace_id: "trace-a", session_id: "s1", status: "ok", started_at: "", finished_at: "", selected_skills: [], visible_tools: [], tool_call_count: 0, error_count: 0, warning_count: 0, events: [] },
-          { run_id: "run-b", turn_id: "", trace_id: "trace-b", session_id: "s2", status: "ok", started_at: "", finished_at: "", selected_skills: [], visible_tools: [], tool_call_count: 0, error_count: 0, warning_count: 0, events: [] },
+          { run_id: "run-a", turn_id: "", trace_id: "trace-a", session_id: "s1", status: "ok", started_at: "", finished_at: "", visible_tools: [], tool_call_count: 0, error_count: 0, warning_count: 0, events: [] },
+          { run_id: "run-b", turn_id: "", trace_id: "trace-b", session_id: "s2", status: "ok", started_at: "", finished_at: "", visible_tools: [], tool_call_count: 0, error_count: 0, warning_count: 0, events: [] },
         ],
       },
     });

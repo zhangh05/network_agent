@@ -54,18 +54,15 @@ def test_system_contract_exposes_local_info_action():
 
 
 def test_semantic_validator_accepts_future_weather_forecast_args():
-    from core.runtime_engine.graph_compiler import GraphCompiler
-    from core.runtime_engine.models import SSOTRuntimeConfig
+    from core.runtime_engine.models import ExecutionNode
     from core.runtime_engine.semantic_validator import SemanticValidator
 
-    plan = [
-        type("PlanNode", (), {
-            "id": "weather_10d",
-            "tool": "web.manage",
-            "args": {"action": "weather", "location": "杭州", "days": 10},
-            "deps": [],
-        })(),
+    calls = [
+        ExecutionNode(
+            id="weather_10d",
+            tool="web.manage",
+            args={"action": "weather", "location": "杭州", "days": 10},
+        ),
     ]
-    dag = GraphCompiler(SSOTRuntimeConfig()).compile(plan)
-    result = SemanticValidator().validate(dag)
+    result = SemanticValidator().validate(calls)
     assert result.valid, [e.message for e in result.errors]

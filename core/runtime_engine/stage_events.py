@@ -20,8 +20,8 @@ Frontend expected matchers (frontend AgentWorkbench):
   case "execution_completed": "工具执行完成 N/N"
   case "repair_attempt":      "重试节点 <id>"
   case "merge_completed":     "汇总执行结果"
-  case "finalizing_started":  "整理最终回复…"
-  case "finalizing_completed":"回复已就绪"
+  case "response_started":    "整理回复…"
+  case "response_completed":  "回复已就绪"
   case "heartbeat":           "已等待 Xs"
 """
 
@@ -40,8 +40,8 @@ EXECUTION_STARTED = "execution_started"
 EXECUTION_COMPLETED = "execution_completed"
 REPAIR_ATTEMPT = "repair_attempt"
 MERGE_COMPLETED = "merge_completed"
-FINALIZING_STARTED = "finalizing_started"
-FINALIZING_COMPLETED = "finalizing_completed"
+RESPONSE_STARTED = "response_started"
+RESPONSE_COMPLETED = "response_completed"
 TURN_STARTED = "turn_started"
 TURN_COMPLETED = "turn_completed"
 
@@ -68,8 +68,8 @@ STAGE_LABELS: dict[str, str] = {
     EXECUTION_COMPLETED: "工具执行完成",
     REPAIR_ATTEMPT: "重试节点",
     MERGE_COMPLETED: "汇总执行结果",
-    FINALIZING_STARTED: "整理最终回复…",
-    FINALIZING_COMPLETED: "回复已就绪",
+    RESPONSE_STARTED: "整理回复…",
+    RESPONSE_COMPLETED: "回复已就绪",
     TURN_COMPLETED: "轮次完成",
     HEARTBEAT: "仍在处理…",
 }

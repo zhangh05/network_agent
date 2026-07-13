@@ -1,7 +1,7 @@
 """Tests for LLM streaming scope isolation and direct-answer fast path.
 
 v3.11: verifies that planner tokens do NOT leak to the user token
-channel, direct-answer / finalizer tokens DO, and that the narrow
+channel, direct-answer / response tokens DO, and that the narrow
 fast-path classifier correctly routes simple queries.
 """
 
@@ -12,7 +12,6 @@ from types import SimpleNamespace
 
 from core.runtime_engine.fast_path import classify_direct_answer, FastPathDecision
 from core.runtime_engine import SSOTRuntimeConfig, SSOTRuntimeEngine
-from core.runtime_engine.models import StatelessContext, ExecutionNode, ExecutionDAG, ToolResult
 
 
 # ============================================================================
@@ -319,9 +318,8 @@ class TestStreamScope:
         )
         assert req_meta.get("stream_scope") == "planner"
 
-    def test_finalizer_gets_stream_to_user_true(self):
-        """_invoke_llm_for_ssot_runtime with non-planner system prompt
-        must set stream_to_user=True."""
+    def test_response_scope_gets_stream_to_user_true(self):
+        """The QueryLoop response scope must stream tokens to the user."""
         from agent.llm.runtime import invoke_llm
 
         req_meta = {}
@@ -340,18 +338,19 @@ class TestStreamScope:
         runtime_mod.invoke_llm = _capture
         try:
             from agent.runtime.ssot_runtime import _invoke_llm_for_ssot_runtime
-            # Simulate a finalizer call (no "execution planner" in system)
+            # Simulate a response call (no "execution planner" in system)
             _invoke_llm_for_ssot_runtime(
                 system="You are a helpful network assistant.",
                 user="summarize results",
+                extra={"stream_scope": "response", "stream_to_user": True},
             )
         finally:
             runtime_mod.invoke_llm = original
 
         assert req_meta.get("stream_to_user") is True, (
-            "finalizer must have stream_to_user=True"
+            "response must have stream_to_user=True"
         )
-        assert req_meta.get("stream_scope") == "finalizer"
+        assert req_meta.get("stream_scope") == "response"
 
     def test_direct_answer_overrides_scope(self):
         """When caller provides extra, it overrides auto-detected scope."""

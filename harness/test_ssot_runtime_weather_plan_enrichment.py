@@ -18,7 +18,7 @@ def test_ssot_runtime_enriches_weather_days_and_location_from_user_text():
         if "execution planner" in system.lower():
             return (
                 '{"nodes":[{"id":"weather","tool":"web.manage",'
-                '"args":{"action":"weather"},"deps":[]}]}'
+                '"args":{"action":"weather"}}]}'
             )
         return "杭州未来十天天气已返回。"
 
@@ -41,7 +41,7 @@ def test_ssot_runtime_enriches_weather_days_and_location_from_user_text():
         }
     }
     engine = SSOTRuntimeEngine(
-        config=SSOTRuntimeConfig(enable_finalizer=False),
+        config=SSOTRuntimeConfig(),
         llm_invoke=llm_mock,
         tool_registry=registry,
     )

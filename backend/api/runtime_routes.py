@@ -184,25 +184,28 @@ def register_runtime_routes(app):
     @app.route("/api/runtime/summary")
     def api_runtime_summary():
         """Return safe runtime counts used by the workbench status UI."""
-        from agent.runtime.services import default_runtime_services
+        from agent.capabilities import catalog
+        from core.tools.integration import get_default_tool_runtime_client
 
-        services = default_runtime_services()
-        # v3.9.4: services hold a frozen list snapshot, not the catalog module.
-        caps = services.capability_catalog
+        caps = catalog.list_all()
         cap_counts = {
             "total": len(caps),
-            "enabled": len([c for c in caps if c.get("status") == "enabled"]),
-            "planned": len([c for c in caps if c.get("status") == "planned"]),
-            "disabled": len([c for c in caps if c.get("status") == "disabled"]),
+            "enabled": len(caps),
         }
 
-        registry = services.tool_service.registry
-        all_tools = registry.list_all()
-        visible_tools = registry.list_model_visible()
+        all_tools = get_default_tool_runtime_client().list_tools()
+        visible_tools = [
+            tool for tool in all_tools
+            if tool.get("enabled", True)
+            and not tool.get("forbidden", False)
+            and tool.get("callable_by_llm", True)
+        ]
         hidden_or_non_llm = [
-            t.tool_id
-            for t in all_tools
-            if (not t.enabled) or t.forbidden or (not t.callable_by_llm)
+            tool.get("tool_id", "")
+            for tool in all_tools
+            if not tool.get("enabled", True)
+            or tool.get("forbidden", False)
+            or not tool.get("callable_by_llm", True)
         ]
 
         return jsonify({
@@ -603,54 +606,6 @@ def register_runtime_routes(app):
         if not audit:
             return jsonify({"ok": False, "error": "audit not found"}), 404
         return jsonify(audit)
-
-    # ─── v3.8: Graph inspector + SSE + breakpoints ───
-
-    @app.route("/api/agent/graph")
-    def api_agent_graph():
-        try:
-            from core.tools.tool_namespace import TOOL_NAMESPACE
-            return jsonify({
-                "ok": True, "total_tools": len(TOOL_NAMESPACE),
-                "core_tools": 5,
-                "categories": sorted(set(TOOL_NAMESPACE[t].category for t in TOOL_NAMESPACE)),
-            })
-        except Exception as e:
-            return jsonify({"ok": False, "error": str(e)[:200]}), 500
-
-    # Per-workspace dynamic breakpoints (thread-safe, replaces os.environ)
-    _breakpoints: dict[str, list[str]] = {}
-    _breakpoints_lock = threading.Lock()
-
-    @app.route("/api/agent/breakpoints", methods=["GET", "POST", "DELETE"])
-    def api_agent_breakpoints():
-        ws_id_raw = request.args.get("workspace_id", "")
-        ws_id, err = _validated_ws_id(ws_id_raw)
-        if err:
-            return err
-        if request.method == "GET":
-            with _breakpoints_lock:
-                tools = _breakpoints.get(ws_id, [])
-            return jsonify({"ok": True, "breakpoints": tools})
-        elif request.method == "POST":
-            data = request.get_json(silent=True) or {}
-            tools = data.get("tools", [])
-            # Normalize: accept comma-separated string or JSON list
-            if isinstance(tools, str):
-                tools = [t.strip() for t in tools.split(",") if t.strip()]
-            elif not isinstance(tools, list):
-                tools = [str(tools)]
-            with _breakpoints_lock:
-                _breakpoints[ws_id] = tools
-            return jsonify({"ok": True, "tools": tools})
-        else:
-            with _breakpoints_lock:
-                _breakpoints.pop(ws_id, None)
-            return jsonify({"ok": True, "breakpoints": []})
-
-    @app.route("/api/agent/runtime-mode")
-    def api_agent_runtime_mode():
-        return jsonify({"ok": True, "mode": "ssot_runtime", "engine": "SSOTRuntimeEngine"})
 
     @app.route("/api/agent/sse/stream/<session_id>")
     def api_agent_sse_stream(session_id):

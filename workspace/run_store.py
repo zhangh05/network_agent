@@ -66,8 +66,6 @@ def write_run_record(state, ws_id: str = "default") -> str:
         "user_input_summary": redact_text(state.user_input or "")[:120],
         "intent": state.intent,
         "capability": state.context.get("capability_id", ""),
-        "active_module": state.active_module,
-        "selected_skill": state.selected_skill,
         "runtime_mode": state.runtime_mode,
         "started_at": created_at,
         "finished_at": now_iso(),
@@ -103,16 +101,6 @@ def write_run_record(state, ws_id: str = "default") -> str:
         "sensitivity": "internal",
         "redaction_applied": True,
     }
-
-    from core.graph.projection_events import append_run_record_written
-    event_id = append_run_record_written(
-        workspace_id=ws_id,
-        session_id=state.session_id or "",
-        run_id=run_id,
-        record=record,
-    )
-    record["ssot_event_id"] = event_id
-    record["projection_of"] = "GraphStore"
 
     # ── Atomic write (P1-18): UUID tmp + fsync before rename ──
     import uuid as _uuid
@@ -288,7 +276,7 @@ def _is_run_record_file(path: Path) -> bool:
     """Return True only for canonical run records.
 
     The runs directory also stores sidecar JSON documents such as
-    ``*.trace.json`` and ``*.decision.json``. Those must never be surfaced as
+    ``*.trace.json``. Those must never be surfaced as
     user-visible run rows.
     """
     name = path.name
@@ -296,7 +284,6 @@ def _is_run_record_file(path: Path) -> bool:
         return False
     return not (
         name.endswith(".trace.json")
-        or name.endswith(".decision.json")
     )
 
 

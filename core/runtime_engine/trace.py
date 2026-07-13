@@ -1,9 +1,7 @@
 """
 Execution Trace System for SSOT Runtime Engine.
 
-Generates a full trace tree with hierarchical spans:
-  request → planner → compile → validation → risk → scheduling
-    → execution.layer.N.node.* → merge → finalizer → audit → metrics
+Generates request and QueryLoop call spans.
 
 Each span has: start_time, end_time, duration_ms, status, error_code, metadata.
 """
@@ -14,10 +12,7 @@ import time
 from typing import Any
 
 from .models import (
-    ExecutionDAG,
     ExecutionNode,
-    ExecutionStatus,
-    SSOTRuntimeConfig,
     TraceSpan,
     ToolResult,
 )
@@ -66,9 +61,6 @@ class TraceCollector:
     def add_child(self, parent: SpanClock, child: SpanClock) -> None:
         parent.span.children.append(child.span)
 
-    def add_layer_span(self, depth: int, node_count: int) -> SpanClock:
-        return SpanClock(f"execution.layer.{depth}", node_count=node_count)
-
     def add_node_span(self, node: ExecutionNode) -> SpanClock:
         # v3.10: surface action-alias provenance on per-node spans so
         # any later trace dump reveals planner terminology drift.
@@ -81,14 +73,13 @@ class TraceCollector:
             metadata["action_normalized"] = node.args.get("action", "")
             metadata["normalized_from_alias"] = True
         return SpanClock(
-            f"execution.layer.{node.depth}.node.{node.id}",
+            f"tool_call.{node.id}",
             **metadata,
         )
 
     def finalize(
         self,
         request_span: SpanClock | None,
-        dag: ExecutionDAG | None,
         node_results: dict[str, ToolResult],
         risk_level: str = "low",
     ) -> TraceSpan | None:

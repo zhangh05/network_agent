@@ -53,15 +53,15 @@ def get_diagnostics(workspace_id: str = "default") -> DiagnosticReport:
         components.append(ComponentStatus("workspace", "error",
             f"Workspace '{workspace_id}' not found"))
 
-    # 2. Registry
+    # 2. Canonical capability and tool sources
     try:
-        from registry.loader import get_registry_status
-        reg = get_registry_status()
-        components.append(ComponentStatus("registry", "ok",
-            f"{reg['module_count']} modules, {reg['skill_count']} skills, {reg['capability_count']} capabilities",
-            {"enabled_modules": reg.get("enabled_modules", [])}))
+        from agent.capabilities.catalog import list_all, list_enabled
+        from core.tools.canonical_registry import CANONICAL_REGISTRY
+        components.append(ComponentStatus("capabilities", "ok",
+            f"{len(list_enabled())} capabilities, {len(CANONICAL_REGISTRY)} tools",
+            {"capability_count": len(list_all()), "tool_count": len(CANONICAL_REGISTRY)}))
     except Exception as e:
-        components.append(ComponentStatus("registry", "error", f"Registry failed: {str(e)[:100]}"))
+        components.append(ComponentStatus("capabilities", "error", f"Catalog failed: {str(e)[:100]}"))
 
     # 3. Run stats
     runs_dir = ws_dir / "runs"
@@ -104,9 +104,8 @@ def get_diagnostics(workspace_id: str = "default") -> DiagnosticReport:
         from agent.runtime_status import get_runtime_status
         agent_status = get_runtime_status()
         components.append(ComponentStatus("agent", "ok",
-            f"Runtime: {agent_status.get('agent_runtime', '?')}, "
-            f"LangGraph: {agent_status.get('langgraph_available', False)}",
-            {"runtime_mode": agent_status.get("agent_runtime", "")}))
+            f"Runtime: {agent_status.get('runtime_engine', '?')}",
+            {"runtime_mode": agent_status.get("runtime_engine", "")}))
     except Exception as e:
         components.append(ComponentStatus("agent", "error", str(e)[:100]))
 

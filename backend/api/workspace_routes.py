@@ -81,10 +81,9 @@ def _safe_run_trace_summary(run: dict, trace: dict | None) -> dict:
             if isinstance(tool, str) and tool.strip():
                 tool_ids.add(tool.strip())
 
-    selected_skills = run.get("selected_capabilities") or run.get("selected_skills")
-    if not isinstance(selected_skills, list):
-        selected_skill = run.get("selected_skill")
-        selected_skills = [selected_skill] if isinstance(selected_skill, str) and selected_skill else []
+    selected_capabilities = run.get("selected_capabilities")
+    if not isinstance(selected_capabilities, list):
+        selected_capabilities = []
 
     tool_count = max(int(run.get("tool_call_count") or 0), len(tool_ids) or anonymous_tool_events)
     # v3.9.14 fix: started_at / finished_at fall back to ``run.created_at``
@@ -104,45 +103,12 @@ def _safe_run_trace_summary(run: dict, trace: dict | None) -> dict:
             or run.get("updated_at")
             or (timestamps[-1] if timestamps else "")
         ),
-        "selected_capabilities": selected_skills,
+        "selected_capabilities": selected_capabilities,
         "visible_tools": sorted(tool_ids),
         "tool_call_count": tool_count,
         "warning_count": max(int(run.get("warning_count") or 0), warning_count),
         "error_count": max(int(run.get("error_count") or 0), error_count),
         "event_count": len(events),
-    }
-
-
-def _safe_decision_summary(report: dict | None) -> dict:
-    if not isinstance(report, dict):
-        return {}
-    route = report.get("capability_route")
-    route = route if isinstance(route, dict) else {}
-    planning = report.get("tool_planning_decision")
-    planning = planning if isinstance(planning, dict) else {}
-    execution = report.get("tool_execution_summary")
-    execution = execution if isinstance(execution, dict) else {}
-    retrieval = report.get("retrieval_decision")
-    retrieval = retrieval if isinstance(retrieval, dict) else {}
-    trace = report.get("trace_summary")
-    trace = trace if isinstance(trace, dict) else {}
-    retrieval_status = {}
-    for name, value in retrieval.items():
-        if isinstance(value, dict):
-            retrieval_status[str(name)] = str(value.get("status", "unknown"))
-    return {
-        "schema_version": str(report.get("schema_version", "")),
-        "decision_status": str(report.get("decision_status", "degraded")),
-        "capability_ids": [
-            str(value) for value in list(route.get("capability_ids") or [])[:10]
-        ],
-        "visible_tool_count": len(list(planning.get("visible_tools") or [])),
-        "called_tool_count": len(list(execution.get("called") or [])),
-        "blocked_tool_count": len(list(execution.get("blocked") or [])),
-        "retrieval": retrieval_status,
-        "real_event_count": int(trace.get("real_event_count") or 0),
-        "synthetic_event_count": int(trace.get("synthetic_event_count") or 0),
-        "missing_event_count": int(trace.get("missing_event_count") or 0),
     }
 
 
@@ -344,10 +310,10 @@ def register_workspace_routes(app):
         # Whitelist of safe fields for public run history (never expose secrets, configs, or prompts)
         _SAFE_RUN_KEYS = frozenset({
             "run_id", "workspace_id", "session_id", "intent",
-            "active_module", "selected_capability", "status", "error",
+            "selected_capability", "status", "error",
             "warnings", "quality_summary", "elapsed_ms", "created_at",
             "node_timings", "trace_id", "user_input_summary", "final_response",
-            "turn_id", "started_at", "finished_at", "selected_capabilities", "selected_skills",
+            "turn_id", "started_at", "finished_at", "selected_capabilities",
             "visible_tools", "tool_call_count", "warning_count", "error_count",
             "tool_decision", "no_tool_reason",
             # v3.9.1: expose `ok` so the frontend can render badges honestly
@@ -356,7 +322,6 @@ def register_workspace_routes(app):
             "ok",
         })
         from observability.store import get_trace
-        from agent.runtime.decision_report.writer import read_decision_report
         from core.tools.redaction import redact_tool_output
         for r in recent:
             safe_run = {k: v for k, v in r.items() if k in _SAFE_RUN_KEYS}
@@ -366,10 +331,6 @@ def register_workspace_routes(app):
             safe_run.update(_safe_run_trace_summary(r, trace))
             if trace and trace.get("trace_id") and not safe_run.get("trace_id"):
                 safe_run["trace_id"] = trace.get("trace_id")
-            decision_report = read_decision_report(rid, ws_id) if rid else None
-            safe_run["decision_available"] = bool(decision_report)
-            if decision_report:
-                safe_run["decision_summary"] = _safe_decision_summary(decision_report)
             # Attach session title so the frontend can show run→session association
             safe_run["session_title"] = session_titles.get(r.get("session_id", ""), "")
             safe_recent.append(safe_run)

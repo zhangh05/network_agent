@@ -5,7 +5,6 @@ Handles recoverable semantic validation errors BEFORE execution fails.
 
 Repairable errors:
   - ARG_ENUM_INVALID        → action alias normalization
-  - TOOL_NOT_FOUND + alias  → tool name correction
   - MISSING_REQUIRED_ARG    → return to the LLM for correction
   - PLAN_SCHEMA_INVALID     → deterministic patch
   - INVALID_ACTION_ALIAS    → normalize action/operation
@@ -35,83 +34,12 @@ from typing import Any
 
 
 # ============================================================================
-# Action Alias Table
-# ============================================================================
-#
-# v3.10: this map is the **runtime fallback** for action alias
-# correction. The canonical source of truth is in
-# ``core.runtime_engine/action_alias.py`` — see ``resolve_action_alias()``
-# there. Every entry that lives here is intentionally transient:
-# if the LLM keeps emitting the same alias across a release cycle,
-# promote it to ``action_alias.CANONICAL_ALIASES_BY_TOOL``.
-#
-# Hard rule: NO alias may be defined in BOTH this map and the
-# canonical table — the canonical table always wins and the
-# drift test (``harness/test_alias_drift.py``) enforces that.
-#
-# Source field semantics for resolution events:
-#   - "canonical" — rewritten through ``resolve_action_alias()``
-#   - "extended"  — rewritten through this fallback
-#   - "none"      — caller should let the semantic validator reject it
-EXTENDED_RUNTIME_ALIAS_MAP: dict[str, tuple[str, str | None]] = {
-    # Workspace aliases — transient LLM drift we still see; promote
-    # to canonical once it stabilizes.
-    "file_read": ("read", None),
-    "read_file": ("read", None),
-    "file_write": ("write_artifact", None),
-    "write_file": ("write_artifact", None),
-    "file_list": ("list", None),
-    "list_files": ("list", None),
-    "file_delete": ("delete", None),
-    "delete_file_obj": ("delete", None),
-
-    # Git aliases — transient.
-    "git_status": ("status", None),
-    "git_diff": ("diff", None),
-    "git_log": ("log", None),
-    "git_commit": ("commit", None),
-
-    # Config aliases — transient.
-    "parse_config": ("parse", None),
-    "config_parse": ("parse", None),
-    "translate_config": ("translate", None),
-
-    # PCAP aliases — transient.
-    "parse_pcap": ("parse", None),
-    "pcap_parse": ("parse", None),
-}
-
-
-# ============================================================================
-# Tool name aliases
-# ============================================================================
-
-TOOL_NAME_ALIASES: dict[str, str] = {
-    "exec.run_command": "exec.run",
-    "run.exec": "exec.run",
-    "workspace.read": "workspace.file",
-    "workspace.write": "workspace.file",
-    "workspace.delete": "workspace.file",
-    "workspace.list": "workspace.file",
-    "knowledge.search": "knowledge.manage",
-    "knowledge.read": "knowledge.manage",
-    "memory.search": "memory.manage",
-    "cmdb.manage": "device.manage",
-    "device.list": "device.manage",
-    "pcap.analyze": "pcap.manage",
-    "report.generate": "report.manage",
-    "inspection.run": "inspection.manage",
-}
-
-
-# ============================================================================
 # Repair-eligible error codes
 # ============================================================================
 
 REPAIRABLE_ERROR_CODES: set[str] = {
     "ARG_ENUM_INVALID",
     "ACTION_ALIAS_NOT_NORMALIZED",
-    "TOOL_NOT_FOUND",
     "MISSING_REQUIRED_ARG",
     "ARG_TYPE_MISMATCH",
     "INVALID_ACTION_ALIAS",
@@ -147,11 +75,7 @@ class RepairEvent:
     original_action: str = ""
     normalized_action: str = ""
     operation: str | None = None
-    # v3.10: which alias source the rewrite came from. The
-    # canonical source (action_alias.resolve_action_alias) is the
-    # preferred path; ``"extended"`` means the runtime fallback in
-    # EXTENDED_RUNTIME_ALIAS_MAP rewrote it; ``"none"`` means the
-    # caller should let the semantic validator reject it.
+    # Alias rewrites come only from action_alias.resolve_action_alias.
     source: str = "none"
     repair_attempt: int = 0
     validation_error_before: str = ""
@@ -164,15 +88,10 @@ class PreExecutionRepairResult:
     """Result of a pre-execution repair attempt."""
     repaired: bool = False
     strategy: str = ""              # "deterministic" | "planner_llm" | "none"
-    repaired_dag: Any | None = None  # ExecutionDAG if repaired
+    repaired_nodes: list[Any] | None = None
     repair_events: list[RepairEvent] = field(default_factory=list)
     unrepairable_reason: str = ""
     repair_attempts: int = 0
-
-    @property
-    def repaired_graph(self) -> Any | None:
-        """Loop-friendly alias for the repaired validation graph."""
-        return self.repaired_dag
 
 
 # ============================================================================
@@ -206,17 +125,17 @@ class PreExecutionRepairEngine:
 
     def try_repair(
         self,
-        dag,
+        nodes,
         validation_errors: list[Any],
     ) -> PreExecutionRepairResult:
-        """Attempt to repair semantic validation errors on a DAG.
+        """Attempt to repair semantic validation errors in a tool-call batch.
 
         Args:
-            dag: The ExecutionDAG that failed validation
+            nodes: Normalized QueryLoop tool calls that failed validation
             validation_errors: List of SemanticError objects from SemanticValidator
 
         Returns:
-            PreExecutionRepairResult with repaired_dag if successful
+            PreExecutionRepairResult with repaired_nodes if successful
         """
         events: list[RepairEvent] = []
         error_codes = [e.code for e in validation_errors]
@@ -248,7 +167,7 @@ class PreExecutionRepairEngine:
             message = getattr(error, "message", "")
             details = getattr(error, "details", {})
 
-            node = self._find_node(dag, node_id)
+            node = self._find_node(nodes, node_id)
             if node is None:
                 continue
 
@@ -266,9 +185,6 @@ class PreExecutionRepairEngine:
 
             elif code == "ACTION_ALIAS_NOT_NORMALIZED":
                 repaired = self._repair_action_alias_not_normalized(node, event)
-
-            elif code == "TOOL_NOT_FOUND":
-                repaired = self._repair_tool_not_found(node, event)
 
             elif code == "MISSING_REQUIRED_ARG":
                 # Missing values encode user/model intent. Inventing defaults
@@ -297,7 +213,7 @@ class PreExecutionRepairEngine:
         return PreExecutionRepairResult(
             repaired=any_repaired,
             strategy="deterministic",
-            repaired_dag=dag,
+            repaired_nodes=nodes,
             repair_events=events,
             repair_attempts=self._repair_count,
         )
@@ -309,15 +225,12 @@ class PreExecutionRepairEngine:
     def _repair_enum_invalid(self, node, event: RepairEvent, message: str) -> bool:
         """Fix enum mismatch via action alias normalization.
 
-        Resolution order:
-          1. ``resolve_action_alias(node.tool, action)`` — canonical source
-          2. ``EXTENDED_RUNTIME_ALIAS_MAP`` — transient runtime fallback
+        Resolution uses the canonical action table only.
         """
         action = node.args.get("action", "")
         if not action or not isinstance(action, str):
             return False
 
-        # 1. Canonical source (single source of truth).
         from .action_alias import resolve_action_alias
         resolution = resolve_action_alias(node.tool, action)
         if resolution.matched:
@@ -328,20 +241,6 @@ class PreExecutionRepairEngine:
             node.args["action"] = resolution.canonical_action
             if resolution.operation:
                 node.args["operation"] = resolution.operation
-            event.validation_after = "pass"
-            return True
-
-        # 2. Extended runtime fallback (transient aliases only).
-        alias_key = action.lower()
-        if alias_key in EXTENDED_RUNTIME_ALIAS_MAP:
-            canonical, op = EXTENDED_RUNTIME_ALIAS_MAP[alias_key]
-            event.original_action = action
-            event.normalized_action = canonical
-            event.operation = op
-            event.source = "extended"
-            node.args["action"] = canonical
-            if op:
-                node.args["operation"] = op
             event.validation_after = "pass"
             return True
 
@@ -350,9 +249,7 @@ class PreExecutionRepairEngine:
     def _repair_action_alias_not_normalized(self, node, event: RepairEvent) -> bool:
         """Normalize an action alias that the compiler missed.
 
-        Same resolution order as :meth:`_repair_enum_invalid`:
-        canonical first, extended fallback second. Either way the
-        event records ``source`` so audit surfaces the drift.
+        Uses the same canonical source as :meth:`_repair_enum_invalid`.
         """
         from .action_alias import resolve_action_alias
 
@@ -360,7 +257,6 @@ class PreExecutionRepairEngine:
         if not action or not isinstance(action, str):
             return False
 
-        # 1. Canonical source.
         resolution = resolve_action_alias(node.tool, action)
         if resolution.matched:
             event.original_action = resolution.original_action
@@ -370,20 +266,6 @@ class PreExecutionRepairEngine:
             node.args["action"] = resolution.canonical_action
             if resolution.operation:
                 node.args["operation"] = resolution.operation
-            event.validation_after = "pass"
-            return True
-
-        # 2. Extended runtime fallback.
-        alias_key = action.lower()
-        if alias_key in EXTENDED_RUNTIME_ALIAS_MAP:
-            canonical, op = EXTENDED_RUNTIME_ALIAS_MAP[alias_key]
-            event.original_action = action
-            event.normalized_action = canonical
-            event.operation = op
-            event.source = "extended"
-            node.args["action"] = canonical
-            if op:
-                node.args["operation"] = op
             event.validation_after = "pass"
             return True
 
@@ -392,7 +274,7 @@ class PreExecutionRepairEngine:
     def _repair_action_alias(self, node, event: RepairEvent) -> bool:
         """General action alias repair.
 
-        Same resolution order: canonical → extended.
+        Uses the canonical action alias table.
         """
         action = node.args.get("action", "")
         if not action or not isinstance(action, str):
@@ -411,41 +293,17 @@ class PreExecutionRepairEngine:
             event.validation_after = "pass"
             return True
 
-        alias_key = action.lower()
-        if alias_key in EXTENDED_RUNTIME_ALIAS_MAP:
-            canonical, op = EXTENDED_RUNTIME_ALIAS_MAP[alias_key]
-            event.original_action = action
-            event.normalized_action = canonical
-            event.operation = op
-            event.source = "extended"
-            node.args["action"] = canonical
-            if op:
-                node.args["operation"] = op
-            event.validation_after = "pass"
-            return True
-
-        return False
-
-    def _repair_tool_not_found(self, node, event: RepairEvent) -> bool:
-        """Fix tool name via alias table."""
-        tool = node.tool
-        if tool in TOOL_NAME_ALIASES:
-            node.tool = TOOL_NAME_ALIASES[tool]
-            event.original_action = tool
-            event.normalized_action = node.tool
-            event.validation_after = "pass"
-            return True
         return False
 
     # ========================================================================
     # Helpers
     # ========================================================================
 
-    def _find_node(self, dag, node_id: str):
-        """Find a node by ID in the DAG."""
-        if dag is None:
+    def _find_node(self, nodes, node_id: str):
+        """Find a call by ID in the current batch."""
+        if nodes is None:
             return None
-        for n in dag.nodes:
+        for n in nodes:
             if n.id == node_id:
                 return n
         return None

@@ -41,7 +41,6 @@ def ensure_workspace(ws_id: str = "default") -> str:
                 f"id: {ws_id}\n"
                 f"name: {ws_id}\n"
                 f"created: {time.time()}\n"
-                f"active_module: config_translation\n"
             )
             yaml_path.write_text(yaml_text)
         except Exception:
@@ -54,10 +53,8 @@ def ensure_workspace(ws_id: str = "default") -> str:
             default_state = {
                 "workspace_id": ws_id,
                 "name": ws_id,
-                "active_module": "config_translation",
                 "last_run_id": "",
                 "last_intent": "",
-                "last_active_module": "",
                 "last_result_summary": "",
                 "last_result_counts": {},
                 "last_manual_review_samples": [],
@@ -281,7 +278,6 @@ def _is_run_record_file(path: Path) -> bool:
         return False
     return not (
         name.endswith(".trace.json")
-        or name.endswith(".decision.json")
     )
 
 

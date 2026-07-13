@@ -1,13 +1,13 @@
 """
 QueryLoop — iterative LLM + tool execution engine.
 
-The single tool-capable runtime loop merges planning and finalization,
+The single tool-capable runtime loop owns reasoning, execution, and response,
 feeds tool results back for iterative refinement, tracks long tasks,
 records retry metadata, and auto-compacts long conversations.
 
 Optimizations:
   1. Prompt Cache — static system+tools prefix never changes
-  2. Planner+Finalizer merge — one LLM call per iteration
+  2. One runtime contract — reasoning and user response share one system prompt
   3. Iterative execution — tool results feed back for dynamic decisions
   4. Streaming tool exec — tools start during LLM output
   5. Auto-compact — summarise old turns when context grows
@@ -36,7 +36,6 @@ from .tracking import extract_tracking_payload, normalize_tracking_payload
 from agent.llm.schemas import LLMMessage, LLMResponse, LLMToolCall
 from agent.llm.tool_adapter import tool_spec_to_openai_function
 from .prompt_contract import (
-    FINAL_RESPONSE_PROMPT,
     RUNTIME_SYSTEM_PROMPT,
     build_runtime_system_prompt,
     build_turn_message,
@@ -49,9 +48,7 @@ from .prompt_contract import (
 # Keep this concise: the full tool catalog is already supplied through the
 # function-calling tools field on every planner call.
 QUERY_LOOP_SYSTEM_PROMPT = RUNTIME_SYSTEM_PROMPT
-QUERY_LOOP_FINALIZER_PROMPT = FINAL_RESPONSE_PROMPT
-
-FINAL_RESPONSE_ONLY_MARKER = "[FINAL_RESPONSE_ONLY]"
+RESPONSE_ONLY_MARKER = "[RESPONSE_ONLY]"
 
 
 _TOOL_DEFINITION_CACHE: dict[str, List[dict]] = {}
@@ -105,7 +102,6 @@ def _build_cached_tool_definitions(tool_registry: dict) -> List[dict]:
 
 TOOL_MESSAGE_MAX_CHARS = 50_000    # Per-tool output cap fed to LLM; balances article coverage vs context pressure
 ARTIFACT_ANALYSIS_MAX_CHARS = 100_000
-FINALIZER_TOOL_MAX_CHARS = 5000
 FALLBACK_TOOL_MAX_CHARS = 2000
 MAX_VALIDATION_CORRECTION_ROUNDS = 3
 
@@ -515,7 +511,6 @@ class StreamingToolExecutor:
                 id=tc.id,
                 tool=tool_id,
                 args=dict(tc.arguments or {}),
-                depth=0,
             )
             result = await self._runtime.execute_node(node, ctx, {})
             if not result.success:
@@ -796,7 +791,7 @@ class QueryLoop:
         # Doom-loop detection: key=(tool, args_hash) → consecutive_failures
         failure_counts: Dict[str, int] = {}
         validation_correction_attempts = 0
-        successful_call_keys: set[str] = set()
+        completed_call_keys: set[str] = set()
         used_call_ids: set[str] = set()
         execution_duration_ms = 0.0
 
@@ -864,7 +859,7 @@ class QueryLoop:
             if self._has_complete_analysis_artifact(prefetch_results):
                 messages = self._append_turn_nudge(
                     messages,
-                    FINAL_RESPONSE_ONLY_MARKER
+                    RESPONSE_ONLY_MARKER
                     + " Complete artifacts were prefetched above. Analyze them and "
                     "answer the original request now; do not call tools.",
                 )
@@ -946,29 +941,6 @@ class QueryLoop:
                 tool_calls = self._parse_tool_calls(response.tool_calls)
                 tool_calls = self._unique_call_ids(tool_calls, iterations, used_call_ids)
 
-                duplicate_successes = [
-                    tc for tc in tool_calls
-                    if self._tool_call_key(tc) in successful_call_keys
-                ]
-                if duplicate_successes and len(duplicate_successes) == len(tool_calls):
-                    return finish(
-                        final_response=self._build_tool_result_fallback(ctx, all_results),
-                        error="duplicate_successful_tool_call",
-                    )
-                tool_calls = [
-                    tc for tc in tool_calls
-                    if self._tool_call_key(tc) not in successful_call_keys
-                ]
-                if not tool_calls:
-                    return finish(
-                        final_response=self._build_tool_result_fallback(ctx, all_results),
-                        tool_results=all_results,
-                        iterations=iterations,
-                        total_tool_calls=len(all_results),
-                        llm_calls=llm_calls,
-                        error="duplicate_tool_call",
-                    )
-
                 gate = self._prepare_tool_calls(ctx, tool_calls)
                 if not gate["ok"]:
                     if gate.get("hard_block") or gate.get("approval_nodes") or gate.get("approval_required"):
@@ -1046,13 +1018,36 @@ class QueryLoop:
                     continue
                 tool_calls = gate["tool_calls"]
 
+                # Deduplicate only after deterministic alias/argument repair.
+                # This lets the model recover with changed arguments while
+                # preventing an identical successful or failed operation from
+                # running forever. The old pre-gate comparison missed aliases
+                # such as file_read -> read because their raw keys differed.
+                repeated_calls = [
+                    tc for tc in tool_calls
+                    if self._tool_call_key(tc) in completed_call_keys
+                ]
+                if repeated_calls and len(repeated_calls) == len(tool_calls):
+                    return finish(
+                        final_response=self._build_tool_result_fallback(ctx, all_results),
+                        error="duplicate_tool_call",
+                    )
+                tool_calls = [
+                    tc for tc in tool_calls
+                    if self._tool_call_key(tc) not in completed_call_keys
+                ]
+                if not tool_calls:
+                    return finish(
+                        final_response=self._build_tool_result_fallback(ctx, all_results),
+                        error="duplicate_tool_call",
+                    )
+
                 # Execute tools (parallel read-only, serial writes)
                 execution_started = time.monotonic()
                 results = await self._executor.execute(tool_calls, ctx=ctx, budget=budget)
                 all_results.extend(results)
-                for r, tc in zip(results, tool_calls):
-                    if r.ok:
-                        successful_call_keys.add(self._tool_call_key(tc))
+                for tc in tool_calls:
+                    completed_call_keys.add(self._tool_call_key(tc))
 
                 # ── Tracking: auto-poll long tasks (e.g. inspection) ──
                 polled_results = await self._settle_tracking(ctx, results, budget=budget)
@@ -1075,7 +1070,7 @@ class QueryLoop:
                 if self._has_complete_analysis_artifact(results):
                     messages = self._append_turn_nudge(
                         messages,
-                        FINAL_RESPONSE_ONLY_MARKER
+                    RESPONSE_ONLY_MARKER
                         + " The complete artifact content is included above. "
                         "Analyze it and answer the original request now; do not read files or call tools.",
                     )
@@ -1139,21 +1134,6 @@ class QueryLoop:
                                     error="doom_loop_timeout",
                                 )
 
-                if not getattr(self._config, "enable_finalizer", True):
-                    return finish(
-                        final_response=self._build_tool_result_fallback(ctx, all_results),
-                        tool_results=all_results,
-                        iterations=iterations,
-                        total_tool_calls=len(all_results),
-                        llm_calls=llm_calls,
-                        metrics={
-                            "elapsed_ms": (time.monotonic() - t_start) * 1000,
-                            "iterations": iterations,
-                            "tool_calls": len(all_results),
-                            "llm_calls": llm_calls,
-                        },
-                    )
-
                 continue
 
             # No tool calls → final response
@@ -1161,7 +1141,7 @@ class QueryLoop:
             if not final_text.strip():
                 if all_results and iterations < max_iterations:
                     reminder = (
-                        FINAL_RESPONSE_ONLY_MARKER
+                        RESPONSE_ONLY_MARKER
                         + " You just received tool results. "
                         "Now answer the user's original question in natural language. "
                         "Do NOT call any more tools — produce the final response directly."
@@ -1275,7 +1255,7 @@ class QueryLoop:
         try:
             system_prompt, stream_scope, stream_to_user = self._llm_call_mode(messages, ctx)
             tools_for_call = (
-                [] if self._is_final_response_only(messages) else self._cached_tools
+                [] if self._is_response_only(messages) else self._cached_tools
             )
             if self._llm_invoke is not None:
                 raw = await asyncio.wait_for(
@@ -1333,20 +1313,33 @@ class QueryLoop:
         messages: List[LLMMessage],
         ctx: StatelessContext,
     ) -> tuple[str, str, bool]:
+        response_only = any(
+            message.role == "user"
+            and RESPONSE_ONLY_MARKER in str(message.content or "")
+            for message in messages[-2:]
+        )
+        if response_only:
+            return build_runtime_system_prompt(ctx.extras), "response", True
+
         has_tool_context = any(
             m.role == "tool"
             or (m.role == "user" and "AUTO TRACKING RESULTS" in str(m.content or ""))
             for m in messages
         )
         if has_tool_context:
-            return QUERY_LOOP_FINALIZER_PROMPT, "finalizer", True
+            # A tool result is evidence for the next reasoning step, not proof
+            # that the workflow is complete. Keep the full execution contract so
+            # the model can issue dependent calls, recover from validation
+            # errors, or finish naturally. Only an explicit marker above enters
+            # the tool-free response mode.
+            return build_runtime_system_prompt(ctx.extras), "continuation", True
         return build_runtime_system_prompt(ctx.extras), "planner", False
 
     @staticmethod
-    def _is_final_response_only(messages: List[LLMMessage]) -> bool:
+    def _is_response_only(messages: List[LLMMessage]) -> bool:
         return any(
             message.role == "user"
-            and FINAL_RESPONSE_ONLY_MARKER in str(message.content or "")
+            and RESPONSE_ONLY_MARKER in str(message.content or "")
             for message in messages[-2:]
         )
 
@@ -1372,13 +1365,13 @@ class QueryLoop:
         preserves the relevant context without bypassing the injected adapter.
         """
         parts: list[str] = []
-        final_response_only = self._is_final_response_only(messages)
+        response_only = self._is_response_only(messages)
         for m in messages:
             if m.role == "system":
                 continue
             label = m.role.upper()
             content = m.content
-            if m.tool_calls and not final_response_only:
+            if m.tool_calls and not response_only:
                 parts.append(
                     f"{label} TOOL_CALLS: "
                     f"{json.dumps(m.tool_calls, ensure_ascii=False, default=str)}"
@@ -1513,20 +1506,18 @@ class QueryLoop:
         """Run QueryLoop's pre-execution hard boundaries.
 
         QueryLoop is the execution path. It still keeps semantic repair, risk,
-        and approval boundaries, but does not expose or persist old graph state.
+        and approval boundaries directly on the current call batch.
         """
         nodes = self._tool_calls_to_nodes(tool_calls)
-        graph = self._validation_graph(nodes)
-
         from .semantic_validator import SemanticValidator
         from .pre_execution_repair import (
             PreExecutionRepairEngine,
             REPAIRABLE_ERROR_CODES,
         )
         from .risk_policy import RiskPolicyEngine
-        from .plan_enrichment import enrich_dag_from_user_request
+        from .plan_enrichment import enrich_tool_calls_from_user_request
 
-        enrichment_events = enrich_dag_from_user_request(graph, ctx.user_input)
+        enrichment_events = enrich_tool_calls_from_user_request(nodes, ctx.user_input)
         if enrichment_events:
             ctx.extras.setdefault("plan_enrichment_events", [])
             ctx.extras["plan_enrichment_events"].extend(
@@ -1534,15 +1525,13 @@ class QueryLoop:
             )
 
         validator = SemanticValidator(self._tool_registry)
-        validation = validator.validate(graph)
+        validation = validator.validate(nodes)
         if not validation.valid:
-            repair = PreExecutionRepairEngine().try_repair(graph, validation.errors)
+            repair = PreExecutionRepairEngine().try_repair(nodes, validation.errors)
             self._record_pre_exec_repair(ctx, repair)
-            repaired_graph = getattr(repair, "repaired_graph", None)
-            if repair.repaired and repaired_graph is not None:
-                graph = repaired_graph
-                nodes = list(getattr(graph, "nodes", []) or [])
-                validation = validator.validate(graph)
+            if repair.repaired and repair.repaired_nodes is not None:
+                nodes = repair.repaired_nodes
+                validation = validator.validate(nodes)
 
         if not validation.valid:
             for node in nodes:
@@ -1580,7 +1569,7 @@ class QueryLoop:
                 "message": "工具调用校验失败：\n" + "\n".join(f"- {e}" for e in errors),
             }
 
-        risk = RiskPolicyEngine(self._config).assess(graph)
+        risk = RiskPolicyEngine(self._config).assess(nodes)
         ctx.extras.update({
             "approval_required": bool(risk.requires_approval),
             "hard_block": bool(risk.hard_block),
@@ -1653,26 +1642,10 @@ class QueryLoop:
                 id=tc.id or f"call_{idx}",
                 tool=tc.name.replace("__", "."),
                 args=args,
-                depth=0,
                 action_original=action_original,
                 action_normalized_from_alias=action_normalized_from_alias,
             ))
         return nodes
-
-    @staticmethod
-    def _validation_graph(nodes: list[ExecutionNode]):
-        """Adapter for validators that still accept a graph-like object."""
-        class _ValidationGraph:
-            def __init__(self, graph_nodes):
-                self.nodes = graph_nodes
-                self.layers = {0: graph_nodes}
-                self.total_nodes = len(graph_nodes)
-                self.max_depth = 0
-
-            def get_layer(self, depth: int):
-                return self.layers.get(depth, [])
-
-        return _ValidationGraph(nodes)
 
     @staticmethod
     def _record_blocked_audit_nodes(ctx: StatelessContext, nodes: list[ExecutionNode]) -> None:
@@ -1684,7 +1657,6 @@ class QueryLoop:
                 "node_id": node.id,
                 "tool": node.tool,
                 "args": dict(node.args or {}),
-                "depth": node.depth,
                 "status": node.status.value,
                 "latency_ms": node.latency_ms,
                 "error": node.error or "blocked",
@@ -1712,7 +1684,7 @@ class QueryLoop:
         """Append a user nudge to guide the LLM toward a final answer.
 
         Used when the LLM returns empty text after tools have produced
-        results — instead of calling a separate "finalizer", we nudge it
+        results, then nudge the same runtime loop to produce the response
         to produce the answer directly.
         """
         new_msgs = list(messages)

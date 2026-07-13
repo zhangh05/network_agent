@@ -2,7 +2,7 @@
 """Integration helpers — factory functions and trace metadata adapter.
 
 Provides:
-  - get_default_tool_runtime_client(): default client with builtins
+  - get_default_tool_runtime_client(): default client from canonical tools
   - create_tool_runtime_client(): configurable factory for testing
   - build_trace_metadata_from_tool_result(): safe trace metadata builder
 """
@@ -12,8 +12,7 @@ import threading
 from core.tools.registry import ToolRegistry
 from core.tools.policy import ToolPolicy
 from core.tools.client import ToolRuntimeClient
-from core.tools.builtins import register_builtin_tools
-from core.tools.general_tools import register_all_general_tools
+from core.tools.canonical_registry import to_tool_specs
 from core.tools.trace_metadata import build_trace_metadata_from_tool_result
 
 # ── Module-level default (lazy singleton, double-checked locking) ──
@@ -23,8 +22,7 @@ _default_client_build_count: int = 0
 
 
 def get_default_tool_runtime_client() -> ToolRuntimeClient:
-    """Get or create the default ToolRuntimeClient with all built-in
-    and general tools.
+    """Get or create the default ToolRuntimeClient with canonical tools.
 
     v3.10: the previous implementation had a classic
     double-checked-locking bug — the read of ``_default_client``
@@ -43,12 +41,9 @@ def get_default_tool_runtime_client() -> ToolRuntimeClient:
         return _default_client
     with _default_client_lock:
         if _default_client is None:
-            # v3.11: canonical tools MUST register first so their
-            # authoritative handlers are not silently shadowed by
-            # builtin stubs (e.g. workspace.artifact with 7 actions
-            # vs the list-only builtin version).
-            registry = register_all_general_tools(ToolRegistry())
-            registry = register_builtin_tools(registry)
+            registry = ToolRegistry()
+            for spec, handler in to_tool_specs():
+                registry.register_tool(spec, handler)
             policy = ToolPolicy()
             _default_client = ToolRuntimeClient(registry, policy)
             _default_client_build_count += 1

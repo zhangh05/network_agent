@@ -2,7 +2,7 @@
 """Deterministic rule-based translator — canonical translate_bundle pipeline.
 
 translate_bundle() is the SOLE canonical entry point.
-No retired fallback engine. Cross-vendor unmatched lines default to manual_review.
+Cross-vendor unmatched lines default to manual_review.
 """
 
 import logging
@@ -219,7 +219,7 @@ class RuleBasedTranslator:
     """Translate common network configuration lines without an LLM.
 
     Canonical entry: translate_bundle() — deterministic translation pipeline.
-    Returns TranslationBundle. No retired fallback engine.
+    Returns TranslationBundle with unmatched lines marked for manual review.
     """
 
     def __init__(self):
@@ -239,7 +239,7 @@ class RuleBasedTranslator:
             TranslationBundle, TranslationCandidate,
             Provenance, Confidence, Origin, TranslationTarget,
         )
-        from modules.config_translation.core.deployable_policy import DeployablePolicy, quick_assess
+        from modules.config_translation.core.deployable_policy import DeployablePolicy, assess_unmatched_line
         from modules.config_translation.core.translation_candidate_factory import try_make_candidate
 
         from_vendor = (from_vendor or "unknown").lower()
@@ -422,8 +422,8 @@ class RuleBasedTranslator:
             module = _guess_module(stripped)
 
             if from_vendor == to_vendor:
-                # Same vendor: passthrough with quick assessment
-                prov, conf = quick_assess(stripped, from_vendor, to_vendor)
+                # Same vendor: conservatively assess unmatched passthrough.
+                prov, conf = assess_unmatched_line(stripped, from_vendor, to_vendor)
                 candidates.append(TranslationCandidate(
                     source_line=raw, candidate_line=stripped,
                     from_vendor=from_vendor, to_vendor=to_vendor,

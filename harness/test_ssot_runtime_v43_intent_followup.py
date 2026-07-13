@@ -199,22 +199,3 @@ def test_requires_execution_true_for_real_task():
         requires_tool_likely=True,
     )
     assert r.requires_execution is True
-
-
-# ── H: end-to-end — obligation guard does NOT fire for followups ─
-
-
-def test_obligation_guard_does_not_fire_for_followup():
-    """The v4 fail-fast guard ``enforce_execution_obligation``
-    must NOT raise for a conversational_followup intent, even
-    when the LLM returns an empty plan. This is the production
-    contract: the user asked "你上轮为什么不总结", the LLM
-    correctly answered in text, the planner returned [].
-    """
-    from core.runtime_engine.planner import enforce_execution_obligation
-
-    r = detect_task_intent("你上轮为什么不总结")
-    assert r.requires_execution is False
-    # Must not raise.
-    enforce_execution_obligation(r, [])
-    enforce_execution_obligation(r, None)

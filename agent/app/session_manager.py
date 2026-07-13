@@ -18,12 +18,10 @@ class SessionManager:
     def __init__(
         self,
         *,
-        services: Any,
         ttl_seconds: int = 3600,
         max_sessions: int = 1000,
         restore_callback: Callable[[AgentSession, str, str], None] | None = None,
     ) -> None:
-        self.services = services
         self.ttl_seconds = ttl_seconds
         self.max_sessions = max_sessions
         self.restore_callback = restore_callback
@@ -39,7 +37,7 @@ class SessionManager:
             self._evict_expired_locked()
             sid = session_id or self.new_session_id()
             if sid not in self._sessions:
-                session = AgentSession(session_id=sid, workspace_id=workspace_id, services=self.services)
+                session = AgentSession(session_id=sid, workspace_id=workspace_id)
                 self._sessions[sid] = session
                 self._session_turn_locks[sid] = threading.RLock()
                 self._restore(session, sid, workspace_id)
@@ -51,7 +49,7 @@ class SessionManager:
                 existing_ws = getattr(session, "workspace_id", "")
                 if existing_ws and existing_ws != workspace_id:
                     new_sid = self.new_session_id()
-                    session = AgentSession(session_id=new_sid, workspace_id=workspace_id, services=self.services)
+                    session = AgentSession(session_id=new_sid, workspace_id=workspace_id)
                     self._sessions[new_sid] = session
                     self._session_turn_locks[new_sid] = threading.RLock()
                     self._restore(session, new_sid, workspace_id)

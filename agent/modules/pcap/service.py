@@ -38,7 +38,7 @@ def resolve_workspace_path(workspace_id: str, filepath: str) -> Path:
     try:
         return safe_workspace_path(workspace_id, filepath)
     except Exception as exc:
-        # Wrap in ValueError for backward compatibility with callers
+        # Present path validation failures as the service's public error type.
         raise ValueError(f"invalid path: {exc}") from exc
 
 

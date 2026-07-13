@@ -179,19 +179,17 @@ def run_checks(result: SelfcheckResult, ws_id: str):
                         f"quality_summary.{field} is not int in {rf.stem[:12]}",
                         rf.stem[:12], "Fix quality_summary format"))
 
-    # 10. Verify enabled modules — accept any valid module set, warn on empty
+    # 10. Verify canonical capabilities
     try:
-        from registry.loader import load_module_registry
-        mods = load_module_registry()
-        enabled = sorted([m.module_name for m in mods if m.is_enabled()])
+        from agent.capabilities.catalog import list_enabled
+        enabled = sorted(item["capability_id"] for item in list_enabled())
         if not enabled:
-            result.issues.append(SelfcheckIssue("warning", "MODULE_COUNT",
-                "No enabled modules found", "",
-                "Enable at least one module in registry"))
-        result.checks["enabled_modules"] = enabled
+            result.issues.append(SelfcheckIssue("warning", "CAPABILITY_COUNT",
+                "No enabled capabilities found", "", "Enable a catalog capability"))
+        result.checks["enabled_capabilities"] = enabled
     except Exception:
-        result.issues.append(SelfcheckIssue("warning", "REGISTRY_UNAVAILABLE",
-            "Registry loader failed", "", "Check registry files"))
+        result.issues.append(SelfcheckIssue("warning", "CAPABILITY_CATALOG_UNAVAILABLE",
+            "Capability catalog failed", "", "Check agent.capabilities.catalog"))
 
     # 11. Forbidden API not restored
     try:

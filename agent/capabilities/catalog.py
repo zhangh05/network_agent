@@ -30,7 +30,7 @@ from core.tools.tool_namespace import TOOL_NAMESPACE
 #   recommended_tool_ids tuple  canonical tool ids from the network tool set
 #   prompt_hints        tuple  short hints for the LLM when invoking
 #   safety_notes        tuple  short safety warnings for the LLM
-#   status              str   "enabled" or "planned"
+#   status              str   always "enabled" for current capabilities
 _CAPABILITIES: tuple[dict, ...] = (
     {
         "capability_id": "workspace_read",
@@ -228,18 +228,13 @@ CAPABILITY_CATALOG: tuple[dict, ...] = _CAPABILITIES
 
 
 def list_all() -> list[dict]:
-    """Return all business capabilities (enabled + planned)."""
+    """Return the current business capabilities."""
     return list(CAPABILITY_CATALOG)
 
 
 def list_enabled() -> list[dict]:
     """Return enabled business capabilities only."""
     return [c for c in CAPABILITY_CATALOG if c["status"] == "enabled"]
-
-
-def list_planned() -> list[dict]:
-    """Return planned (not yet enabled) business capabilities."""
-    return [c for c in CAPABILITY_CATALOG if c["status"] == "planned"]
 
 
 def get(capability_id: str) -> dict | None:
@@ -277,7 +272,6 @@ __all__ = [
     "CAPABILITY_CATALOG",
     "list_all",
     "list_enabled",
-    "list_planned",
     "get",
     "to_skill_dict",
     "all_recommended_tool_ids",

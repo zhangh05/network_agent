@@ -9,19 +9,8 @@ REGISTRY_PATH = ROOT / "registry.yaml"
 _cache = None
 
 
-# ── v3.10: PromptNotFoundError — fail loud, no silent fallback ────────
-# get_prompt_by_task() used to return ``reg[0]`` on a miss, which
-# silently fed the wrong system prompt to the LLM. That was the
-# root cause of misaligned replies for tasks the planner did not
-# yet know about. The fix is to raise so callers either pick a
-# known task or surface the missing entry explicitly.
-class PromptNotFoundError(KeyError):
-    """Raised by ``get_prompt_by_task`` when no entry matches.
-
-    Inherits ``KeyError`` so existing ``except KeyError`` paths
-    still trigger, but the dedicated type lets callers (and tests)
-    distinguish "prompt not found" from other key errors.
-    """
+class PromptNotFoundError(RuntimeError):
+    """Raised when the requested prompt task is not registered."""
 
     def __init__(self, task: str):
         self.task = task
@@ -82,6 +71,8 @@ def _parse_prompt(entry: dict) -> PromptSpec:
             "require_citations_for_references": ctx.get("require_citations_for_references", True),
             "max_artifact_refs": ctx.get("max_artifact_refs", 10),
             "max_memory_hits": ctx.get("max_memory_hits", 5),
+            "max_knowledge_hits": ctx.get("max_knowledge_hits", 8),
+            "max_citations": ctx.get("max_citations", 20),
         },
     )
 
@@ -93,8 +84,7 @@ def load_prompt_registry() -> list:
 def get_prompt_by_task(task: str) -> PromptSpec:
     """Return the ``PromptSpec`` registered for ``task``.
 
-    v3.10: this no longer silently falls back to ``reg[0]`` on a
-    miss. An unknown task raises :class:`PromptNotFoundError` so
+    An unknown task raises :class:`PromptNotFoundError` so
     the caller either picks a known task or surfaces the missing
     entry explicitly.
 
@@ -111,29 +101,6 @@ def get_prompt_by_task(task: str) -> PromptSpec:
         if p.task == task:
             return p
     raise PromptNotFoundError(task)
-
-
-def try_get_prompt_by_task(task: str) -> tuple[PromptSpec | None, dict]:
-    """Non-throwing variant of :func:`get_prompt_by_task`.
-
-    Returns ``(prompt_spec, fallback_meta)``. ``fallback_meta`` is
-    an empty dict on hit, or a dict describing the miss when no
-    prompt matched. Use this in code paths where the prompt is
-    optional and a soft fallback is acceptable (e.g. building a
-    generic audit message). Hard execution paths should keep
-    using :func:`get_prompt_by_task` and let it raise.
-    """
-    if not task:
-        return None, {"fallback": True, "reason": "empty_task"}
-    reg = _load_registry_data()
-    for p in reg:
-        if p.task == task:
-            return p, {}
-    return None, {
-        "fallback": True,
-        "reason": "task_not_found",
-        "original_task": task,
-    }
 
 
 def get_prompt(prompt_id: str) -> PromptSpec:
@@ -157,7 +124,21 @@ def render_prompt(task: str, safe_context: dict = None, user_input: str = "",
 
 def validate_prompt_registry() -> dict:
     errors = []
+    prompt_ids: set[str] = set()
+    tasks: set[str] = set()
+    project_root = ROOT.parent
     for p in _load_registry_data():
+        if not p.prompt_id or p.prompt_id in prompt_ids:
+            errors.append(f"duplicate or empty prompt_id: {p.prompt_id!r}")
+        prompt_ids.add(p.prompt_id)
+        if not p.task or p.task in tasks:
+            errors.append(f"duplicate or empty task: {p.task!r}")
+        tasks.add(p.task)
+        template_path = Path(p.template_path)
+        if not template_path.is_absolute():
+            template_path = project_root / template_path
+        if not template_path.is_file():
+            errors.append(f"{p.prompt_id}: template not found: {p.template_path}")
         if p.output_policy.get("forbid_deployable_generation") is not True:
             errors.append(f"{p.prompt_id}: deployable generation not forbidden")
         if p.input_policy.get("allow_full_source_config") is not False:

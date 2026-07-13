@@ -98,33 +98,6 @@ def test_command_system_uses_module_level_session_functions():
     assert 'workspace_id", "default"' not in src
 
 
-def test_embeddings_built_at_is_iso():
-    """tool_planning/embeddings.py must build _built_at via now_iso()
-    and the cache load/age math must accept only ISO strings.
-    """
-    src = _read("agent/runtime/tool_planning/embeddings.py")
-    assert "from agent.runtime.utils import now_iso, from_iso" in src, (
-        "embeddings.py must import the unified timestamp helpers"
-    )
-    tree = ast.parse(src)
-    # All places that assign to self._built_at must use now_iso() or
-    # pass through a string-typed load() helper, never time.time().
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign):
-            for t in node.targets:
-                if isinstance(t, ast.Attribute) and t.attr == "_built_at":
-                    rhs = node.value
-                    if isinstance(rhs, ast.Call):
-                        fn = ast.unparse(rhs.func)
-                        if "time.time" in fn:
-                            raise AssertionError(
-                                f"embeddings._built_at is still assigned via "
-                                f"{fn}; use now_iso()"
-                            )
-    assert "float(built_at" not in src
-    assert "float(self._built_at" not in src
-
-
 def test_all_21_tools_have_not_for():
     """Every canonical tool's metadata must carry a non-empty
     ``not_for`` field so the LLM gets a real anti-pattern hint,

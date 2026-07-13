@@ -1,5 +1,4 @@
 import { renderMarkdown } from './markdown';
-import type { ToolPlanStep } from '../types';
 import { formatDate } from './format';
 
 export function sanitizeAssistantText(text: string): string {
@@ -168,17 +167,4 @@ export function toolLabel(toolId: string): string {
   if (toolId.startsWith("review.")) return "评审流转";
   if (toolId.startsWith("runtime.")) return "运行诊断";
   return "工具调用";
-}
-
-/**
- * Extract tool plan steps from scene metadata (tool_plan or tool_chain).
- * Returns an array of ToolPlanStep objects.
- */
-export function toolPlanSteps(scene: unknown): ToolPlanStep[] {
-  if (!scene || typeof scene !== "object") return [];
-  const plan = (scene as Record<string, unknown>).tool_plan;
-  const chain = (scene as Record<string, unknown>).tool_chain;
-  if (Array.isArray(plan)) return plan as ToolPlanStep[];
-  if (Array.isArray(chain)) return chain as ToolPlanStep[];
-  return [];
 }

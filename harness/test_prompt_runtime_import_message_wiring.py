@@ -92,8 +92,10 @@ class TestSafeGenerateWiring:
 
     def test_safe_gen_no_old_prompts_default(self):
         content = (PROJECT_ROOT / "agent" / "llm" / "runtime.py").read_text()
-        # _get_system_prompt and _build_messages exist but are fallback only
         assert "prompts.renderer" in content
+        assert "_get_system_prompt" not in content
+        assert "_old_safe_context" not in content
+        assert "old_prompts_default_path" not in content
 
     def test_disabled_fallback_has_no_error(self, monkeypatch):
         from agent.llm.runtime import safe_generate

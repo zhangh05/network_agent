@@ -442,7 +442,6 @@ export const useWorkbenchStore = create<WorkbenchState>()(
               no_tool_reason: (runRecord.no_tool_reason as string) || "",
               metadata: {
                 selected_capabilities: (metadata.selected_capabilities as string[]) || [],
-                selected_skills: (metadata.selected_skills as string[]) || [],
                 visible_tools: (metadata.visible_tools as string[]) || [],
                 retry_summary: (metadata.retry_summary as AgentResult["metadata"]["retry_summary"])
                   || (runtimeMetadata.retry_summary as AgentResult["metadata"]["retry_summary"])

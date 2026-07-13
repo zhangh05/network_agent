@@ -87,8 +87,7 @@ from core.tools.schemas import V02_ALLOWED_CATEGORIES
 def is_tool_forbidden(tool_id: str) -> bool:
     """Check if a tool_id is forbidden (exact match or regex pattern).
 
-    Single source of truth for forbidden tool checks — used by both
-    core.tools.policy and agent.runtime.permission_matrix.
+    Single source of truth for forbidden tool checks in ToolPolicy.
     """
     if tool_id in V02_FORBIDDEN_TOOLS:
         return True

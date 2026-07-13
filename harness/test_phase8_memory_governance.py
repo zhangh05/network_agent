@@ -88,10 +88,6 @@ class TestMemoryWriteGate:
     def test_store_redacts_structured_projection_fields(self, tmp_path, monkeypatch):
         import workspace.memory_governance as mg
         monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
-        monkeypatch.setattr(
-            "core.graph.projection_events.append_memory_written",
-            lambda **kwargs: "evt-redacted",
-        )
         record = MemoryRecord(
             workspace_id="ws_structured_redaction",
             status="pending",
@@ -243,10 +239,6 @@ class TestRetrieval:
         monkeypatch.setattr(mg, "WS_ROOT", tmp_path / "workspaces")
         monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path / "context"))
         context_store._stores.clear()
-        monkeypatch.setattr(
-            "core.graph.projection_events.append_memory_written",
-            lambda **kwargs: "evt-memory-written",
-        )
 
         ws = "ws_projection"
         record = MemoryRecord(

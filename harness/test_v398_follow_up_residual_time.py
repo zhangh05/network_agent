@@ -251,7 +251,6 @@ def test_system_run_get_summary_uses_run_id_then_workspace_order():
             "finished_at": ts,
             "intent": "tool_contract",
             "status": "ok",
-            "active_module": "system",
         }), encoding="utf-8")
 
         result = handle_run_get_summary(ToolInvocation(

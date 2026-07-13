@@ -1,8 +1,6 @@
 """Regression tests for Round 5 source code review fixes.
 
-Covers the following P0/P1 issues found in agent/runtime/loop.py,
-agent/runtime/query_engine.py, core/tools/general_tools/registry.py,
-core/tools/general_tools/registry.py, and backend/api/runtime_routes.py.
+Covers current runtime, tool, and API regression contracts.
 
 Each fix should have at least one focused test that fails on the old code
 and passes on the new code.
@@ -26,7 +24,7 @@ if str(ROOT) not in sys.path:
 
 # ─────────────────────────────────────────────────────────────────────
 # v3.10: TestMaxStepsResolve removed — the helper it tested,
-# ``agent.runtime.loop._resolve_max_steps``, lived on the legacy
+# Runtime step limits are owned by the current QueryLoop configuration.
 # TurnRunner path that the SSOT Runtime hard cut (ff38bab) replaced. Step
 # budgets now flow through ``SSOTRuntimeConfig`` (single_node_timeout_ms /
 # parallel_layer_timeout_ms) and ``BudgetController.check_*`` rather
@@ -157,14 +155,14 @@ class TestTrimHistoryCompressedItemsMismatch:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# agent/runtime/query_engine.py — UTC ISO timestamp alongside float
+# StreamEmitter — UTC ISO timestamp alongside float
 # ─────────────────────────────────────────────────────────────────────
 
 class TestStreamEmitterTimestamp:
     """StreamEmitter must emit both timestamp (float) and timestamp_iso (UTC ISO)."""
 
     def test_both_timestamps_present(self):
-        from agent.runtime.query_engine import StreamEmitter
+        from agent.runtime.stream_emitter import StreamEmitter
         em = StreamEmitter()
         em.emit("test_event", {"foo": "bar"})
         events = em.to_events()
@@ -176,7 +174,7 @@ class TestStreamEmitterTimestamp:
         assert ev["timestamp_iso"].endswith("+00:00") or ev["timestamp_iso"].endswith("Z")
 
     def test_timestamp_iso_parseable(self):
-        from agent.runtime.query_engine import StreamEmitter
+        from agent.runtime.stream_emitter import StreamEmitter
         from datetime import datetime
         em = StreamEmitter()
         em.emit("test_event", {})
@@ -187,7 +185,7 @@ class TestStreamEmitterTimestamp:
         assert ts.year >= 2026
 
     def test_realtime_callback_receives_both_timestamps(self):
-        from agent.runtime.query_engine import StreamEmitter
+        from agent.runtime.stream_emitter import StreamEmitter
         captured = []
         StreamEmitter.set_realtime_callback(captured.append)
         try:
@@ -203,7 +201,7 @@ class TestStreamEmitterTimestamp:
     def test_old_float_timestamp_still_works_for_duration(self):
         # The loop.py:438 uses `float(e.get('timestamp', 0))` for duration math.
         # Make sure the float field remains and is still numeric.
-        from agent.runtime.query_engine import StreamEmitter
+        from agent.runtime.stream_emitter import StreamEmitter
         em = StreamEmitter()
         em.emit("a", {})
         time.sleep(0.001)

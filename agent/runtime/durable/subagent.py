@@ -621,7 +621,7 @@ def _release_worker(ws_id: str, subtask_id: str) -> None:
 
 
 def _prune_live_tasks(live_tasks: dict[str, dict], limit: int = 256) -> None:
-    """Bound the compatibility status projection to recent terminal tasks."""
+    """Bound the live status projection to recent terminal tasks."""
     overflow = len(live_tasks) - max(1, limit)
     if overflow <= 0:
         return

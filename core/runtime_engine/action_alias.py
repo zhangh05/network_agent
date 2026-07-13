@@ -1,12 +1,10 @@
 """
 Canonical action alias normalization for SSOT Runtime — single source of truth.
 
-Both the GraphCompiler (compile-time) and the PreExecutionRepairEngine
-(runtime fallback) resolve planner-side action aliases through the
+Both QueryLoop normalization and the PreExecutionRepairEngine
+resolve model-side action aliases through the
 single ``resolve_action_alias()`` entry point defined here. Adding a
-new alias = one entry in ``CANONICAL_ALIASES_BY_TOOL`` (or in
-``EXTENDED_RUNTIME_ALIAS_MAP`` in ``pre_execution_repair.py`` ONLY when
-the alias is genuinely transient — see "Drift discipline" below).
+new alias = one entry in ``CANONICAL_ALIASES_BY_TOOL``.
 
 The resolution contract:
 
@@ -17,11 +15,8 @@ The resolution contract:
     .operation           — secondary "operation" hint, e.g. "get_history" for
                             ``session_get``. Always None when the alias is
                             a pure synonym.
-    .source              — "canonical" | "extended" | "none"
+    .source              — "canonical" | "none"
                             "canonical" — resolved through this module
-                            "extended"  — resolved through the runtime
-                                           fallback in
-                                           pre_execution_repair.EXTENDED_*
                             "none"      — no rewrite; original is left alone
 
 Drift discipline:
@@ -30,12 +25,8 @@ Drift discipline:
     production and want to keep supporting for the foreseeable
     future) MUST live in ``CANONICAL_ALIASES_BY_TOOL`` /
     ``CANONICAL_ALIASES_GLOBAL``.
-  * Aliases that should only exist for a short window (transient
-    LLM drift, hotfix for one specific operator output) belong in
-    ``pre_execution_repair.EXTENDED_RUNTIME_ALIAS_MAP`` and should
-    be promoted to the canonical table once the LLM side stabilizes.
-  * ``test_alias_drift`` enforces that no alias lives in BOTH
-    tables — the canonical table always wins.
+  * Unknown actions are not silently rewritten. QueryLoop returns the
+    validation error to the model for a schema-correct retry.
 """
 
 from __future__ import annotations
@@ -48,11 +39,10 @@ from typing import Final
 
 # Allowed values for ``AliasResolution.source``.
 SOURCE_CANONICAL: Final[str] = "canonical"
-SOURCE_EXTENDED: Final[str] = "extended"
 SOURCE_NONE: Final[str] = "none"
 
 VALID_SOURCES: Final[frozenset[str]] = frozenset(
-    {SOURCE_CANONICAL, SOURCE_EXTENDED, SOURCE_NONE}
+    {SOURCE_CANONICAL, SOURCE_NONE}
 )
 
 
@@ -73,11 +63,8 @@ class AliasResolution:
 
 
 # ── Canonical alias tables ─────────────────────────────────────────────
-# Single source of truth. ``GraphCompiler`` consults this on every node
-# during Phase 1 (alias rewrite BEFORE semantic validation runs).
-# ``PreExecutionRepairEngine`` consults this first, and only falls
-# back to its own ``EXTENDED_RUNTIME_ALIAS_MAP`` when no entry here
-# matches.
+# Single source of truth. QueryLoop and PreExecutionRepairEngine both
+# consult this table before semantic validation rejects an action.
 
 # Per-tool alias map. Values are ``(canonical_action, operation)`` —
 # ``operation`` is propagated into ``node.args["operation"]`` when
@@ -256,9 +243,8 @@ def resolve_action_alias(
         this as "no rewrite needed")
 
     This function never raises. It is the single entry point used by
-    BOTH ``GraphCompiler`` (compile-time) and
-    ``PreExecutionRepairEngine`` (runtime fallback) — no other code
-    path is allowed to implement its own alias lookup.
+    QueryLoop and PreExecutionRepairEngine; no other code path may
+    implement its own alias lookup.
     """
     original = (action or "").strip() if isinstance(action, str) else ""
     if not original:
@@ -313,111 +299,3 @@ def resolve_action_alias(
         operation=None,
         source=SOURCE_NONE,
     )
-
-
-# ── Backward-compatible helpers ────────────────────────────────────────
-
-def normalize_action_alias(action: str | None) -> tuple[str | None, str | None]:
-    """Legacy 2-tuple return — kept for callers that only need the
-    ``(canonical_or_None, original_or_None)`` pair.
-
-    Looks up ``action`` against BOTH the global table and every
-    per-tool table (the tool-agnostic legacy callers don't know
-    which tool emitted the action).
-
-    Convention (matches the pre-v3.10 callers):
-      * alias hit      → ``(canonical, original)``
-      * already canonical OR unknown → ``(key, None)``
-        The caller treats ``original is None`` as "no rewrite needed";
-        the semantic validator still rejects truly unknown actions
-        via the canonical-enum check.
-
-    Use the new ``resolve_action_alias(tool_id, action)`` form when
-    you need per-tool resolution or the ``source`` field.
-    """
-    if not action:
-        return None, action
-    key = str(action).strip()
-    if not key:
-        return None, action
-    # Global first.
-    if key in CANONICAL_ALIASES_GLOBAL:
-        canonical, _op = CANONICAL_ALIASES_GLOBAL[key]
-        return canonical, key
-    # Then per-tool — first match wins.
-    for table in CANONICAL_ALIASES_BY_TOOL.values():
-        if key in table:
-            canonical, _op = table[key]
-            return canonical, key
-    # Not in any alias table — return as-is. Callers distinguish
-    # "already canonical" from "unknown" via subsequent checks
-    # (canonical_actions_for_tool / is_known_action).
-    return key, None
-
-
-def is_known_action(action: str | None) -> bool:
-    """Cheap predicate: alias OR canonical (any tool) would pass."""
-    if not action:
-        return False
-    if action in CANONICAL_ALIASES_GLOBAL:
-        return True
-    for by_tool in CANONICAL_ALIASES_BY_TOOL.values():
-        if action in by_tool:
-            return True
-    for actions in _CANONICAL_ACTIONS.values():
-        if action in actions:
-            return True
-    return False
-
-
-def canonical_actions_for_tool(tool_id: str) -> frozenset[str]:
-    """Return canonical action set for a tool (empty if unknown)."""
-    return _CANONICAL_ACTIONS.get(tool_id, frozenset())
-
-
-# ── Helpers for the drift test ─────────────────────────────────────────
-
-def iter_canonical_aliases() -> list[tuple[str, str, str, str | None]]:
-    """Yield ``(tool_id, alias, canonical, operation)`` tuples from
-    the canonical tables (per-tool + global). The global entries
-    come back with ``tool_id == "*"``."""
-    out: list[tuple[str, str, str, str | None]] = []
-    for tool_id, table in CANONICAL_ALIASES_BY_TOOL.items():
-        for alias, (canonical, op) in table.items():
-            out.append((tool_id, alias, canonical, op))
-    for alias, (canonical, op) in CANONICAL_ALIASES_GLOBAL.items():
-        out.append(("*", alias, canonical, op))
-    return out
-
-
-def all_canonical_alias_keys() -> set[str]:
-    """Flat set of every alias key (regardless of tool) — used by the
-    drift test to compare with the extended table."""
-    keys: set[str] = set()
-    for table in CANONICAL_ALIASES_BY_TOOL.values():
-        keys.update(table.keys())
-    keys.update(CANONICAL_ALIASES_GLOBAL.keys())
-    return keys
-
-
-# ── Backward-compat flat alias map ──────────────────────────────────────
-
-def _build_flat_aliases() -> dict[str, str]:
-    """Flatten per-tool + global alias tables into a single
-    ``alias -> canonical`` dict. Kept around for legacy callers
-    (semantic_validator, harness tests) that still read the
-    original ``ACTION_ALIASES`` symbol. New code should call
-    ``resolve_action_alias(tool_id, action)`` instead.
-    """
-    out: dict[str, str] = {}
-    for table in CANONICAL_ALIASES_BY_TOOL.values():
-        for alias, (canonical, _op) in table.items():
-            out[alias] = canonical
-    for alias, (canonical, _op) in CANONICAL_ALIASES_GLOBAL.items():
-        out[alias] = canonical
-    return out
-
-
-# Frozen at import time — the canonical tables are declared
-# ``Final`` so this is stable for the lifetime of the process.
-ACTION_ALIASES: Final[dict[str, str]] = _build_flat_aliases()

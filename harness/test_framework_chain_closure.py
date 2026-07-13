@@ -156,7 +156,6 @@ def test_query_loop_reprompts_once_after_empty_post_tool_response():
             return {"ok": True, "status": "healthy"}
 
     config = SSOTRuntimeConfig(
-        enable_finalizer=True,
         max_query_loop_iterations=4,
         tracking_enabled=False,
     )
@@ -247,7 +246,7 @@ def test_complete_inspection_artifact_is_delivered_in_one_tool_message():
 
     final_messages = loop._append_turn_nudge(
         messages,
-        "[FINAL_RESPONSE_ONLY] Analyze the complete artifact.",
+        "[RESPONSE_ONLY] Analyze the complete artifact.",
     )
     projected = loop._messages_to_user_text(final_messages)
     assert len(projected) > len(raw_content)
@@ -278,7 +277,7 @@ def test_complete_artifact_forces_second_call_to_finalize_without_tools():
                 }],
             })
         assert kwargs["tools"] == []
-        assert "[FINAL_RESPONSE_ONLY]" in kwargs["user"]
+        assert "[RESPONSE_ONLY]" in kwargs["user"]
         return "已根据完整制品完成分析。"
 
     class RuntimeStub:

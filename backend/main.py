@@ -27,8 +27,7 @@ from backend.api.llm_api import (
     handle_providers_list, handle_provider_get, handle_provider_save,
     handle_provider_delete, handle_llm_activate,
 )
-from backend.api.skills import handle_skills
-from backend.api.modules import handle_modules, handle_module_status, handle_registry_status, handle_capabilities
+from backend.api.capability_routes import handle_capabilities
 from backend.api.memory import handle_memory_status, handle_memory_write, handle_memory_search, handle_memory_confirm, handle_memory_delete, handle_memory_list, handle_memory_batch_delete
 from backend.api.session_routes import (
     handle_session_create, handle_session_list,
@@ -47,7 +46,6 @@ from backend.api.knowledge_routes import register_knowledge_routes
 from backend.api.review_routes import register_review_routes
 from backend.api.pcap_routes import register_pcap_routes
 from backend.api.workspace_status_routes import register_workspace_status_routes
-from backend.api.decision_routes import register_decision_routes
 from backend.api.remote_routes import register_remote_routes
 from backend.api.cmdb_routes import register_cmdb_routes
 from backend.api.state_routes import register_state_routes
@@ -111,13 +109,6 @@ def create_app():
             resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         return resp
 
-    # ── v3.0.0: Register default security hooks ──
-    try:
-        from agent.runtime.default_hooks import register_default_hooks
-        register_default_hooks()
-    except Exception:
-        pass
-
     # ── Rate limiting (before all routes) ──
     rate_limit_middleware(app)
 
@@ -137,11 +128,6 @@ def create_app():
     @app.route("/api/version")
     def api_version():
         return get_version()
-
-    # ── Skills ──
-    @app.route("/api/skills")
-    def api_skills():
-        return handle_skills()
 
     # ── Agent —唯一主入口 ──
     @app.route("/api/agent/message", methods=["POST"])
@@ -239,29 +225,10 @@ def create_app():
     def api_llm_activate():
         return handle_llm_activate()
 
-    # ── Modules ──
-    @app.route("/api/modules")
-    def api_modules():
-        return handle_modules()
-
-    @app.route("/api/modules/<module_name>/status")
-    def api_module_status(module_name):
-        return handle_module_status(module_name)
-
-    # ── Registry ──
+    # ── Capabilities ──
     @app.route("/api/capabilities")
     def api_capabilities():
         return handle_capabilities()
-
-    @app.route("/api/registry/status")
-    def api_registry_status():
-        return handle_registry_status()
-
-    @app.route("/api/registry/reload", methods=["POST"])
-    def api_registry_reload():
-        from registry.loader import reload_all
-        reload_all()
-        return jsonify({"ok": True, **handle_registry_status().json})
 
     # ── Module: config-translation ──
     @app.route("/api/modules/config-translation/translate", methods=["POST"])
@@ -313,7 +280,6 @@ def create_app():
     register_review_routes(app)       # /api/review-items/*, /api/workspaces/<ws>/review-items
     register_pcap_routes(app)        # /api/pcap/* (parse, filter, align)
     register_workspace_status_routes(app)  # /api/workspaces/<ws>/status, /storage/health
-    register_decision_routes(app)    # /api/workspaces/<ws>/runs/<run_id>/decision
     register_remote_routes(app)     # /api/remote/* (SSH/Telnet)
     register_cmdb_routes(app)      # /api/cmdb/* (Device Assets)
     register_state_routes(app)     # /api/runtime/tasks/* (Phase 2 Durable State)

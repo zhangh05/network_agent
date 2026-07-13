@@ -25,9 +25,7 @@ interface AgentRunDetail {
   tool_decision?: unknown;
   no_tool_reason?: string;
   selected_capabilities?: string[];
-  selected_skills?: string[];
   visible_tools?: string[];
-  tool_scene?: unknown;
 }
 
 interface AgentRunResponse {
@@ -109,12 +107,10 @@ export function Sidebar() {
         tool_decision: runData.tool_decision as AgentResult["tool_decision"],
         no_tool_reason: runData.no_tool_reason,
         metadata: {
-          selected_capabilities: runData.selected_capabilities || runData.selected_skills || [],
-          selected_skills: runData.selected_skills || [],
+          selected_capabilities: runData.selected_capabilities || [],
           visible_tools: runData.visible_tools || [],
           source_count: 0,
           workspace_id: currentWorkspaceId,
-          tool_scene: runData.tool_scene as AgentResult["metadata"]["tool_scene"],
         },
       };
       useWorkbenchStore.getState().setLatestResult(result, sid);
@@ -132,7 +128,6 @@ export function Sidebar() {
         errors: [],
         metadata: {
           selected_capabilities: [],
-          selected_skills: [],
           visible_tools: [],
           source_count: 0,
           workspace_id: currentWorkspaceId,

@@ -70,8 +70,6 @@ class Confidence(str, Enum):
 class Origin(str, Enum):
     RAW_FALLBACK = "raw_fallback"
     H3C_TO_CISCO = "h3c_to_cisco"
-    MODULE_GRAPH = "module_graph"
-    GRAPH_FALLBACK = "graph_fallback"
     RENDERER = "renderer"
     SAME_VENDOR = "same_vendor"
 

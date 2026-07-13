@@ -1,2 +1,2 @@
 # agent/modules/__init__.py
-from agent.modules.registry import ModuleSpec, ModuleRegistry
+"""Network Agent domain implementations used by canonical tools."""

@@ -60,7 +60,6 @@ def _run_node(handler, args=None):
         id="n1",
         tool="test.tool",
         args=args or {},
-        deps=[],
     )
     ctx = StatelessContext(
         session_id="audit_e2e_p0_unit",
@@ -134,20 +133,18 @@ def test_handler_structured_error_code_is_propagated():
     assert "no credentials" in result.error
 
 
-# ── D: bare dict with no flag → backward compatible success=True ──────
+# ── D: bare dict with no verdict is invalid ──────────────────────────
 
 
-def test_bare_dict_with_no_flag_still_succeeds():
-    """Backward compat: a handler that returns a bare dict (no
-    ``ok``/``success``) must be treated as a success — this is the
-    pre-v3.10 behavior and many tools rely on it."""
+def test_bare_dict_without_ok_is_rejected():
+    """Every current handler result must declare the canonical ``ok`` verdict."""
 
     def handler(args: dict) -> dict:
         return {"answer": 42}
 
     result = _run_node(handler)
-    assert result.success is True
-    assert not result.error  # empty string or None
+    assert result.success is False
+    assert result.error_code == "TOOL_RESULT_INVALID"
 
 
 # ── E: errors list/dict is joined into the error message ──────────────
@@ -202,7 +199,7 @@ def test_engine_metadata_reflects_node_failure():
             },
         }
     }
-    cfg = SSOTRuntimeConfig(enable_finalizer=False, max_retries_per_node=0)
+    cfg = SSOTRuntimeConfig(max_retries_per_node=0)
     engine = SSOTRuntimeEngine(
         config=cfg,
         llm_invoke=mock_llm,

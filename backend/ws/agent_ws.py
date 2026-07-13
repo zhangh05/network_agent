@@ -230,7 +230,7 @@ def _run_agent_thread(
     stats, cancel_event=None,
 ):
     """Run agent in background thread through the shared AgentApp contract."""
-    from agent.runtime.query_engine import StreamEmitter
+    from agent.runtime.stream_emitter import StreamEmitter
 
     def realtime_callback(event):
         try:
@@ -250,13 +250,14 @@ def _run_agent_thread(
                 # full result (including large output arrays) is carried
                 # through the final 'done' payload and run persistence.
                 if name in ("tool_call", "tool_result") and isinstance(event, dict):
+                    summary = str(event.get("summary") or event.get("message") or "")
                     data = {
                         "type": event.get("type"),
                         "name": event.get("name", event.get("tool",
                                 event.get("tool_id", ""))),
                         "tool_id": event.get("tool_id", event.get("name", "")),
                         "ok": event.get("ok", event.get("status") == "ok"),
-                        "summary": str(event.get("summary") or event.get("message") or ""),
+                        "summary": summary[:8000] + ("..." if len(summary) > 8000 else ""),
                         "call_id": event.get("call_id", ""),
                     }
                 event_queue.put({
@@ -345,7 +346,6 @@ def _run_agent_thread(
             "tool_decision": result_payload.get("tool_decision", {}),
             "no_tool_reason": result_payload.get("no_tool_reason", ""),
             "stream_seq": stats.get("event_seq", 0),
-            "active_module": result_payload.get("active_module", ""),
             "capability": result_payload.get("capability", ""),
             "error_type": result_payload.get("error_type", ""),
         })

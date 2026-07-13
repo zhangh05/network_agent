@@ -6,7 +6,6 @@ parallel compiler that production never calls.
 
 from core.runtime_engine.models import StatelessContext
 from core.runtime_engine.prompt_contract import (
-    FINAL_RESPONSE_PROMPT,
     RUNTIME_SYSTEM_PROMPT,
     build_runtime_system_prompt,
     build_turn_message,
@@ -81,8 +80,8 @@ def test_subagent_contract_is_system_level_and_bounded():
     assert "Do not ask the end user follow-up questions" in prompt
 
 
-def test_finalizer_contract_preserves_truth_and_task_tracking():
-    assert "task_id" in FINAL_RESPONSE_PROMPT
-    assert "Never invent" in FINAL_RESPONSE_PROMPT
-    assert "partial" in FINAL_RESPONSE_PROMPT
-    assert "links that actually exist" in FINAL_RESPONSE_PROMPT
+def test_single_runtime_contract_preserves_truth_and_task_tracking():
+    assert "task_id" in RUNTIME_SYSTEM_PROMPT
+    assert "never invent" in RUNTIME_SYSTEM_PROMPT.lower()
+    assert "partial" in RUNTIME_SYSTEM_PROMPT
+    assert "links that actually exist" in RUNTIME_SYSTEM_PROMPT

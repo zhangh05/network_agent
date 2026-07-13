@@ -166,16 +166,7 @@ class TestRequiredAPIs:
             assert val in html, f"Provider value '{val}' not found in frontend"
 
 
-class TestPlannedModules:
-    """Planned modules must be properly marked."""
-
-    def test_planned_modules_have_label(self):
-        """Topology must have a planned/coming_soon label."""
-        html = _html()
-        assert "planned" in html.lower(), (
-            "No 'planned' label found — planned modules must be clearly marked"
-        )
-
+class TestCurrentModules:
     def test_dashboard_no_hardcoded_stats(self):
         """Dashboard must not contain hardcoded fake statistics."""
         html = _html()
@@ -245,15 +236,10 @@ class TestSecurityDisplay:
 class TestDashboardAPI:
     """Dashboard uses real API calls, not fake data."""
 
-    def test_dashboard_fetches_modules(self):
-        """Dashboard must use /api/modules for module count."""
+    def test_dashboard_fetches_capabilities(self):
+        """Capability center reads the canonical capability endpoint."""
         html = _html()
-        assert "/modules" in html, "Capability dashboard should fetch /api/modules"
-
-    def test_dashboard_fetches_skills(self):
-        """Dashboard must use /api/skills for skills count."""
-        html = _html()
-        assert "/skills" in html, "Capability dashboard should fetch /api/skills"
+        assert "/capabilities" in html
 
     def test_dashboard_fetches_memory_status(self):
         """Workbench must use memory API for confirmed memory writes."""

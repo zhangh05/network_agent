@@ -124,9 +124,13 @@ def _cmd_help(args: str, session_id: Optional[str], context: Optional[dict]) -> 
 def _cmd_tools(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
     """List model-visible tools (filtered, not all)."""
     try:
-        from agent.runtime.services import default_runtime_services
-        services = default_runtime_services()
-        tools = services.tool_service.registry.list_model_visible()
+        from core.tools.integration import get_default_tool_runtime_client
+        tools = [
+            tool for tool in get_default_tool_runtime_client().list_tools()
+            if tool.get("enabled", True)
+            and not tool.get("forbidden", False)
+            and tool.get("callable_by_llm", True)
+        ]
     except Exception:
         return _format_command_result({
             "ok": False, "status": "error", "command": "tools",
@@ -136,12 +140,18 @@ def _cmd_tools(args: str, session_id: Optional[str], context: Optional[dict]) ->
 
     if args.strip():
         keyword = args.strip().lower()
-        tools = [t for t in tools if keyword in t.tool_id.lower() or keyword in (t.description or "").lower()]
+        tools = [
+            tool for tool in tools
+            if keyword in str(tool.get("tool_id", "")).lower()
+            or keyword in str(tool.get("description", "")).lower()
+        ]
 
     lines = ["# Model-Visible Tools\n"]
-    for t in tools[:50]:
-        risk = getattr(t, 'risk_level', '?')
-        lines.append(f"  {t.tool_id} [{risk}] — {getattr(t, 'description', '')[:100]}")
+    for tool in tools[:50]:
+        lines.append(
+            f"  {tool.get('tool_id', '')} [{tool.get('risk_level', '?')}] — "
+            f"{str(tool.get('description', ''))[:100]}"
+        )
     lines.append(f"\nTotal: {len(tools)} model-visible tools.")
 
     return _format_command_result({
@@ -374,9 +384,8 @@ def _cmd_agent(args: str, session_id: Optional[str], context: Optional[dict]) ->
         "Commands: Use /help for available slash commands.",
     ]
     try:
-        from agent.runtime.services import default_runtime_services
-        services = default_runtime_services()
-        tool_count = len(services.tool_service.registry.list_all())
+        from core.tools.integration import get_default_tool_runtime_client
+        tool_count = len(get_default_tool_runtime_client().list_tools())
         lines.append(f"Loaded tools: {tool_count}")
     except Exception:
         logger.debug("_cmd_agent: <pass>", exc_info=True)

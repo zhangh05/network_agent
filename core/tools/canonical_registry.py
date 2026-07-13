@@ -1238,8 +1238,6 @@ from core.tools.general_tools.skill_tools import (
     handle_skill_load,
     handle_skill_find,
     handle_skill_inspect,
-    handle_skill_create,
-    handle_skill_install,
 )
 from core.tools.general_tools.pdf_tools import handle_pdf_extract_text
 from core.tools.general_tools.command_tools import (
@@ -2377,7 +2375,7 @@ def _llm_payload_from_handler_result(result: Any) -> dict:
     top level (``forecast_daily``, ``results_markdown``, ``answer_hint`` ...).
     Some older handlers use ``output`` or ``content``. Merged canonical wrappers
     must preserve all of those fields instead of reducing the result to summary
-    text, otherwise the finalizer cannot answer multi-day weather, inspection,
+    text, otherwise QueryLoop cannot answer multi-day weather, inspection,
     or search questions accurately.
     """
     if not isinstance(result, dict):
@@ -3170,64 +3168,34 @@ def get_entry(canonical_tool_id: str) -> CanonicalToolEntry:
 def to_tool_specs() -> list[tuple]:
     """Return list of (ToolSpec, handler) tuples for the ToolRegistry path.
 
-    v3.9.3: governance layer removed. All canonical tools are visible by
-    default. A canonical id that fails to resolve in TOOL_NAMESPACE
-    (i.e. unknown) is the only case that gets filtered out.
+    Canonical registry, namespace, and manifest must be count-aligned.
+    Any drift is a startup error rather than a partially callable tool set.
     """
     out: list[tuple] = []
     for entry in _RAW_REGISTRY:
-        try:
-            from core.tools.tool_namespace import get_namespace_entry
-            ns_entry = get_namespace_entry(entry.canonical_tool_id)
-        except Exception as exc:
-            # v3.10: namespace lookup failing for a canonical id is a
-            # real drift bug, not a routine "skip". Surface as a
-            # warning so it shows up in logs without crashing the
-            # whole registry build.
-            logger.warning(
-                "to_tool_specs: namespace lookup failed for %s: %s",
-                entry.canonical_tool_id, exc,
-            )
-            ns_entry = None
+        from core.tools.tool_namespace import get_namespace_entry
+        ns_entry = get_namespace_entry(entry.canonical_tool_id)
+        if ns_entry is None:
+            raise RuntimeError(f"missing namespace entry: {entry.canonical_tool_id}")
         # Build the description: prefer the namespace's usage_hint, then
         # the entry description, then the namespace's display_name.
         description = (
-            (getattr(ns_entry, "usage_hint", "") if ns_entry else "")
+            ns_entry.usage_hint
             or entry.description
-            or (getattr(ns_entry, "display_name", "") if ns_entry else "")
+            or ns_entry.display_name
         )
-        # Resolve permission_action:
-        # 1. Use explicit value if set on the entry
-        # 2. Fallback: infer from namespace entry's action field
-        # 3. Final fallback: use PermissionMatrix.action_for_tool()
-        perm_action = entry.permission_action
-        if not perm_action:
-            perm_action = _infer_permission_action(
-                entry.canonical_tool_id,
-                ns_entry.action if ns_entry else "",
-            )
-        try:
-            from core.tools.manifest_registry import get_manifest
-            manifest = get_manifest(entry.canonical_tool_id)
-        except Exception as exc:
-            # v3.10: a missing manifest is also a real drift bug —
-            # the canonical registry and the manifest registry must
-            # stay in sync. Warn loudly so the operator notices; we
-            # still build a ToolSpec from the entry defaults below
-            # so the tool remains callable until the manifest is
-            # added.
-            logger.warning(
-                "to_tool_specs: manifest lookup failed for %s: %s",
-                entry.canonical_tool_id, exc,
-            )
-            manifest = None
+        from core.tools.manifest_registry import get_manifest
+        manifest = get_manifest(entry.canonical_tool_id)
+        if manifest is None:
+            raise RuntimeError(f"missing capability manifest: {entry.canonical_tool_id}")
+        perm_action = entry.permission_action or _permission_action(manifest.action_class)
         spec = ToolSpec(
             tool_id=entry.canonical_tool_id,
             handler_id=entry.canonical_tool_id,
             description=description,
-            category=ns_entry.category if ns_entry else "",
-            risk_level=manifest.risk_level if manifest else entry.risk_level,
-            requires_approval=manifest.requires_approval if manifest else entry.requires_approval,
+            category=ns_entry.category,
+            risk_level=manifest.risk_level,
+            requires_approval=manifest.requires_approval,
             permission_action=perm_action,
             callable_by_llm=getattr(entry, 'callable_by_llm', True),
             enabled=True,
@@ -3237,94 +3205,16 @@ def to_tool_specs() -> list[tuple]:
     return out
 
 
-# Map namespace action strings (from tool_namespace_data.py) to
-# PermissionAction values (read|write|exec|network).
-_NS_ACTION_TO_PERMISSION: dict[str, str] = {
-    # exec
-    "exec": "exec", "slash_run": "exec",
-    # write
-    "edit": "write", "write": "write", "patch": "write",
-    "save": "write", "create": "write", "delete": "write",
-    "import": "write", "export": "write", "update": "write",
-    "archive": "write", "restore": "write", "rebuild": "write",
-    "uninstall": "write", "install": "write", "load": "write",
-    "unload": "write", "soft_delete": "write", "confirm": "write",
-    "rollback": "write", "checkpoint": "write",
-    # read
-    "read": "read", "list": "read", "preview": "read",
-    "search": "read", "get": "read", "summarize": "read",
-    "render": "read", "validate": "read", "extract": "read",
-    "check": "read", "parse": "read", "translate": "read",
-    "classify": "read", "diff": "read", "redact": "read",
-    "answer": "read", "explain": "read", "run_summary": "read",
-    "run_list": "read", "label": "read", "diagnose": "read",
-    "health": "read",
-    # network
-    "web_search": "network", "weather": "network", "fetch": "network",
-    "retrieve": "network",
-}
-
-
-def _infer_permission_action(
-    canonical_tool_id: str,
-    ns_action: str,
-) -> str:
-    """Infer permission_action from namespace metadata.
-
-    Precedence:
-    1. Category-prefix overrides (web.* → network, host.* → exec)
-    2. Explicit mapping from ns_action
-    3. Heuristic based on canonical_tool_id prefixes
-    4. Fallback to PermissionMatrix.action_for_tool()
-    """
-    # Category-prefix overrides take priority over ns_action mapping
-    if canonical_tool_id.startswith(("web.", "news.", "weather.")):
-        return "network"
-    if canonical_tool_id.startswith(("host.",)):
-        return "exec"
-
-    if ns_action and ns_action in _NS_ACTION_TO_PERMISSION:
-        return _NS_ACTION_TO_PERMISSION[ns_action]
-
-    # Heuristic: category-based inference from canonical_tool_id
-    if canonical_tool_id.startswith(("workspace.artifact.", "workspace.file.")):
-        if any(w in canonical_tool_id for w in ("edit", "write", "save", "create",
-                                                  "patch", "delete", "archive",
-                                                  "import", "export", "update")):
-            return "write"
-        return "read"
-    if canonical_tool_id.startswith(("knowledge.manage.",)):
-        if any(w in canonical_tool_id for w in ("import", "delete", "rebuild")):
-            return "write"
-        return "read"
-    if canonical_tool_id.startswith(("memory.",)):
-        if any(w in canonical_tool_id for w in ("create", "update", "delete", "confirm")):
-            return "write"
-        return "read"
-    if canonical_tool_id.startswith(("session.", "run.")):
-        if any(w in canonical_tool_id for w in ("export", "rollback", "checkpoint")):
-            return "write"
-        return "read"
-    if canonical_tool_id.startswith(("skill.", "slash.")):
-        if any(w in canonical_tool_id for w in ("install", "uninstall", "load", "run")):
-            return "exec" if "run" in canonical_tool_id else "write"
-        return "read"
-
-    # Final fallback: use PermissionMatrix.action_for_tool(),
-    # but default to "read" for truly unknown tools (action_for_tool
-    # returns WRITE as its catch-all, which is too permissive here).
+def _permission_action(action_class: str) -> str:
+    mapping = {
+        "read": "read",
+        "write": "write",
+        "execute": "exec",
+        "network": "network",
+        "delete": "write",
+        "admin": "write",
+    }
     try:
-        from agent.runtime.permission_matrix import PermissionMatrix
-        action = PermissionMatrix().action_for_tool(canonical_tool_id)
-        # action_for_tool defaults to WRITE for unknown tools; we want
-        # a conservative default of READ for the fallback path.
-        if action.value == "write" and not any(
-            canonical_tool_id.startswith(p)
-            for p in ("host.", "workspace.", "web.", "knowledge.manage.",
-                       "memory.", "session.", "run.", "skill.", "slash.",
-                       "runtime.", "text.", "data.", "diagram.")
-        ):
-            return "read"
-        return action.value
-    except Exception:
-        return "read"
+        return mapping[action_class]
+    except KeyError as exc:
+        raise ValueError(f"unsupported manifest action_class: {action_class!r}") from exc

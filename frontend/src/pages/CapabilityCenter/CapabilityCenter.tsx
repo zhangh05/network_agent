@@ -4,13 +4,11 @@
  * 展示可用能力、风险边界；工具目录索引。
  */
 import { useMemo, useState } from "react";
-import { capabilitiesApi, registryApi, toolsApi } from "../../api";
+import { capabilitiesApi, toolsApi } from "../../api";
 import { useAsync, AsyncView, Badge, InlineCode } from "../../components/common";
-import type { BusinessCapability, CapabilityStatus, RiskLevel, ToolCatalogCategory, ToolCatalogItem, ToolGovernanceStatus } from "../../types";
+import type { BusinessCapability, RiskLevel, ToolCatalogCategory, ToolCatalogItem, ToolGovernanceStatus } from "../../types";
 import { IconBolt, IconShield } from "../../components/Icon";
 
-const S_KIND: Record<CapabilityStatus, "ok" | "muted" | "warn"> = { enabled: "ok", planned: "warn", disabled: "muted" };
-const S_LABEL: Record<CapabilityStatus, string> = { enabled: "已启用", planned: "规划中", disabled: "已停用" };
 const R_KIND: Record<RiskLevel, "ok" | "info" | "warn" | "err"> = { low: "ok", medium: "info", high: "warn", critical: "err", forbidden: "err" };
 const R_LABEL: Record<RiskLevel, string> = { low: "低", medium: "中", high: "高", critical: "严重", forbidden: "禁止" };
 const G_KIND: Record<ToolGovernanceStatus, "ok" | "info" | "warn" | "muted"> = { active: "ok", disabled: "info", internal: "info", forbidden: "warn" };
@@ -28,17 +26,13 @@ const CAP_TITLES: Record<string, string> = { config_translation: "配置翻译",
 export function CapabilityCenter() {
   const [tq, setTq] = useState("");
   const [tf, setTf] = useState<ToolFilter>("all");
-  const list = useAsync<{ capabilities: BusinessCapability[]; enabled: string[] }>((s) => capabilitiesApi.manifest(s));
+  const list = useAsync<{ capabilities: BusinessCapability[] }>((s) => capabilitiesApi.manifest(s));
   const catalog = useAsync((s) => toolsApi.catalog(s));
-  const registry = useAsync<{ moduleCount: number; skillCount: number }>(async (s) => {
-    const [m, sk] = await Promise.all([registryApi.modules(s), registryApi.skills(s)]);
-    return { moduleCount: Array.isArray(m?.modules) ? m.modules.length : 0, skillCount: Array.isArray(sk?.skills) ? sk.skills.length : 0 };
-  });
 
   const counts = useMemo(() => {
-    if (list.state.kind !== "success") return { en: 0, pl: 0, tot: 0, hi: 0, dep: 0 };
+    if (list.state.kind !== "success") return { tot: 0, hi: 0, dep: 0 };
     const c = list.state.data.capabilities ?? [];
-    return { en: c.filter((x) => x.status === "enabled").length, pl: c.filter((x) => x.status === "planned").length, tot: c.length, hi: c.filter((x) => x.risk_level === "high" || x.risk_level === "forbidden").length, dep: c.filter((x) => x.can_generate_deployable).length };
+    return { tot: c.length, hi: c.filter((x) => x.risk_level === "high" || x.risk_level === "forbidden").length, dep: c.filter((x) => x.can_generate_deployable).length };
   }, [list.state]);
 
   return (
@@ -50,12 +44,7 @@ export function CapabilityCenter() {
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
           <span className="status-pill"><span className="dot" style={{ background: "var(--accent)" }} />{counts.tot} 项</span>
-          <span className="status-pill"><span className="dot ok" />{counts.en} 启用</span>
-          <span className="status-pill"><span className="dot warn" />{counts.pl} 规划中</span>
           {counts.dep > 0 && <span className="status-pill"><IconBolt size={10} />{counts.dep} 涉及产物</span>}
-          {registry.state.kind === "success" && (
-            <span className="status-pill">{registry.state.data.moduleCount} 模块 · {registry.state.data.skillCount} 能力</span>
-          )}
         </div>
       </div>
 
@@ -234,20 +223,18 @@ function D({ label, children }: { label: string; children: React.ReactNode }) {
 /* ── Capability card ── */
 
 function CapCard({ cap }: { cap: BusinessCapability }) {
-  const isPlanned = cap.status === "planned";
   const title = CAP_TITLES[cap.capability_id] || cap.description?.split(/[.。]/)[0] || cap.capability_id;
-  const outcome = isPlanned ? "规划中，当前不可调用" : cap.can_generate_deployable ? "会产出配置材料，必须人工复核" : cap.requires_verification ? "结果需要人工确认后使用" : "可用于当前工作区的辅助分析";
+  const outcome = cap.can_generate_deployable ? "会产出配置材料，必须人工复核" : cap.requires_verification ? "结果需要人工确认后使用" : "可用于当前工作区的辅助分析";
 
   return (
-    <div className="card" data-testid={`cap-${cap.capability_id}`} data-status={cap.status}>
+    <div className="card" data-testid={`cap-${cap.capability_id}`}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
         <div style={{ minWidth: 0 }}>
           <h4 style={{ fontSize: "var(--fs-15)", fontWeight: 740, margin: 0 }}>{title}</h4>
           <div style={{ fontSize: "var(--fs-11)", color: "var(--text-4)", marginTop: 3 }}>{outcome}</div>
         </div>
-        <Badge kind={S_KIND[cap.status]} withDot>{S_LABEL[cap.status] || cap.status}</Badge>
-        {isPlanned && <span data-testid={`cap-planned-tag-${cap.capability_id}`} style={{ display: "none" }}>不可调用</span>}
+        <Badge kind="ok" withDot>已启用</Badge>
       </div>
 
       {cap.description && <div style={{ marginTop: 12, fontSize: "var(--fs-13)", color: "var(--text-2)", lineHeight: 1.6 }}>{cap.description}</div>}
@@ -258,7 +245,7 @@ function CapCard({ cap }: { cap: BusinessCapability }) {
         <SR label="风险等级">{<Badge kind={R_KIND[cap.risk_level]}>{R_LABEL[cap.risk_level]}</Badge>}</SR>
         <SR label="配置产物">{cap.can_generate_deployable ? <Badge kind="warn">需复核</Badge> : <Badge kind="ok" withDot>不产生</Badge>}</SR>
         <SR label="评审要求">{cap.requires_verification ? <Badge kind="warn">需要</Badge> : <Badge kind="ok" withDot>无需</Badge>}</SR>
-        <SR label="LLM 调用">{cap.enabled ? <Badge kind="ok" withDot>可</Badge> : <Badge kind="muted">否</Badge>}</SR>
+        <SR label="LLM 调用"><Badge kind="ok" withDot>可</Badge></SR>
       </div>
 
       <details className="collapse" style={{ marginTop: 10 }}>
@@ -267,7 +254,6 @@ function CapCard({ cap }: { cap: BusinessCapability }) {
           <InlineCode>{cap.capability_id}</InlineCode>
           <InlineCode>{cap.intent}</InlineCode>
           <InlineCode>{cap.module}</InlineCode>
-          <InlineCode>{cap.skill}</InlineCode>
           {cap.category && <Badge kind="muted">{cap.category}</Badge>}
         </div>
       </details>

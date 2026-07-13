@@ -8,16 +8,11 @@ bombs, etc. These are the only command-level signals that should
 escalate a tool call to ``high`` risk + ``requires_approval`` (i.e. the
 approval bubble UX).
 
-The set of patterns lives here so policy / permission / risk layers
-all agree on what "destructive" means. Earlier designs split this
-across ``core/tools/policy.py``, ``permission_matrix.py``,
-``permission_check.py`` and ``approval_stage.py`` with subtly
-different substring lists — that is consolidated here.
+The set of patterns lives here so policy and risk evaluation agree on
+what "destructive" means.
 
 Note: this is a *command* check, not a *file path* check. Sensitive
-paths like ``/etc/passwd`` or ``../`` are handled by
-``agent.runtime.permission_matrix.check_dangerous_path`` which is a
-separate concern (file path safety, not command intent).
+Workspace file paths are validated by ``core.tools.path_security``.
 """
 
 from __future__ import annotations

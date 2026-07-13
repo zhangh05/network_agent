@@ -31,6 +31,7 @@ class PromptSpec:
     context_policy: dict = field(default_factory=lambda: {
         "require_safe_llm_context": True, "require_citations_for_references": True,
         "max_artifact_refs": 10, "max_memory_hits": 5,
+        "max_knowledge_hits": 8, "max_citations": 20,
     })
     tests: list = field(default_factory=list)
     metadata: dict = field(default_factory=dict)

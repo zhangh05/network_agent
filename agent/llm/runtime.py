@@ -63,7 +63,20 @@ def invoke_llm(
 
     # ── Build messages if not provided ──
     if messages is None:
-        messages = _build_prompt_messages(task, state_or_context, safe_context, user_input, extra)
+        try:
+            messages = _build_prompt_messages(
+                task, state_or_context, safe_context, user_input, extra
+            )
+        except Exception as exc:
+            logger.exception("prompt rendering failed for task=%s", task)
+            return LLMResponse(
+                error=f"prompt_runtime_error:{type(exc).__name__}",
+                metadata={
+                    "error_type": "prompt_runtime_error",
+                    "error_detail": type(exc).__name__,
+                    "retryable": False,
+                },
+            )
 
     # ── Build request ──
     # Always enable streaming — _api_generate_stream() handles tool calls correctly
@@ -177,7 +190,6 @@ def safe_generate(
 
     # ── Prompt Runtime (primary path) ──
     prompt_runtime_used = True
-    prompt_runtime_fallback = False
     prompt_id = ""
     prompt_version = ""
     prompt_policy_pass = True
@@ -239,13 +251,28 @@ def safe_generate(
 
         messages = messages or _messages_from_rendered_prompt(rendered.text, user_input, task)
 
-    except Exception:
-        # Prompt runtime unavailable — fallback
-        prompt_runtime_fallback = True
-        prompt_id = "fallback"
-        safe_ctx = _old_safe_context(state)
-        system_prompt = _get_system_prompt(task)
-        messages = messages or _build_messages(task, safe_ctx, user_input, system_prompt)
+    except Exception as exc:
+        logger.exception("safe_generate prompt rendering failed for task=%s", task)
+        return SafeLLMOutput(
+            summary="",
+            answer="",
+            safe_to_show=False,
+            llm_used=False,
+            fallback_reason="prompt_runtime_error",
+            warnings=[f"prompt_runtime_error:{type(exc).__name__}"],
+            policy_decision=PolicyDecision(
+                allowed=False,
+                reason="prompt_runtime_error",
+            ),
+            metadata={
+                "prompt_runtime_used": True,
+                "prompt_id": prompt_id,
+                "prompt_version": prompt_version,
+                "provider_called": False,
+                "error_type": "prompt_runtime_error",
+                "error_detail": type(exc).__name__,
+            },
+        )
 
     # ── Request policy (NON-BLOCKING) ──
     try:
@@ -369,18 +396,16 @@ def _build_prompt_messages(
     extra: dict = None,
 ) -> List[LLMMessage]:
     """Build messages by rendering prompt (used when messages not provided to invoke_llm())."""
-    try:
-        from prompts.loader import get_prompt_by_task
-        from prompts.renderer import render_prompt
-        spec = get_prompt_by_task(task)
-        citations = (safe_context or {}).get("citations", []) if isinstance(safe_context, dict) else []
-        rendered = render_prompt(task, safe_context or {}, user_input, citations, extra)
-        return _messages_from_rendered_prompt(rendered.text, user_input, task)
-    except Exception:
-        # Fallback
-        safe_ctx = safe_context or {}
-        system_prompt = _get_system_prompt(task)
-        return _build_messages(task, safe_ctx, user_input, system_prompt)
+    from prompts.loader import get_prompt_by_task
+    from prompts.renderer import render_prompt
+
+    get_prompt_by_task(task)
+    citations = (
+        (safe_context or {}).get("citations", [])
+        if isinstance(safe_context, dict) else []
+    )
+    rendered = render_prompt(task, safe_context or {}, user_input, citations, extra)
+    return _messages_from_rendered_prompt(rendered.text, user_input, task)
 
 
 def _build_metadata(
@@ -412,7 +437,6 @@ def _build_metadata(
         "response_policy_ok": response_policy_ok,
         "response_policy_violations": response_policy_violations,
         "rendered_prompt_used": True,
-        "old_prompts_default_path": False,
         "provider_called": provider_called,
         "output_accepted": output_accepted,
         "reasoning_stripped": reasoning_stripped,
@@ -426,31 +450,6 @@ def _messages_from_rendered_prompt(rendered_text: str, user_input: str, task: st
         LLMMessage(role="system", content=rendered_text),
         LLMMessage(role="user", content=user_content),
     ]
-
-
-def _get_system_prompt(task: str) -> str:
-    try:
-        from prompts.loader import get_prompt_by_task
-        from prompts.renderer import render_prompt
-        r = render_prompt(task, {}, "")
-        return r.text[:2000]
-    except Exception:
-        logger.debug("_get_system_prompt: <pass>", exc_info=True)
-    return "You are a helpful network assistant. Be factual and concise."
-
-
-def _old_safe_context(state) -> dict:
-    try:
-        from agent.llm.context_builder import build_safe_context
-        return build_safe_context(state)
-    except Exception:
-        return {}
-
-
-def _build_messages(task, safe_ctx, user_question, system_prompt):
-    user_msg = user_question or f"Task: {task}\nProvide a concise summary."
-    return [LLMMessage(role="system", content=system_prompt),
-            LLMMessage(role="user", content=user_msg)]
 
 
 def _redact(msg: str) -> str:

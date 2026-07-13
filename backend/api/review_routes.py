@@ -8,8 +8,8 @@ Endpoints:
                                                   - artifact-scoped list (per-art)
 
 No new tool is added. These endpoints proxy the existing
-agent.modules.review.service.* functions, which are already wired into
-the review capability (ToolRouter). Tool count remains unchanged.
+agent.modules.review.service.* functions, which are wired into the canonical
+review actions. Tool count remains unchanged.
 
 Note: PUT /api/review-items/<item_id> requires ?workspace_id=&artifact_id=
 query parameters, because review items are scoped per-artifact via the

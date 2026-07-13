@@ -20,7 +20,7 @@ from typing import Any
 from agent.llm.schemas import LLMMessage
 from agent.runtime.result import AgentResult
 from agent.runtime.turn_persistence import persist_run_record
-from agent.runtime.query_engine import build_trace_id
+from agent.runtime.stream_emitter import build_trace_id
 from agent.runtime.utils import now_iso
 from agent.approval import get_approval_store
 from core.runtime_engine.runtime_contracts import ExecutionContract
@@ -36,7 +36,6 @@ _MEMORY_WRITE_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
 def run_ssot_turn(
     session,
     turn,
-    services=None,
     *,
     allowed_tool_ids: set[str] | list[str] | tuple[str, ...] | None = None,
     requested_by: str = "turn_runner",
@@ -56,13 +55,6 @@ def run_ssot_turn(
     session_id = getattr(session, "session_id", "") or getattr(turn.op, "session_id", "")
     user_input = (getattr(turn.op, "user_input", "") or "").strip()
     metadata_in = dict(getattr(turn.op, "metadata", {}) or {})
-    _graph_run_started(
-        run_id=turn.turn_id,
-        workspace_id=workspace_id,
-        session_id=session_id,
-        trace_id=trace_id,
-        user_input=user_input,
-    )
 
     # ── Build canonical conversation context for prompt injection ──
     metadata_in["__raw_user_input"] = user_input
@@ -347,12 +339,6 @@ def run_ssot_turn(
 
     # ── Section 2: unified exit — sync session.history for both success
     #    and exception paths so the next turn always has context.
-    _graph_run_finished(
-        run_id=turn.turn_id,
-        result=result,
-        runtime_result=locals().get("runtime_result"),
-        user_input=user_input,
-    )
     _sync_session_history(session, user_input, result.final_response)
 
     persist_run_record(session, turn, result, context)
@@ -462,7 +448,6 @@ def _build_engine(
     from core.runtime_engine import SSOTRuntimeConfig, SSOTRuntimeEngine
 
     config = SSOTRuntimeConfig(
-        enable_finalizer=True,
         max_global_concurrency=8,
         max_layer_concurrency=5,
         max_llm_calls=50,
@@ -588,7 +573,8 @@ def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
     system = str(kwargs.get("system") or "")
     user = str(kwargs.get("user") or "")
     caller_extra = kwargs.get("extra") or {}
-    is_planner = str(caller_extra.get("stream_scope") or "").lower() == "planner"
+    stream_scope = str(caller_extra.get("stream_scope") or "internal").lower()
+    is_planner = stream_scope == "planner"
     # Preserve an explicit empty list: QueryLoop uses it for final-response-only
     # calls where the model must synthesize existing results without tools.
     tools = kwargs.get("tools")
@@ -599,7 +585,7 @@ def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
         "runtime_engine": "ssot_runtime",
         "planner": is_planner,
         "stream_to_user": not is_planner,
-        "stream_scope": "planner" if is_planner else "finalizer",
+        "stream_scope": stream_scope,
     }
     if caller_extra:
         extra.update(caller_extra)
@@ -661,7 +647,6 @@ def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
                 "id": f"n{len(nodes)}",
                 "tool": tc_name.replace("__", "."),
                 "args": tc_args,
-                "deps": [],
             })
         return json.dumps({"nodes": nodes, "final_response": ""}, ensure_ascii=False)
 
@@ -727,7 +712,7 @@ _BOGUS_FINAL_PATTERNS = (
 
 def _is_bogus_final(text: str) -> bool:
     """Return True when *text* is a placeholder stub rather than
-    a real answer produced by the finalizer LLM."""
+    a real answer produced by the QueryLoop response state."""
     t = text.strip()
     if len(t) <= 1:
         return True
@@ -910,104 +895,6 @@ def _current_model_name() -> str:
         return str(resolve_provider_config().get("model") or "")
     except Exception:
         return ""
-
-
-# ── GraphStore SSOT projection ─────────────────────────────────────
-
-def _graph_run_started(
-    *,
-    run_id: str,
-    workspace_id: str,
-    session_id: str,
-    trace_id: str,
-    user_input: str,
-) -> None:
-    """Append the production turn boundary to the canonical GraphStore."""
-    try:
-        from core.graph.graph_store import EventType, get_graph_store
-
-        store = get_graph_store()
-        store.append(EventType.RUN_CREATED, run_id, {
-            "workspace_id": workspace_id,
-            "session_id": session_id,
-            "trace_id": trace_id,
-            "input": user_input,
-        })
-        store.append(EventType.RUN_STARTED, run_id, {
-            "workspace_id": workspace_id,
-            "session_id": session_id,
-            "trace_id": trace_id,
-        })
-    except Exception:
-        _LOG.debug("GraphStore run-start append failed for %s", run_id, exc_info=True)
-
-
-def _graph_run_finished(
-    *,
-    run_id: str,
-    result: AgentResult,
-    runtime_result: Any | None,
-    user_input: str,
-) -> None:
-    """Append planner/tool/final projections for a completed public turn."""
-    try:
-        from core.graph.graph_store import EventType, get_graph_store
-
-        store = get_graph_store()
-        tool_calls = list(getattr(result, "tool_calls", []) or [])
-        nodes = [
-            {
-                "id": str(tc.get("node_id") or tc.get("tool_call_id") or f"node_{i}"),
-                "tool": str(tc.get("tool_id") or tc.get("tool") or ""),
-                "args": dict(tc.get("arguments") or {}),
-                "deps": [],
-            }
-            for i, tc in enumerate(tool_calls)
-            if isinstance(tc, dict)
-        ]
-        store.append(EventType.PLAN_GENERATED, run_id, {
-            "nodes": nodes,
-            "node_count": len(nodes),
-            "user_input": user_input,
-        })
-        for node, tc in zip(nodes, tool_calls):
-            node_id = node["id"]
-            if not isinstance(tc, dict):
-                continue
-            ok = bool(tc.get("ok", tc.get("success", True)))
-            payload = {
-                "node_id": node_id,
-                "tool": node["tool"],
-                "result": {
-                    "ok": ok,
-                    "summary": tc.get("summary") or tc.get("content") or "",
-                    "latency_ms": tc.get("latency_ms", 0),
-                    "artifacts": tc.get("artifacts") or [],
-                },
-            }
-            store.append(EventType.NODE_STARTED, run_id, {
-                "node_id": node_id,
-                "tool": node["tool"],
-            })
-            if ok:
-                store.append(EventType.NODE_COMPLETED, run_id, payload)
-            else:
-                store.append(EventType.NODE_FAILED, run_id, {
-                    **payload,
-                    "error": tc.get("error") or tc.get("summary") or "tool failed",
-                })
-        store.append(EventType.FINAL_RESPONSE, run_id, {
-            "text": getattr(result, "final_response", "") or "",
-        })
-        if getattr(result, "ok", False):
-            store.append(EventType.RUN_COMPLETED, run_id, {})
-        else:
-            store.append(EventType.RUN_FAILED, run_id, {
-                "errors": list(getattr(result, "errors", []) or []),
-                "runtime_errors": list(getattr(runtime_result, "errors", []) or []) if runtime_result else [],
-            })
-    except Exception:
-        _LOG.debug("GraphStore run-finish append failed for %s", run_id, exc_info=True)
 
 
 # ── Conversation history block builder ──────────────────────────────

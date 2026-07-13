@@ -30,7 +30,7 @@ flowchart LR
   App --> SSOTRuntime["SSOTRuntimeEngine"]
   SSOTRuntime --> QueryLoop["QueryLoop: LLM + bounded tool loop"]
   QueryLoop --> Client["ToolRuntimeClient"]
-  SSOTRuntime --> Finalizer["Finalizer / fallback synthesis"]
+  QueryLoop --> Answer["Response state / streaming answer"]
   Client --> Policy["Manifest + Policy Gate"]
   Policy --> Exec["ToolExecutor"]
   Exec --> Store["Workspace / Artifact / Memory / Trace Stores"]
@@ -45,7 +45,7 @@ flowchart LR
 | `backend/` | Flask 入口、REST API、WebSocket、SSE、认证 |
 | `frontend/` | React/Vite 工作台、会话、时间线、设置、资产、诊断 |
 | `agent/app/` | AgentApp 门面、SessionManager、AgentThread |
-| `agent/runtime/` | SSOT Runtime 适配、AgentResult 投影、持久化、hook |
+| `agent/runtime/` | SSOT Runtime 适配、AgentResult 投影与持久化 |
 | `agent/modules/` | inspection（巡检）、browser（浏览器操控）、cmdb（资产）、knowledge（知识库）、remote（远程终端） |
 | `core/tools/` | 29 个 canonical tool、manifest、policy、executor、redaction |
 | `agent/capabilities/` | 12 个业务能力目录，只描述能力，不注册工具 |

@@ -43,8 +43,6 @@ ToolHandler = Callable[[dict[str, Any]], Any | Awaitable[Any]]
 _HANDLER_NOT_OK_DEFAULT: ErrorCode = ErrorCode.TOOL_RETURNED_NOT_OK
 # Handler returned None (no value at all).
 _NULL_RESULT_DEFAULT: ErrorCode = ErrorCode.NULL_RESULT
-# Legacy success=False without a code.
-_LEGACY_FAIL_DEFAULT: ErrorCode = ErrorCode.LEGACY_FAILURE
 
 
 def _code_val(c: ErrorCode) -> str:
@@ -63,9 +61,7 @@ def resolve_tool_outcome(result: Any) -> tuple[str, str | None, Any]:
       * ``status`` is ``"SUCCESS"`` or ``"FAIL"`` — the boolean
         verdict of the handler's return value.
       * ``error_code`` is a non-empty string on FAIL and ``None``
-        on SUCCESS. Empty codes are normalised to the v4 default
-        (``TOOL_RETURNED_NOT_OK`` for ``ok=False``, ``TOOL_FAILED``
-        for legacy ``success=False``, ``NULL_RESULT`` for None).
+        on SUCCESS. Empty codes are normalized to the current runtime default.
       * ``normalized`` is the value the ``ToolResult.data`` field
         should hold. For dicts this is the original result; for
         ``None`` it is an empty dict so ``ToolResult.data`` is
@@ -77,10 +73,7 @@ def resolve_tool_outcome(result: Any) -> tuple[str, str | None, Any]:
       2. ``result["ok"] is False`` → FAIL / result.error_code or
          ``TOOL_RETURNED_NOT_OK`` / result.
       3. ``result["ok"] is True`` → SUCCESS / None / result.
-      4. ``"success" in result`` → SUCCESS or FAIL based on the
-         value; error_code falls back to ``TOOL_FAILED`` for FAIL.
-      5. Non-dict (e.g. handler returns a bare string or number) →
-         SUCCESS / None / result.
+      4. Any other shape → FAIL / TOOL_RESULT_INVALID.
 
     This function is the ONLY function in the v4 runtime that
     decides whether a tool call succeeded. Every
@@ -102,30 +95,9 @@ def resolve_tool_outcome(result: Any) -> tuple[str, str | None, Any]:
         if result.get("ok") is True:
             return _STATUS_SUCCESS, None, result
 
-        # Legacy "success" key fallback. v4.1: error_code is NO
-        # LONGER discarded. On success, code is None; on
-        # failure, the handler's own error_code / code is
-        # preferred. If the handler provides neither, the
-        # normalised code is "LEGACY_FAILURE" — so audit /
-        # retry / finalizer always see a non-empty string.
-        if "success" in result:
-            ok = bool(result["success"])
-            if ok:
-                return _STATUS_SUCCESS, None, result
-            raw = result.get("error_code") or result.get("code") or ""
-            norm = raw if raw else _code_val(_LEGACY_FAIL_DEFAULT)
-            return _STATUS_FAIL, norm, result
+        return _STATUS_FAIL, _code_val(ErrorCode.TOOL_RESULT_INVALID), result
 
-        # Dict with no ok/success keys — v4 contract: treat as SUCCESS.
-        # Legacy tool handlers may omit the verdict field; forcing FAIL
-        # here breaks existing integrations. The single source of truth
-        # for tool failure is an explicit ok=False or success=False.
-        return _STATUS_SUCCESS, None, result
-
-    # Non-dict return (str, int, list, custom object, ...). The
-    # v4 contract treats this as success — the previous v3.10
-    # resolver did the same.
-    return _STATUS_SUCCESS, None, result
+    return _STATUS_FAIL, _code_val(ErrorCode.TOOL_RESULT_INVALID), result
 
 
 def extract_error(result: Any) -> str:
@@ -173,8 +145,7 @@ def _stringify_errors(errors: Any) -> str:
     single human-readable string for ``ToolResult.error``.
 
     Accepts ``list`` / ``dict`` / ``str`` / scalar. Returns "" if
-    nothing useful is present. Used by both ``extract_error`` and
-    the v3.10 backward-compat path inside ``_normalize_result``.
+    nothing useful is present.
     """
     if not errors:
         return ""
@@ -216,8 +187,7 @@ class ToolRuntime:
     def invoke_raw(self, tool_id: str, arguments: dict | None = None) -> dict:
         """Invoke a registered tool handler directly and return a result dict.
 
-        v5.0: Added for QueryLoop integration. Bypasses ExecutionNode/DAG
-        compilation. Handles both sync and async handlers safely from any thread.
+        Handles both sync and async handlers safely from any thread.
         """
         arguments = arguments or {}
         handler = self._handlers.get(tool_id)
@@ -254,7 +224,7 @@ class ToolRuntime:
         Returns:
             ToolResult with success/failure and data
 
-        v3.10: the handler result is normalized so that ``ok=False``
+        The handler result is normalized so that ``ok=False``
         in the returned dict maps to ``ToolResult.success=False``.
         This is what lets the retry policy, dependency gate, and
         tool-call aggregation see the real outcome — previously
@@ -262,7 +232,7 @@ class ToolRuntime:
         didn't raise, even when its inner data said the call had
         failed. The behavior now mirrors the production tool
         runtime at ``core.tools.executor``: the handler's
-        explicit ``ok`` (or ``success``) field drives success.
+        explicit ``ok`` field drives success.
         """
         start = time.monotonic()
 

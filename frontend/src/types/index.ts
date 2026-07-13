@@ -4,7 +4,6 @@
  * returns. See `agent/capabilities/catalog.py` and `agent/runtime/result.py`.
  */
 
-export type CapabilityStatus = "enabled" | "planned" | "disabled";
 export type ToolStatus = "enabled" | "planned" | "disabled";
 export type RiskLevel = "low" | "medium" | "high" | "critical" | "forbidden";
 export type Sensitivity = "public" | "internal" | "sensitive" | "secret";
@@ -21,10 +20,6 @@ export type ToolGovernanceStatus = "active" | "disabled" | "internal" | "forbidd
 export interface BusinessCapability {
   /** Unique capability id, e.g. `config.translate`. */
   capability_id: string;
-  /** Whether the capability is callable by the LLM. */
-  enabled: boolean;
-  /** Lifecycle status: "enabled" | "planned" | "disabled". */
-  status: CapabilityStatus;
   /** Human-readable description (may be empty). */
   description: string;
   /** Category bucket, e.g. "translation" | "knowledge" | "review". */
@@ -33,15 +28,14 @@ export interface BusinessCapability {
   intent: string;
   /** Module id (string), e.g. `config_translation`. */
   module: string;
-  /** Skill id (string), e.g. `config_translation`. */
-  skill: string;
+  /** Canonical tools recommended for this capability. */
+  tool_ids: string[];
   /** Risk level for downstream reasoning / UI. */
   risk_level: RiskLevel;
   /** True if outputs of this capability can be deployed. */
   can_generate_deployable: boolean;
   /** True if a human reviewer is required before deployment. */
   requires_verification: boolean;
-  /** True iff status === "enabled" (mirror of `status` for callers). */
   requires_human_review: boolean;
 }
 
@@ -102,31 +96,6 @@ export interface ToolCatalogResponse {
 
 /* ──────────────────────── AgentResult & Tool Calls ──────────────────────── */
 
-/** Tool plan step from runtime planning metadata */
-export interface ToolPlanStep {
-  step?: number | string;
-  goal?: string;
-  purpose?: string;
-  tool_candidates?: string[];
-  preferred_tools?: string[];
-  required?: boolean;
-  depends_on?: number[];
-  stop_if_failed?: boolean;
-}
-
-/** P1-C: Tool scene metadata from planner */
-export interface ToolSceneMeta {
-  primary_category?: string;
-  mode?: string;
-  candidate_tools?: string[];
-  tool_plan?: ToolPlanStep[];
-  tool_chain?: ToolPlanStep[];
-  reason?: string;
-  needs_clarification?: boolean;
-  tool_planning_decision?: Record<string, unknown>;
-  visibility?: Record<string, unknown>;
-}
-
 export interface ToolCallResult {
   call_id: string;
   tool_id: string;
@@ -168,7 +137,6 @@ export interface AgentResult {
   no_tool_reason?: string;
   metadata: {
     selected_capabilities?: string[];
-    selected_skills?: string[];
     visible_tools?: string[];
     planner_mode?: string;
     source_count?: number;
@@ -180,8 +148,6 @@ export interface AgentResult {
     context_sources?: SourceSummary[];
     citations?: Array<Record<string, unknown>>;
     retrieval_diagnostics?: Record<string, unknown>;
-    /** v2.1.2: Tool planning metadata */
-    tool_scene?: ToolSceneMeta;
     /** Runtime action retry summary surfaced from SSOT Runtime. */
     retry_summary?: {
       retry_attempts?: number;
@@ -248,14 +214,6 @@ export interface AgentResult {
       tool?: string;
       tracking?: Record<string, unknown>;
     }>;
-    rule_tool_scene?: Record<string, unknown>;
-    tool_planner?: {
-      planner_version?: string;
-      mode?: string;
-      valid?: boolean;
-      fallback_used?: boolean;
-      warnings?: string[];
-    };
   };
 }
 
@@ -496,8 +454,6 @@ export interface RuntimeSummary {
   capabilities: {
     total: number;
     enabled: number;
-    planned: number;
-    disabled: number;
   };
   tools: {
     registered: number;
@@ -641,7 +597,6 @@ export interface RuntimeAuditTurn {
   ok?: boolean;
   capability?: string;
   selected_capabilities: string[];
-  selected_skills: string[];
   visible_tools: string[];
   tool_call_count: number;
   error_count: number;
@@ -659,62 +614,10 @@ export interface RuntimeAuditTurn {
   /** v2.1.2: Human-readable reason when no tools called */
   no_tool_reason?: string;
   /** v2.1.3: Additional trace detail fields */
-  active_module?: string;
   timeline_summary?: string;
   report_artifacts?: Array<{ artifact_id: string; title: string }>;
   artifact_refs?: Array<{ artifact_id: string; title: string }>;
-  decision_available?: boolean;
-  decision_summary?: DecisionSummary;
   metadata?: Record<string, unknown>;
-}
-
-export interface DecisionSummary {
-  schema_version?: string;
-  decision_status?: string;
-  capability_ids?: string[];
-  visible_tool_count?: number;
-  called_tool_count?: number;
-  blocked_tool_count?: number;
-  retrieval?: Record<string, string>;
-  real_event_count?: number;
-  synthetic_event_count?: number;
-  missing_event_count?: number;
-}
-
-export interface DecisionReport {
-  schema_version: string;
-  run_id: string;
-  session_id: string;
-  workspace_id: string;
-  created_at: string;
-  decision_status: "complete" | "degraded" | string;
-  scene_decision: Record<string, unknown>;
-  business_capabilities?: Array<Partial<BusinessCapability> & Record<string, unknown>>;
-  tool_planning_decision: {
-    visible_tools?: string[];
-    required_tools?: string[];
-    optional_tools?: string[];
-    blocked_tools?: Array<{ tool_id?: string; reason?: string }>;
-    selection_reason?: string;
-    local_ops_allowed?: boolean;
-    [key: string]: unknown;
-  };
-  retrieval_decision: Record<string, Record<string, unknown>>;
-  visibility_violations: Array<Record<string, unknown>>;
-  tool_execution_summary: {
-    called: string[];
-    blocked: string[];
-    failed: string[];
-    succeeded: string[];
-  };
-  trace_summary: {
-    real_event_count: number;
-    synthetic_event_count: number;
-    missing_event_count: number;
-  };
-  warnings: string[];
-  errors: string[];
-  redaction_applied: boolean;
 }
 
 /* ──────────────────────────── ApiError ──────────────────────────── */
@@ -808,29 +711,6 @@ export interface MemoryRecord {
   value_preview?: string;
   created_at: string;
   updated_at?: string;
-}
-
-export interface ModuleEntry {
-  module_name: string;
-  display_name: string;
-  status: string;
-  maturity: string;
-  category: string;
-  ui_route?: string;
-  api_base?: string;
-  enabled: boolean;
-  planned: boolean;
-  risk_level?: string;
-}
-
-export interface SkillEntry {
-  skill_name: string;
-  display_name: string;
-  status: string;
-  module: string;
-  capabilities: string[];
-  enabled: boolean;
-  planned: boolean;
 }
 
 export interface ToolPermission {
