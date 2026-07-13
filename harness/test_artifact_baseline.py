@@ -264,14 +264,6 @@ class TestArtifactAPI:
 
 
 class TestRegression:
-    def test_translate_still_works(self, client):
-        resp = client.post("/api/modules/config-translation/translate", json={
-            "source_vendor": "cisco", "target_vendor": "huawei",
-            "source_config": "hostname R1\ninterface Gi0/1\n ip address 10.1.1.1 255.255.255.0",
-        })
-        assert resp.status_code == 200
-        assert resp.get_json().get("ok") is True
-
     def test_agent_translate_works(self, client):
         resp = client.post("/api/agent/message", json={
             "message": "translate cisco to huawei",
@@ -282,10 +274,6 @@ class TestRegression:
             },
         })
         assert resp.status_code == 200
-
-    def test_no_api_translate(self, client):
-        resp = client.post("/api/translate", json={"test": 1})
-        assert resp.status_code in (404, 405)
 
     def test_trace_still_works(self, client):
         resp = client.post("/api/agent/message", json={

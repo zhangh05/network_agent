@@ -94,8 +94,8 @@ flowchart LR
 ## 验证命令
 
 ```bash
-python3 -m pytest harness/test_business_capability_catalog.py harness/test_v394_no_legacy_tool_ids.py -q
-python3 -m pytest harness/test_functional_contract_fixes.py -q
+python3 -m pytest harness/test_business_capability_catalog.py harness/test_ssot_runtime_contract_canonical_sync.py -q
+python3 -m pytest harness/test_framework_chain_closure.py harness/test_ssot_runtime_main_entry_contract.py -q
 npm --prefix frontend run typecheck
 ```
 

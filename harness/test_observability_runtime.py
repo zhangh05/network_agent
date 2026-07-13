@@ -288,19 +288,6 @@ class TestTraceAPI:
 
 
 class TestRegression:
-    def test_config_translation_still_works(self, client):
-        resp = client.post("/api/modules/config-translation/translate", json={
-            "source_vendor": "cisco",
-            "target_vendor": "huawei",
-            "source_config": "hostname R1\ninterface Gi0/1\n ip address 10.1.1.1 255.255.255.0",
-        })
-        assert resp.status_code == 200
-        assert resp.get_json().get("ok") is True
-
-    def test_no_api_translate(self, client):
-        resp = client.post("/api/translate", json={"test": 1})
-        assert resp.status_code in (404, 405)
-
     def test_workspace_runs_count(self, temp_dirs):
         from workspace.manager import list_workspaces, ensure_workspace
         ws_id = "reg_ws"

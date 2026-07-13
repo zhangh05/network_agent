@@ -10,7 +10,7 @@ Business capabilities describe user-facing outcomes. They are not tool registrat
 4. Run:
 
 ```bash
-python3 -m pytest harness/test_business_capability_catalog.py harness/test_v394_no_legacy_tool_ids.py -q
+python3 -m pytest harness/test_business_capability_catalog.py harness/test_ssot_runtime_contract_canonical_sync.py -q
 ```
 
 ## Entry Shape

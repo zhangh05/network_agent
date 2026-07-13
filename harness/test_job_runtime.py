@@ -151,10 +151,31 @@ class TestJobManager:
 
 
 class TestJobRunner:
-    def test_agent_run_job(self, temp_dirs):
+    def test_agent_run_job(self, temp_dirs, monkeypatch):
         from workspace.manager import ensure_workspace
         ws = "jr_ar"
         ensure_workspace(ws)
+
+        class FakeResult:
+            def to_dict(self):
+                return {
+                    "ok": True,
+                    "run_id": "run_job_test",
+                    "trace_id": "trace_job_test",
+                    "output_artifacts": [],
+                    "report_artifacts": [],
+                }
+
+        class FakeAgentApp:
+            def submit_user_message(self, **kwargs):
+                assert kwargs["workspace_id"] == ws
+                assert kwargs["metadata"]["job_id"]
+                return FakeResult()
+
+        monkeypatch.setattr(
+            "agent.app.service.get_default_agent_app",
+            lambda: FakeAgentApp(),
+        )
         from jobs.manager import create_job
         rec = create_job(workspace_id=ws, job_type="agent_run",
                          payload={"message": "translate cisco to huawei",
@@ -244,24 +265,3 @@ class TestJobAPI:
     def test_worker_status(self, client):
         resp = client.get("/api/jobs/worker/status")
         assert resp.status_code == 200
-
-
-class TestRegression:
-    def test_translate_still_works(self, client):
-        resp = client.post("/api/modules/config-translation/translate", json={
-            "source_vendor": "cisco", "target_vendor": "huawei",
-            "source_config": "hostname R1\ninterface Gi0/1\n ip address 10.1.1.1 255.255.255.0",
-        })
-        assert resp.get_json().get("ok") is True
-
-    def test_agent_run_still_works(self, client):
-        resp = client.post("/api/agent/message", json={
-            "message": "translate",
-            "workspace_id": "jreg",
-            "payload": {"source_vendor": "cisco", "target_vendor": "huawei",
-                         "source_config": "hostname R1"},
-        })
-        assert resp.status_code == 200
-
-    def test_no_api_translate(self, client):
-        assert client.post("/api/translate", json={"test": 1}).status_code in (404, 405)

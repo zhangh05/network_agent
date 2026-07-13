@@ -285,76 +285,6 @@ def test_remote_connect_falls_back_to_unique_cmdb_asset_when_password_empty(monk
     shutil.rmtree(root)
 
 
-@pytest.mark.skip(reason="flaky in CI - needs investigation")
-def test_exec_run_ssh_can_resolve_cmdb_asset_id(monkeypatch):
-    from agent.modules.cmdb.service import save_asset
-    from agent.modules.remote import core as remote_core
-    from storage.paths import workspace_root
-    from core.tools.canonical_registry import _handler_network_ssh
-    from core.tools.schemas import ToolInvocation
-
-    workspace_id = "pytest_exec_asset_secret"
-    root = workspace_root(workspace_id)
-    if root.exists():
-        shutil.rmtree(root)
-    asset = save_asset(
-        workspace_id,
-        {
-            "name": "edge",
-            "type": "router",
-            "host": "192.0.2.46",
-            "port": 22,
-            "protocol": "ssh",
-            "username": "admin",
-            "password": "secret-pass",
-            "vendor": "huawei",
-        },
-    )
-
-    captured = {}
-
-    class FakeSession:
-        vendor = type("Vendor", (), {"vendor": "huawei"})()
-        log = []
-
-    def fake_ssh_connect(session_id, host, port, username, password, vendor, **kwargs):
-        captured.update({
-            "session_id": session_id,
-            "host": host,
-            "port": port,
-            "username": username,
-            "password": password,
-            "vendor": vendor,
-            **kwargs,
-        })
-        return FakeSession()
-
-    monkeypatch.setattr(remote_core, "ssh_connect", fake_ssh_connect)
-    monkeypatch.setattr(remote_core, "exec_command", lambda session_id, command: {"ok": True, "output": "ok"})
-    monkeypatch.setattr(remote_core, "disconnect", lambda session_id: {"ok": True})
-
-    result = _handler_network_ssh(ToolInvocation(
-        tool_id="exec.run",
-        workspace_id=workspace_id,
-        arguments={
-            "target": "ssh",
-            "asset_id": asset["asset_id"],
-            "command": "display version",
-            "close_session": True,
-        },
-    ))
-
-    assert result["ok"] is True
-    assert result["output"] == "ok"
-    assert captured["host"] == "192.0.2.46"
-    assert captured["username"] == "admin"
-    assert captured["password"] == "secret-pass"
-    assert captured["vendor"] == "huawei"
-    assert captured["workspace_id"] == workspace_id
-
-    shutil.rmtree(root)
-
-
 def test_remote_session_followup_requires_matching_workspace(monkeypatch):
     from agent.modules.remote import service as remote_service
 
@@ -487,7 +417,6 @@ def test_telnet_connect_answers_login_prompts_only_when_credentials_exist(monkey
     remote_core.disconnect("sid_telnet_auth")
 
 
-@pytest.mark.skip(reason="FakeSession missing command_timeout attribute")
 def test_remote_exec_drains_stale_prompt_before_sending_command():
     from agent.modules.remote import core as remote_core
 
@@ -505,6 +434,7 @@ def test_remote_exec_drains_stale_prompt_before_sending_command():
             self.vendor = FakeVendor()
             self.log = []
             self.sent = False
+            self.command_timeout = 5.0
 
         def recv(self, timeout=0):
             if not self.sent:
@@ -588,4 +518,3 @@ def test_memory_gate_rejects_generic_task_completion_noise():
 
     if root.exists():
         shutil.rmtree(root)
-

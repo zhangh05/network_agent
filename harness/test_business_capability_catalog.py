@@ -74,28 +74,30 @@ def test_all_recommended_tool_ids_subset_of_namespace():
     )
 
 
+def test_catalog_snapshot_is_cached_and_canonical():
+    from core.tools.catalog_snapshot import (
+        build_catalog_snapshot,
+        reset_catalog_snapshot_cache,
+    )
+
+    reset_catalog_snapshot_cache()
+    first = build_catalog_snapshot()
+    second = build_catalog_snapshot()
+
+    assert first is second
+    assert first["catalog_version"] == "tool_catalog.v2"
+    assert first["catalog_fingerprint"]
+    assert first["count"] == len(first["tools"])
+    assert all(
+        item["canonical_tool_id"] == item["tool_id"]
+        for item in first["tools"]
+    )
+    assert all(category["count"] >= 0 for category in first["categories"])
+
+
 def test_catalog_module_ids_are_strings():
     for cap in _catalog.list_all():
         for mid in cap["module_ids"]:
             assert isinstance(mid, str) and mid, (
                 f"{cap['capability_id']} has bad module id {mid!r}"
             )
-
-
-def test_no_legacy_module_ids_in_catalog():
-    """The 10 deleted `agent/modules/*/capability.py` modules must not
-    appear in the catalog (the modules themselves still exist as
-    package directories, but the catalog should not link to them as
-    dead module_ids)."""
-    legacy_modules = {
-        "artifact", "browser", "cmdb", "git", "inspection",
-        "knowledge", "pcap", "remote", "review", "topology",
-    }
-    for cap in _catalog.list_all():
-        for mid in cap["module_ids"]:
-            # Module ids may still exist as real directories (e.g. pcap),
-            # so we only check for *legacy-only* module ids that were
-            # never part of the new world.
-            if mid in {"inspection", "topology", "remote"}:
-                # These were never canonical module_ids in v3.9.x.
-                pass  # allowed if present; the test only flags legacy

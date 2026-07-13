@@ -244,13 +244,3 @@ class TestTrustedProxyTrue:
             environ_base={"REMOTE_ADDR": "127.0.0.2"},
         )
         assert resp.status_code == 200
-
-
-class TestNonAPIRoutesNotLimited:
-    """Non-API routes should not be rate limited."""
-
-    def test_public_route_not_limited(self, client):
-        """/api/public should not be rate limited (it's not /api/* actually...)."""
-        # Actually /api/public IS /api/*, so it will be limited
-        # Let's test a non-/api/ route
-        pass  # This test is informational only

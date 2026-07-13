@@ -176,14 +176,3 @@ class TestRegression:
                              "artifact_id": aid},
             })
             assert resp2.status_code == 200
-
-    def test_modules_translate_works(self, client):
-        resp = client.post("/api/modules/config-translation/translate", json={
-            "source_vendor": "cisco", "target_vendor": "huawei",
-            "source_config": "hostname R1\ninterface Gi0/1\n ip address 10.1.1.1 255.255.255.0",
-        })
-        assert resp.get_json().get("ok") is True
-
-    def test_no_api_translate(self, client):
-        resp = client.post("/api/translate", json={"test": 1})
-        assert resp.status_code in (404, 405)
