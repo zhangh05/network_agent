@@ -30,10 +30,15 @@ def test_recent_history_budget_keeps_newest_messages():
         {"role": "user", "content": f"old-{index}-" + "x" * 500}
         for index in range(20)
     ]
-    text = _format_recent_history(messages, max_chars=1300)
+    text = _format_recent_history(
+        messages,
+        max_tokens=450,
+        per_message_tokens=180,
+    )
     assert "old-19-" in text
     assert "old-0-" not in text
-    assert len(text) <= 1300
+    from core.runtime_engine.context_budget import estimate_text_tokens
+    assert estimate_text_tokens(text) <= 450
 
 
 def test_context_store_uses_workspace_storage_root(monkeypatch, tmp_path):

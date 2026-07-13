@@ -59,20 +59,26 @@ class MetricsCollector:
     def set_risk_level(self, level: str) -> None:
         self._snapshot.risk_level = level
 
-    def capture_context_usage(self, estimated_chars: int) -> None:
-        """Record current context size and compute per-turn growth trend."""
-        prev = self._snapshot.context_estimated_chars
+    def capture_context_usage(
+        self,
+        estimated_chars: int,
+        *,
+        estimated_tokens: int = 0,
+        budget_tokens: int = 0,
+    ) -> None:
+        """Record context usage against the active runtime token budget."""
+        prev = self._snapshot.context_estimated_tokens
         self._snapshot.context_estimated_chars = estimated_chars
-        # Track growth trend: how many turns until compact threshold
-        from core.runtime_engine.query_loop import COMPACT_THRESHOLD_CHARS
-        if estimated_chars > 0 and prev > 0:
-            growth = estimated_chars - prev
+        self._snapshot.context_estimated_tokens = estimated_tokens
+        self._snapshot.context_budget_tokens = budget_tokens
+        if estimated_tokens > 0 and budget_tokens > 0 and prev > 0:
+            growth = estimated_tokens - prev
             if growth > 0:
-                remaining = max(0, COMPACT_THRESHOLD_CHARS - estimated_chars)
-                self._snapshot.compact_detail["turns_until_compact"] = (
+                remaining = max(0, budget_tokens - estimated_tokens)
+                self._snapshot.compact_detail["iterations_until_compact"] = (
                     remaining // growth if growth > 0 else 999
                 )
-                self._snapshot.compact_detail["growth_per_turn"] = growth
+                self._snapshot.compact_detail["growth_tokens_per_iteration"] = growth
 
     def mark_compacted(self, info) -> None:
         """Record a compaction event with full detail."""
@@ -84,6 +90,8 @@ class MetricsCollector:
             "tools_affected": info.tools_used,
             "before_chars": info.before_chars,
             "after_chars": info.after_chars,
+            "before_tokens": info.before_tokens,
+            "after_tokens": info.after_tokens,
             "compression_ratio": (
                 f"{info.before_chars / max(info.after_chars, 1):.1f}x"
             ),
@@ -111,6 +119,8 @@ class MetricsCollector:
             "risk_level": s.risk_level,
             "context_compacted": s.context_compacted,
             "context_estimated_chars": s.context_estimated_chars,
+            "context_estimated_tokens": s.context_estimated_tokens,
+            "context_budget_tokens": s.context_budget_tokens,
             "context_saved_chars": s.context_saved_chars,
             "compact_detail": s.compact_detail,
         }

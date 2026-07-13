@@ -56,9 +56,18 @@ def run_ssot_turn(
     user_input = (getattr(turn.op, "user_input", "") or "").strip()
     metadata_in = dict(getattr(turn.op, "metadata", {}) or {})
 
+    # Build the full LLM-visible tool registry first. RuntimeContextBudget
+    # deducts its schema cost before assigning history/retrieval capacity.
+    ssot_registry = _build_ssot_runtime_tool_registry(allowed_tool_ids)
+    runtime_context_budget = _build_runtime_context_budget(ssot_registry)
+
     # ── Build canonical conversation context for prompt injection ──
     metadata_in["__raw_user_input"] = user_input
-    history_block = _build_history_block(session, user_input=user_input)
+    history_block = _build_history_block(
+        session,
+        user_input=user_input,
+        max_tokens=runtime_context_budget.history_tokens,
+    )
     if history_block:
         metadata_in["conversation_history_block"] = history_block
     retrieved_context_block = _build_retrieved_context_block(
@@ -66,12 +75,12 @@ def run_ssot_turn(
         session_id=session_id,
         task_id=turn.turn_id,
         user_input=user_input,
+        max_tokens=runtime_context_budget.retrieved_context_tokens,
     )
     if retrieved_context_block:
         metadata_in["retrieved_context_block"] = retrieved_context_block
 
-    # Build tool registry once — used for both metadata and engine
-    ssot_registry = _build_ssot_runtime_tool_registry(allowed_tool_ids)
+    metadata_in["runtime_context_budget"] = runtime_context_budget.as_dict()
 
     context = SimpleNamespace(
         workspace_id=workspace_id,
@@ -105,6 +114,7 @@ def run_ssot_turn(
             emitter=emitter,
             prebuilt_registry=ssot_registry,
             max_query_loop_iterations=metadata_in.get("max_steps"),
+            context_budget=runtime_context_budget,
         )
         runtime_result = _run_async(
             engine.run(
@@ -199,6 +209,7 @@ def run_ssot_turn(
                     requested_by=requested_by,
                     emitter=emitter,
                     max_query_loop_iterations=metadata_in.get("max_steps"),
+                    context_budget=runtime_context_budget,
                 )
                 runtime_result = _run_async(
                     engine2.run(
@@ -293,6 +304,15 @@ def run_ssot_turn(
             ),
             "tool_recovery_events": list(
                 (runtime_result.metadata or {}).get("tool_recovery_events") or []
+            ),
+            "context_compacted": bool((runtime_result.metadata or {}).get("context_compacted", False)),
+            "context_estimated_tokens": int(
+                (runtime_result.metadata or {}).get("context_estimated_tokens", 0) or 0
+            ),
+            "context_budget": dict((runtime_result.metadata or {}).get("context_budget") or {}),
+            "output_truncated": bool((runtime_result.metadata or {}).get("output_truncated", False)),
+            "output_truncation_reason": str(
+                (runtime_result.metadata or {}).get("output_truncation_reason") or ""
             ),
         }
         result = AgentResult(
@@ -444,6 +464,7 @@ def _build_engine(
     emitter: Any | None = None,
     prebuilt_registry: dict[str, dict[str, Any]] | None = None,
     max_query_loop_iterations: int | None = None,
+    context_budget=None,
 ):
     from core.runtime_engine import SSOTRuntimeConfig, SSOTRuntimeEngine
 
@@ -462,6 +483,10 @@ def _build_engine(
             1,
             min(int(max_query_loop_iterations or 20), 20),
         ),
+        context_window_tokens=int(getattr(context_budget, "context_window_tokens", 0) or 0),
+        max_input_tokens=int(getattr(context_budget, "max_input_tokens", 48_000) or 48_000),
+        max_output_tokens=int(getattr(context_budget, "reserved_output_tokens", 4096) or 4096),
+        context_safety_tokens=int(getattr(context_budget, "safety_tokens", 2048) or 2048),
     )
     registry = prebuilt_registry or _build_ssot_runtime_tool_registry(allowed_tool_ids)
     engine_kwargs: dict[str, Any] = {
@@ -515,6 +540,30 @@ def _build_ssot_runtime_tool_registry(allowed_tool_ids=None) -> dict[str, dict[s
     return tools
 
 
+def _build_runtime_context_budget(registry: dict[str, dict[str, Any]]):
+    from agent.llm.config import resolve_provider_config
+    from agent.llm.tool_adapter import tool_spec_to_openai_function
+    from core.runtime_engine.context_budget import RuntimeContextBudget
+
+    config = dict(resolve_provider_config() or {})
+    tool_definitions = [
+        tool_spec_to_openai_function({
+            "tool_id": tool_id,
+            "description": meta.get("description", ""),
+            "input_schema": meta.get("args_schema", {}),
+            "risk_level": meta.get("risk_level", "low"),
+        })
+        for tool_id, meta in sorted(registry.items())
+    ]
+    return RuntimeContextBudget.build(
+        model=str(config.get("model") or ""),
+        tools=tool_definitions,
+        context_window_tokens=int(config.get("context_window_tokens") or 0),
+        max_input_tokens=int(config.get("max_input_tokens") or 48_000),
+        reserved_output_tokens=int(config.get("max_tokens") or 4096),
+    )
+
+
 def _tool_runtime_client():
     from core.tools.integration import get_default_tool_runtime_client
     return get_default_tool_runtime_client()
@@ -566,7 +615,7 @@ def _make_tool_handler(
     return _handler
 
 
-def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
+def _invoke_llm_for_ssot_runtime(**kwargs):
     from agent.llm.runtime import invoke_llm
     from agent.runtime.token_tracker import record_llm_call
 
@@ -628,52 +677,11 @@ def _invoke_llm_for_ssot_runtime(**kwargs) -> str:
         # v4.1: accept ANY non-empty content — even a single character is
         # better than a generic fallback.
         if resp.content and resp.content.strip():
-            return resp.content.strip()
+            return resp
         raise RuntimeError(resp.error)
-
-    # Handle tool_calls response (Function Calling mode)
-    tool_calls = getattr(resp, "tool_calls", []) or []
-    if tool_calls:
-        nodes = []
-        for tc in tool_calls:
-            tc_name = tc.get("name", "") if isinstance(tc, dict) else getattr(tc, "name", "")
-            tc_args = tc.get("arguments", "{}") if isinstance(tc, dict) else getattr(tc, "arguments", "{}")
-            if isinstance(tc_args, str):
-                try:
-                    tc_args = json.loads(tc_args)
-                except json.JSONDecodeError:
-                    tc_args = {}
-            nodes.append({
-                "id": f"n{len(nodes)}",
-                "tool": tc_name.replace("__", "."),
-                "args": tc_args,
-            })
-        return json.dumps({"nodes": nodes, "final_response": ""}, ensure_ascii=False)
-
-    content = (resp.content or "").strip()
-    if is_planner and not _looks_like_plan_json(content):
-        return json.dumps({"nodes": [], "final_response": content}, ensure_ascii=False)
-    return content
-
-
-def _looks_like_plan_json(text: str) -> bool:
-    try:
-        data = json.loads(_strip_fences(text))
-    except Exception:
-        return False
-    return isinstance(data, dict) and isinstance(data.get("nodes", []), list)
-
-
-def _strip_fences(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        if lines:
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        return "\n".join(lines).strip()
-    return text
+    # Preserve finish_reason, usage, and truncation metadata. QueryLoop accepts
+    # both native function calls and textual {nodes: [...]} plans.
+    return resp
 
 
 def _run_async(awaitable):
@@ -899,26 +907,14 @@ def _current_model_name() -> str:
 
 # ── Conversation history block builder ──────────────────────────────
 
-_HISTORY_MAX_CHARS = 12000
 _HISTORY_RECENT_MESSAGES = 30
-_HISTORY_MESSAGE_MAX_CHARS = 1200
-_HISTORY_SUMMARY_MAX_CHARS = 2500
 _HISTORY_REFERENCE_PATTERNS = (
     "前面", "之前", "上次", "刚才", "继续", "还记得", "记得",
     "那个", "上一轮", "前一轮", "前面的", "之前的", "刚才的",
 )
-_RETRIEVED_CONTEXT_MAX_CHARS = 6000
-_RETRIEVED_ITEM_MAX_CHARS = 1500
-
-
-def _truncate(text: str, limit: int) -> str:
-    if len(text) <= limit:
-        return text
-    return text[: max(0, limit - 1)] + "…"
-
-
 def _build_retrieved_context_block(
     *, workspace_id: str, session_id: str, task_id: str, user_input: str,
+    max_tokens: int = 3000,
 ) -> str:
     """Retrieve concise governed memory and knowledge context for this turn."""
     if not workspace_id or not user_input.strip():
@@ -933,22 +929,33 @@ def _build_retrieved_context_block(
             session_id=session_id,
             task_id=task_id,
         )
+        from core.runtime_engine.context_budget import truncate_text_to_tokens
+
         lines: list[str] = []
+        item_tokens = max(200, min(750, max_tokens // 3))
         for hit in retrieved.get("memory_hits", [])[:3]:
             content = str(hit.get("content") or hit.get("summary") or "").strip()
             if content:
-                lines.append(f"[memory] {_truncate(content, _RETRIEVED_ITEM_MAX_CHARS)}")
+                compacted, _ = truncate_text_to_tokens(content, item_tokens)
+                lines.append(f"[memory] {compacted}")
         for hit in retrieved.get("knowledge_hits", [])[:2]:
             content = str(hit.get("content") or hit.get("summary") or "").strip()
             if content:
-                lines.append(f"[knowledge] {_truncate(content, _RETRIEVED_ITEM_MAX_CHARS)}")
-        return _truncate("\n".join(lines), _RETRIEVED_CONTEXT_MAX_CHARS)
+                compacted, _ = truncate_text_to_tokens(content, item_tokens)
+                lines.append(f"[knowledge] {compacted}")
+        compacted, _ = truncate_text_to_tokens("\n".join(lines), max_tokens)
+        return compacted
     except Exception:
         _LOG.debug("governed context retrieval failed", exc_info=True)
         return ""
 
 
-def _build_history_block(session, *, user_input: str = "") -> str:
+def _build_history_block(
+    session,
+    *,
+    user_input: str = "",
+    max_tokens: int = 8000,
+) -> str:
     """Build prompt-ready conversation context from the session message SSOT.
 
     Source order:
@@ -965,30 +972,45 @@ def _build_history_block(session, *, user_input: str = "") -> str:
         if not messages:
             return ""
 
+        from core.runtime_engine.context_budget import estimate_text_tokens, truncate_text_to_tokens
+
         recent = messages[-_HISTORY_RECENT_MESSAGES:]
         older = messages[:-_HISTORY_RECENT_MESSAGES]
         parts: list[str] = []
-        recent_text = _format_recent_history(recent, max_chars=7600)
+        recent_budget = max(800, int(max_tokens * 0.65))
+        summary_budget = max(300, int(max_tokens * 0.22))
+        reference_budget = max(200, max_tokens - recent_budget - summary_budget)
+        per_message_tokens = max(100, min(600, max_tokens // 10))
+        recent_text = _format_recent_history(
+            recent,
+            max_tokens=recent_budget,
+            per_message_tokens=per_message_tokens,
+        )
         if older:
-            summary = _summarize_older_messages(older)
+            summary = _summarize_older_messages(older, max_tokens=summary_budget)
             if summary:
-                parts.append("SESSION SUMMARY:\n" + _truncate(summary, _HISTORY_SUMMARY_MAX_CHARS))
+                parts.append("SESSION SUMMARY:\n" + summary)
         retrieved = _retrieve_history_references(messages, user_input)
         if retrieved:
-            retrieved_text = "\n".join(
-                f"  [{m['role']}] {_truncate(m['content'], _HISTORY_MESSAGE_MAX_CHARS)}"
-                for m in retrieved
-            )
-            parts.append("RETRIEVED HISTORY:\n" + _truncate(retrieved_text, 1800))
+            retrieved_lines = []
+            for message in retrieved:
+                content, _ = truncate_text_to_tokens(message["content"], per_message_tokens)
+                retrieved_lines.append(f"  [{message['role']}] {content}")
+            retrieved_text, _ = truncate_text_to_tokens("\n".join(retrieved_lines), reference_budget)
+            parts.append("RETRIEVED HISTORY:\n" + retrieved_text)
         if recent_text:
             parts.append("RECENT CONVERSATION HISTORY:\n" + recent_text)
         block = "\n\n".join(parts)
-        if len(block) <= _HISTORY_MAX_CHARS:
+        if estimate_text_tokens(block) <= max_tokens:
             return block
         # Never head-truncate a long block: that discards the newest turns.
-        return "RECENT CONVERSATION HISTORY:\n" + _format_recent_history(
-            recent, max_chars=_HISTORY_MAX_CHARS - 40
+        fallback = "RECENT CONVERSATION HISTORY:\n" + _format_recent_history(
+            recent,
+            max_tokens=max(100, max_tokens - 20),
+            per_message_tokens=per_message_tokens,
         )
+        fallback, _ = truncate_text_to_tokens(fallback, max_tokens)
+        return fallback
     except Exception:
         _LOG.debug("conversation history block build failed", exc_info=True)
         return ""
@@ -1036,21 +1058,29 @@ def _history_overlap(
     return 0
 
 
-def _format_recent_history(messages: list[dict[str, str]], *, max_chars: int) -> str:
+def _format_recent_history(
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int,
+    per_message_tokens: int,
+) -> str:
     """Fit newest messages into a budget while preserving chronological order."""
+    from core.runtime_engine.context_budget import estimate_text_tokens, truncate_text_to_tokens
+
     selected: list[str] = []
     used = 0
     for message in reversed(messages):
+        content, _ = truncate_text_to_tokens(message["content"], per_message_tokens)
         line = (
             f"  [{message['role']}] "
-            f"{_truncate(message['content'], _HISTORY_MESSAGE_MAX_CHARS)}"
+            f"{content}"
         )
-        cost = len(line) + 1
-        if selected and used + cost > max_chars:
+        cost = estimate_text_tokens(line) + 1
+        if selected and used + cost > max_tokens:
             break
-        if not selected and cost > max_chars:
-            line = _truncate(line, max_chars)
-            cost = len(line)
+        if not selected and cost > max_tokens:
+            line, _ = truncate_text_to_tokens(line, max_tokens)
+            cost = estimate_text_tokens(line)
         selected.append(line)
         used += cost
     return "\n".join(reversed(selected))
@@ -1070,21 +1100,30 @@ def _append_context_message(messages: list[dict[str, str]], seen: set[str], raw:
     messages.append({"role": role, "content": content})
 
 
-def _summarize_older_messages(messages: list[dict[str, str]]) -> str:
+def _summarize_older_messages(
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int,
+) -> str:
+    from core.runtime_engine.context_budget import estimate_text_tokens, truncate_text_to_tokens
+
     lines: list[str] = []
     for m in messages:
         content = m["content"]
         if _looks_context_important(content):
-            lines.append(f"  [{m['role']}] {_truncate(content, 350)}")
-        if len("\n".join(lines)) >= _HISTORY_SUMMARY_MAX_CHARS:
+            compacted, _ = truncate_text_to_tokens(content, min(180, max_tokens))
+            lines.append(f"  [{m['role']}] {compacted}")
+        if estimate_text_tokens("\n".join(lines)) >= max_tokens:
             break
     if not lines and messages:
         sample = messages[:3] + messages[-3:]
         for m in sample:
-            lines.append(f"  [{m['role']}] {_truncate(m['content'], 220)}")
+            compacted, _ = truncate_text_to_tokens(m["content"], min(120, max_tokens))
+            lines.append(f"  [{m['role']}] {compacted}")
     if not lines:
         return ""
-    return _truncate("\n".join(lines), _HISTORY_SUMMARY_MAX_CHARS)
+    compacted, _ = truncate_text_to_tokens("\n".join(lines), max_tokens)
+    return compacted
 
 
 def _retrieve_history_references(messages: list[dict[str, str]], user_input: str) -> list[dict[str, str]]:

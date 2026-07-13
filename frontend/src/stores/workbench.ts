@@ -461,6 +461,17 @@ export const useWorkbenchStore = create<WorkbenchState>()(
                   (metadata.tool_recovery_events as AgentResult["metadata"]["tool_recovery_events"])
                   || (runtimeMetadata.tool_recovery_events as AgentResult["metadata"]["tool_recovery_events"])
                   || [],
+                context_compacted: Boolean(metadata.context_compacted ?? runtimeMetadata.context_compacted),
+                context_estimated_tokens: Number(
+                  metadata.context_estimated_tokens ?? runtimeMetadata.context_estimated_tokens ?? 0,
+                ),
+                context_budget: (metadata.context_budget as AgentResult["metadata"]["context_budget"])
+                  || (runtimeMetadata.context_budget as AgentResult["metadata"]["context_budget"])
+                  || undefined,
+                output_truncated: Boolean(metadata.output_truncated ?? runtimeMetadata.output_truncated),
+                output_truncation_reason: String(
+                  metadata.output_truncation_reason ?? runtimeMetadata.output_truncation_reason ?? "",
+                ),
                 source_count: 0,
                 workspace_id,
               },

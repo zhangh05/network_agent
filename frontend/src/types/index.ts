@@ -214,6 +214,23 @@ export interface AgentResult {
       tool?: string;
       tracking?: Record<string, unknown>;
     }>;
+    /** Input/output truncation is explicit so partial results are never silent. */
+    context_compacted?: boolean;
+    context_estimated_tokens?: number;
+    context_budget?: {
+      context_window_tokens?: number;
+      max_input_tokens?: number;
+      reserved_output_tokens?: number;
+      safety_tokens?: number;
+      tool_schema_tokens?: number;
+      message_tokens?: number;
+      history_tokens?: number;
+      retrieved_context_tokens?: number;
+      per_tool_result_tokens?: number;
+      artifact_result_tokens?: number;
+    };
+    output_truncated?: boolean;
+    output_truncation_reason?: string;
   };
 }
 

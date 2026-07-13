@@ -46,7 +46,7 @@ class LLMRequest:
     safe_context: Dict[str, Any] = field(default_factory=dict)
     model: str = ""
     temperature: float = 0.7
-    max_tokens: int = 2048
+    max_tokens: int = 4096
     metadata: Dict[str, Any] = field(default_factory=dict)
     tools: Optional[List[dict]] = None  # OpenAI function definitions
     stream: bool = False  # Enable token-level streaming

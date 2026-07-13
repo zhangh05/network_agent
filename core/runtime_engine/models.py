@@ -129,6 +129,13 @@ class SSOTRuntimeConfig:
     tracking_max_seconds: int = 45
     tracking_poll_interval_cap_seconds: float = 2.0
 
+    # One input-budget contract for the active runtime. Tool definitions remain
+    # fully visible and are deducted before message/history/tool-result budgets.
+    context_window_tokens: int = 0
+    max_input_tokens: int = 48_000
+    max_output_tokens: int = 4096
+    context_safety_tokens: int = 2048
+
     # RiskPolicy warning thresholds. These no longer trigger approval/blocking;
     # QueryLoop budgets enforce hard runtime limits.
     rp_max_tool_nodes_allow: int = 20
@@ -228,5 +235,7 @@ class MetricSnapshot:
     risk_level: str = "low"
     context_compacted: bool = False
     context_estimated_chars: int = 0
+    context_estimated_tokens: int = 0
+    context_budget_tokens: int = 0
     context_saved_chars: int = 0
     compact_detail: dict = field(default_factory=dict)

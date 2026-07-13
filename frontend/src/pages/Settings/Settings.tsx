@@ -155,7 +155,7 @@ export function Settings() {
           base_url: preset.base_url,
           model: preset.model,
           temperature: 0.2,
-          max_tokens: 1200,
+          max_tokens: 4096,
           safe_mode: true,
           key_configured: false,
           is_active: false,
@@ -443,7 +443,7 @@ export function Settings() {
 
                 <div className="settings-row-grid">
                   <NumberField label="temperature" value={draft.temperature ?? 0.2} min={0} max={2} step={0.1} onChange={(v) => setDraft({ ...draft, temperature: v })} testid="field-temperature" />
-                  <NumberField label="max_tokens" value={draft.max_tokens ?? 1200} min={1} max={128000} step={100} onChange={(v) => setDraft({ ...draft, max_tokens: v })} testid="field-max_tokens" />
+                  <NumberField label="max_tokens" value={draft.max_tokens ?? 4096} min={1} max={128000} step={100} onChange={(v) => setDraft({ ...draft, max_tokens: v })} testid="field-max_tokens" />
                 </div>
 
                 <div className="settings-row" style={{ paddingTop: 4 }}>

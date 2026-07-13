@@ -1461,6 +1461,9 @@ const ResultInline = React.memo(function ResultInline({
   const actionCount = toolCalls.length;
   const failedToolCount = toolCalls.filter((tc) => !tc.ok).length;
   const successToolCount = toolCalls.filter((tc) => tc.ok).length;
+  const contextCompacted = Boolean(result?.metadata?.context_compacted);
+  const outputTruncated = Boolean(result?.metadata?.output_truncated);
+  const truncationReason = String(result?.metadata?.output_truncation_reason || "");
   const showActionTrace = !!result && (actionCount > 0 || retry.events.length > 0 || validationCorrection.attempts > 0 || toolRecoveryEvents.length > 0 || tracking.taskId || isFailed);
 
   // Nothing to show — no result and no fallback text
@@ -1537,6 +1540,18 @@ const ResultInline = React.memo(function ResultInline({
 
   return (
     <div className="chat-result-inline">
+      {(contextCompacted || outputTruncated) && (
+        <div
+          className={`context-budget-notice ${outputTruncated ? "warning" : ""}`}
+          data-testid="context-budget-notice"
+        >
+          {outputTruncated
+            ? truncationReason === "timeout"
+              ? "模型响应超时，当前展示的是已接收内容。"
+              : "回复达到输出长度上限，当前内容可能不完整。"
+            : "较早的运行上下文已压缩，最近对话和关键任务引用仍被保留。"}
+        </div>
+      )}
       {((result?.tool_calls) ?? []).length > 0 && (
         <div className="chat-tool-summary" data-testid="inline-tool-summary">
           <IconBolt size={10} className="inline-icon-accent" />

@@ -33,6 +33,12 @@ from .models import (
     ToolResult,
 )
 from .tracking import extract_tracking_payload, normalize_tracking_payload
+from .context_budget import (
+    RuntimeContextBudget,
+    estimate_json_tokens,
+    estimate_text_tokens,
+    truncate_text_to_tokens,
+)
 from agent.llm.schemas import LLMMessage, LLMResponse, LLMToolCall
 from agent.llm.tool_adapter import tool_spec_to_openai_function
 from .prompt_contract import (
@@ -247,12 +253,16 @@ def _compact_tool_content(content: Any, *, max_chars: int = TOOL_MESSAGE_MAX_CHA
     return _json_compact(content, max_chars=max_chars)
 
 
-def _artifact_analysis_content(payload: dict[str, Any]) -> str:
+def _artifact_analysis_content(
+    payload: dict[str, Any],
+    *,
+    max_chars: int = ARTIFACT_ANALYSIS_MAX_CHARS,
+) -> str:
     """Preserve a bounded complete text artifact for one-pass analysis."""
     preview = str(payload.get("preview") or "")
     complete = bool(payload.get("content_complete", False))
-    if len(preview) > ARTIFACT_ANALYSIS_MAX_CHARS:
-        preview = preview[:ARTIFACT_ANALYSIS_MAX_CHARS]
+    if len(preview) > max_chars:
+        preview = preview[:max_chars]
         complete = False
     compacted = _compact_value_for_llm({
         key: value for key, value in payload.items() if key != "preview"
@@ -271,9 +281,7 @@ def _artifact_analysis_content(payload: dict[str, Any]) -> str:
 
 # ── Auto-Compact ────────────────────────────────────────────────────────────
 
-COMPACT_THRESHOLD_CHARS = 80_000  # ~20K tokens — avoid aggressive compaction on long conversations
-COMPACT_KEEP_LAST_N = 12          # Keep more recent messages intact
-COMPACT_HEAD_N = 2                # Keep first N (system + user request)
+DEFAULT_COMPACT_MESSAGE_TOKENS = 24_000
 
 
 @dataclass
@@ -282,6 +290,8 @@ class CompactInfo:
     compacted: bool = False
     before_chars: int = 0
     after_chars: int = 0
+    before_tokens: int = 0
+    after_tokens: int = 0
     removed: int = 0
     saved_chars: int = 0
     tools_used: list[str] = field(default_factory=list)
@@ -303,20 +313,171 @@ def _estimate_chars(messages: List[LLMMessage]) -> int:
     return total
 
 
-def _compact_messages(messages: List[LLMMessage]) -> tuple[List[LLMMessage], CompactInfo]:
-    """Compact old messages. Returns (compacted_messages, CompactInfo)."""
-    info = CompactInfo()
+def _estimate_message_tokens(messages: List[LLMMessage]) -> int:
+    """Estimate complete message cost, including roles and tool-call payloads."""
+    total = 0
+    for message in messages:
+        total += 4  # role/framing overhead
+        if isinstance(message.content, list):
+            total += estimate_json_tokens(message.content)
+        else:
+            total += estimate_text_tokens(message.content)
+        if message.tool_calls:
+            total += estimate_json_tokens(message.tool_calls)
+        if message.tool_call_id:
+            total += estimate_text_tokens(message.tool_call_id) + 2
+    return total
 
-    if len(messages) <= COMPACT_KEEP_LAST_N + COMPACT_HEAD_N:
+
+def _message_groups(messages: List[LLMMessage]) -> list[list[LLMMessage]]:
+    """Group assistant tool calls with their result messages.
+
+    Context compaction must never retain a tool result without the assistant
+    call that created it, or retain a call while dropping its results.
+    """
+    groups: list[list[LLMMessage]] = []
+    index = 0
+    while index < len(messages):
+        message = messages[index]
+        group = [message]
+        if message.role == "assistant" and message.tool_calls:
+            call_ids = {
+                str(call.get("id") or "")
+                for call in message.tool_calls
+                if isinstance(call, dict) and call.get("id")
+            }
+            cursor = index + 1
+            while cursor < len(messages):
+                candidate = messages[cursor]
+                if candidate.role != "tool":
+                    break
+                if call_ids and str(candidate.tool_call_id or "") not in call_ids:
+                    break
+                group.append(candidate)
+                cursor += 1
+            index = cursor
+        else:
+            index += 1
+        groups.append(group)
+    return groups
+
+
+def _priority_facts(messages: List[LLMMessage], limit: int = 12) -> list[str]:
+    """Retain task/report/artifact/status/error references across compaction."""
+    facts: list[str] = []
+    for message in messages:
+        if message.role != "tool":
+            continue
+        try:
+            payload = json.loads(str(message.content or "{}"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        for key in _PRIORITY_OUTPUT_KEYS:
+            if key not in payload or payload[key] in (None, "", [], {}):
+                continue
+            value = payload[key]
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str)
+            fact = f"{key}={str(value)[:240]}"
+            if fact not in facts:
+                facts.append(fact)
+            if len(facts) >= limit:
+                return facts
+    return facts
+
+
+def _fit_message_to_tokens(message: LLMMessage, max_tokens: int) -> LLMMessage:
+    """Shrink one oversized message without changing its protocol identity."""
+    if _estimate_message_tokens([message]) <= max_tokens:
+        return message
+    cloned = copy.deepcopy(message)
+    if cloned.tool_calls:
+        call_budget = max(24, max_tokens // max(1, len(cloned.tool_calls)))
+        compacted_calls = []
+        for call in cloned.tool_calls:
+            if not isinstance(call, dict):
+                compacted_calls.append(call)
+                continue
+            compacted_call = copy.deepcopy(call)
+            function = compacted_call.get("function")
+            if isinstance(function, dict) and isinstance(function.get("arguments"), str):
+                function["arguments"], _ = truncate_text_to_tokens(
+                    function["arguments"],
+                    max(8, call_budget // 2),
+                )
+            compacted_calls.append(compacted_call)
+        cloned.tool_calls = compacted_calls
+    if cloned.role == "tool":
+        cloned.content = _compact_tool_content(
+            cloned.content,
+            max_chars=max(64, int(max_tokens)),
+        )
+    elif isinstance(cloned.content, str):
+        cloned.content, _ = truncate_text_to_tokens(cloned.content, max(32, max_tokens - 8))
+    else:
+        text, _ = truncate_text_to_tokens(
+            json.dumps(cloned.content, ensure_ascii=False, default=str),
+            max(32, max_tokens - 8),
+        )
+        cloned.content = text
+    return cloned
+
+
+def _compact_messages(
+    messages: List[LLMMessage],
+    *,
+    max_tokens: int | None = None,
+) -> tuple[List[LLMMessage], CompactInfo]:
+    """Compact messages to a hard token budget while preserving tool pairs."""
+    info = CompactInfo()
+    token_limit = max(128, int(max_tokens or DEFAULT_COMPACT_MESSAGE_TOKENS))
+    before_tokens = _estimate_message_tokens(messages)
+    if before_tokens <= token_limit:
         return messages, info
 
-    head = messages[:COMPACT_HEAD_N]
-    tail = messages[-COMPACT_KEEP_LAST_N:]
-    middle = messages[len(head):-len(tail) or None]
+    groups = _message_groups(messages)
+    head_groups = groups[:2]
+    remaining_groups = groups[2:]
+    head = [message for group in head_groups for message in group]
+
+    # Keep newest complete groups within roughly 70% of the message budget.
+    tail_budget = max(256, int(token_limit * 0.70))
+    tail_groups: list[list[LLMMessage]] = []
+    used_tail_tokens = 0
+    for group in reversed(remaining_groups):
+        group_tokens = _estimate_message_tokens(group)
+        if tail_groups and used_tail_tokens + group_tokens > tail_budget:
+            break
+        if not tail_groups and group_tokens > tail_budget:
+            fitted: list[LLMMessage] = []
+            per_message = max(128, tail_budget // max(1, len(group)))
+            for message in group:
+                fitted.append(_fit_message_to_tokens(message, per_message))
+            group = fitted
+            group_tokens = _estimate_message_tokens(group)
+        tail_groups.append(group)
+        used_tail_tokens += group_tokens
+    tail_groups.reverse()
+    middle_groups = remaining_groups[:len(remaining_groups) - len(tail_groups)]
+    middle = [message for group in middle_groups for message in group]
+    tail = [message for group in tail_groups for message in group]
+
+    # If there is no removable middle, hard-fit oversized retained messages.
+    if not middle:
+        per_message = max(96, token_limit // max(1, len(messages)))
+        compacted = [_fit_message_to_tokens(message, per_message) for message in messages]
+        info.compacted = True
+        info.before_chars = _estimate_chars(messages)
+        info.after_chars = _estimate_chars(compacted)
+        info.before_tokens = before_tokens
+        info.after_tokens = _estimate_message_tokens(compacted)
+        info.removed = 0
+        info.saved_chars = info.before_chars - info.after_chars
+        return compacted, info
 
     middle_count = len(middle)
-    if middle_count <= 1:
-        return messages, info
 
     # ── Collect tool calls and their actual role=tool results ──
     tool_names: list[str] = []
@@ -365,19 +526,36 @@ def _compact_messages(messages: List[LLMMessage]) -> tuple[List[LLMMessage], Com
             key_hints.append(hint[:200].replace("\n", " ").strip())
 
     # Merge tool summaries and key_hints so they appear in compact summary
-    combined_hints = tool_summaries + key_hints
+    priority_facts = _priority_facts(middle)
+    combined_hints = (["; ".join(priority_facts)] if priority_facts else []) + tool_summaries + key_hints
 
     # ── Build compact summary ──
     before = _estimate_chars(messages)
     summary = _build_compact_summary(middle_count, tool_names, tool_stats, combined_hints)
-    compacted = head + [LLMMessage(role="user", content=summary)] + tail
-    after = _estimate_chars(compacted)
+    summary_message = LLMMessage(role="system", content=summary)
+    compacted = head + [summary_message] + tail
 
+    # Enforce a real post-compaction hard cap. First shrink the generated
+    # summary, then retained non-system messages, while keeping tool groups.
+    if _estimate_message_tokens(compacted) > token_limit:
+        summary_budget = max(128, token_limit // 8)
+        summary_message = _fit_message_to_tokens(summary_message, summary_budget)
+        compacted = head + [summary_message] + tail
+    if _estimate_message_tokens(compacted) > token_limit:
+        fixed_head = [_fit_message_to_tokens(m, max(32, token_limit // 6)) for m in head]
+        remaining = max(256, token_limit - _estimate_message_tokens(fixed_head + [summary_message]))
+        fitted_tail: list[LLMMessage] = []
+        per_tail = max(32, remaining // max(1, len(tail)))
+        for message in tail:
+            fitted_tail.append(_fit_message_to_tokens(message, per_tail))
+        compacted = fixed_head + [summary_message] + fitted_tail
     info.compacted = True
     info.before_chars = before
-    info.after_chars = after
+    info.after_chars = _estimate_chars(compacted)
+    info.before_tokens = before_tokens
+    info.after_tokens = _estimate_message_tokens(compacted)
     info.removed = middle_count
-    info.saved_chars = before - after
+    info.saved_chars = before - info.after_chars
     info.tools_used = tool_names
     info.tool_stats = tool_stats
     info.key_hints = combined_hints
@@ -775,6 +953,13 @@ class QueryLoop:
         self._emitter = emitter
         self._executor = StreamingToolExecutor(tool_runtime, config, emitter)
         self._cached_tools = _build_cached_tool_definitions(tool_registry)
+        self._context_budget = RuntimeContextBudget.build(
+            tools=self._cached_tools,
+            context_window_tokens=config.context_window_tokens,
+            max_input_tokens=config.max_input_tokens,
+            reserved_output_tokens=config.max_output_tokens,
+            safety_tokens=config.context_safety_tokens,
+        )
         self._llm_call_count = 0
 
     async def run(
@@ -794,6 +979,8 @@ class QueryLoop:
         completed_call_keys: set[str] = set()
         used_call_ids: set[str] = set()
         execution_duration_ms = 0.0
+        output_truncated = False
+        output_truncation_reason = ""
 
         # Build initial messages (cacheable prefix)
         messages = self._build_initial(ctx)
@@ -808,12 +995,16 @@ class QueryLoop:
                 "tool_calls": len(all_results),
                 "llm_calls": values.get("llm_calls", llm_calls),
                 "context_estimated_chars": _estimate_chars(messages),
+                "context_estimated_tokens": _estimate_message_tokens(messages),
                 "context_compacted": (
                     metrics.snapshot().context_compacted if metrics else False
                 ),
+                "context_budget": self._context_budget.as_dict(),
                 "execution_duration_ms": execution_duration_ms,
                 "max_parallel_width": self._executor.max_parallel_width,
                 "validation_corrections": validation_correction_attempts,
+                "output_truncated": output_truncated,
+                "output_truncation_reason": output_truncation_reason,
             }
             projected_metrics.update(dict(values.pop("metrics", {}) or {}))
             values.setdefault("tool_results", all_results)
@@ -903,16 +1094,28 @@ class QueryLoop:
                 )
 
             # Auto-compact with context tracking
-            _before_chars = _estimate_chars(messages)
-            if _before_chars > COMPACT_THRESHOLD_CHARS:
-                messages, _compact_info = _compact_messages(messages)
+            _before_tokens = _estimate_message_tokens(messages)
+            if _before_tokens > self._context_budget.message_tokens:
+                messages, _compact_info = _compact_messages(
+                    messages,
+                    max_tokens=self._context_budget.message_tokens,
+                )
                 if _compact_info.compacted and metrics is not None:
                     metrics.mark_compacted(_compact_info)
             if metrics is not None:
-                metrics.capture_context_usage(_estimate_chars(messages))
+                metrics.capture_context_usage(
+                    _estimate_chars(messages),
+                    estimated_tokens=_estimate_message_tokens(messages),
+                    budget_tokens=self._context_budget.message_tokens,
+                )
 
             # Call LLM (with streaming for tool exec)
             response = await self._call_llm(messages, ctx)
+            if response is not None and (response.metadata or {}).get("output_truncated"):
+                output_truncated = True
+                output_truncation_reason = str(
+                    (response.metadata or {}).get("truncation_reason") or response.finish_reason or "unknown"
+                )
 
             if response is None or response.error:
                 final_resp: str
@@ -1169,9 +1372,13 @@ class QueryLoop:
                     "tool_calls": len(all_results),
                     "llm_calls": llm_calls,
                     "context_estimated_chars": _estimate_chars(messages),
+                    "context_estimated_tokens": _estimate_message_tokens(messages),
                     "context_compacted": metrics.snapshot().context_compacted if metrics else False,
+                    "context_budget": self._context_budget.as_dict(),
                     "execution_duration_ms": execution_duration_ms,
                     "max_parallel_width": self._executor.max_parallel_width,
+                    "output_truncated": output_truncated,
+                    "output_truncation_reason": output_truncation_reason,
                 },
             )
 
@@ -1294,7 +1501,7 @@ class QueryLoop:
                     tools=tools_for_call,
                     config_override={
                         "temperature": 0.2,
-                        "max_tokens": 4096,
+                        "max_tokens": self._config.max_output_tokens,
                         "timeout": 120,
                     },
                 ),
@@ -1383,8 +1590,8 @@ class QueryLoop:
                     parts[-1] = f"{parts[-1]} (tool_call_id={m.tool_call_id})"  # P2-3: simpler than slice assignment
         return "\n\n".join(parts)
 
-    # P3: Marker appended when provider signals stream_truncated.
-    _TRUNCATION_MARKER = "\n\n⚠️ [输出被截断 — 模型响应超时，以上为部分内容]"
+    _TIMEOUT_TRUNCATION_MARKER = "\n\n⚠️ [模型响应超时，以上为已接收的部分内容]"
+    _LENGTH_TRUNCATION_MARKER = "\n\n⚠️ [回复达到输出长度上限，以上内容可能不完整]"
 
     def _coerce_llm_response(self, raw: Any) -> LLMResponse:
         """Coerce injected adapter output into QueryLoop's LLMResponse shape.
@@ -1395,10 +1602,24 @@ class QueryLoop:
         """
         if isinstance(raw, LLMResponse):
             raw.content = self._strip_think_tags(str(raw.content or ""))
-            # P3: detect stream_truncated — provider-side timeout with partial output;
-            # append a visible marker so users know the response is incomplete.
-            if raw.finish_reason == "stream_truncated" and raw.content:
-                raw.content = raw.content.rstrip() + self._TRUNCATION_MARKER
+            reason = str(raw.finish_reason or "").lower()
+            if reason == "stream_truncated" and raw.content:
+                raw.content = raw.content.rstrip() + self._TIMEOUT_TRUNCATION_MARKER
+                raw.metadata = {**(raw.metadata or {}), "output_truncated": True, "truncation_reason": "timeout"}
+            elif reason in {"length", "max_tokens", "content_length"} and raw.content:
+                raw.content = raw.content.rstrip() + self._LENGTH_TRUNCATION_MARKER
+                raw.metadata = {**(raw.metadata or {}), "output_truncated": True, "truncation_reason": "length"}
+            if not raw.tool_calls:
+                parsed = self._response_from_plan_text(raw.content)
+                if parsed is not None:
+                    parsed.provider = raw.provider
+                    parsed.model = raw.model
+                    parsed.usage = raw.usage
+                    parsed.finish_reason = raw.finish_reason
+                    parsed.raw = raw.raw
+                    parsed.error = raw.error
+                    parsed.metadata = dict(raw.metadata or {})
+                    return parsed
             return raw
         if raw is None:
             return LLMResponse(error="empty_llm_response")
@@ -1410,6 +1631,12 @@ class QueryLoop:
                 tool_calls=list(tool_calls or []),
             )
         text = self._strip_think_tags(str(raw))
+        parsed = self._response_from_plan_text(text)
+        if parsed is not None:
+            return parsed
+        return LLMResponse(content=text)
+
+    def _response_from_plan_text(self, text: str) -> LLMResponse | None:
         data = self._try_parse_json_object(text)
         if data is not None:
             nodes = data.get("nodes")
@@ -1430,7 +1657,7 @@ class QueryLoop:
                     content=self._strip_think_tags(str(data.get("final_response") or "")),
                     tool_calls=calls,
                 )
-        return LLMResponse(content=text)
+        return None
     
     @staticmethod
     def _strip_think_tags(text: str) -> str:
@@ -1772,9 +1999,21 @@ class QueryLoop:
                 }
             )
             output_str = (
-                _artifact_analysis_content(tool_payload)
+                _artifact_analysis_content(
+                    tool_payload,
+                    max_chars=min(
+                        ARTIFACT_ANALYSIS_MAX_CHARS,
+                        self._context_budget.artifact_result_tokens * 2,
+                    ),
+                )
                 if is_complete_text_artifact
-                else _json_compact(tool_payload, max_chars=TOOL_MESSAGE_MAX_CHARS)
+                else _json_compact(
+                    tool_payload,
+                    max_chars=min(
+                        TOOL_MESSAGE_MAX_CHARS,
+                        self._context_budget.per_tool_result_tokens * 2,
+                    ),
+                )
             )
             new_msgs.append(LLMMessage(
                 role="tool",
@@ -1794,7 +2033,13 @@ class QueryLoop:
                 }
                 for r in extra_results
             ]
-            output_str = _json_compact(payload, max_chars=TOOL_MESSAGE_MAX_CHARS)
+            output_str = _json_compact(
+                payload,
+                max_chars=min(
+                    TOOL_MESSAGE_MAX_CHARS,
+                    self._context_budget.per_tool_result_tokens * 2,
+                ),
+            )
             new_msgs.append(LLMMessage(
                 role="user",
                 content="AUTO TRACKING RESULTS:\n" + output_str,

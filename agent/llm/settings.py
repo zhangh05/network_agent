@@ -154,7 +154,7 @@ def _provider_runtime_config(provider_id: str, cfg: dict, api_key: str) -> dict:
         "base_url": cfg.get("base_url", ""),
         "model": cfg.get("model", ""),
         "temperature": cfg.get("temperature", 0.2),
-        "max_tokens": cfg.get("max_tokens", 1200),
+        "max_tokens": cfg.get("max_tokens", 4096),
         "api_key": api_key or "",
         "provider_type": _provider_type(provider_id, cfg),
         "config_source": SOURCE_UI_SETTINGS,

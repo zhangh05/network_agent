@@ -152,6 +152,19 @@ def invoke_llm(
 
         break  # Success
 
+    finish_reason = str(resp.finish_reason or "").lower()
+    if finish_reason in {"length", "max_tokens", "content_length"}:
+        resp.metadata = {
+            **(resp.metadata or {}),
+            "output_truncated": True,
+            "truncation_reason": "length",
+        }
+    elif finish_reason == "stream_truncated":
+        resp.metadata = {
+            **(resp.metadata or {}),
+            "output_truncated": True,
+            "truncation_reason": "timeout",
+        }
     return resp
 
 

@@ -2502,6 +2502,23 @@ details.collapse[open] summary::before {
   animation: result-soft-in var(--dur-4) var(--ease-out) both;
 }
 
+.context-budget-notice {
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 7px;
+  padding: 5px 8px;
+  border-left: 2px solid var(--accent);
+  color: var(--text-2);
+  background: var(--surface-2);
+  font-size: var(--fs-12);
+  line-height: 1.5;
+}
+
+.context-budget-notice.warning {
+  border-left-color: var(--danger);
+  color: var(--danger);
+}
+
 [data-theme="dark"] .chat-result-inline {
   background: transparent;
 }

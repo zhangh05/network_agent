@@ -548,7 +548,19 @@ class SSOTRuntimeEngine:
         if isinstance(result, str):
             return result
         # LLMResponse object
-        return getattr(result, "content", str(result))
+        content = str(getattr(result, "content", "") or "")
+        metadata = dict(getattr(result, "metadata", {}) or {})
+        if metadata.get("output_truncated"):
+            ctx.extras["output_truncated"] = True
+            ctx.extras["output_truncation_reason"] = str(metadata.get("truncation_reason") or "unknown")
+            marker = (
+                "\n\n⚠️ [模型响应超时，以上为已接收的部分内容]"
+                if metadata.get("truncation_reason") == "timeout"
+                else "\n\n⚠️ [回复达到输出长度上限，以上内容可能不完整]"
+            )
+            if marker not in content:
+                content = content.rstrip() + marker
+        return content
 
     def _check_approval_bypass(self, ctx: StatelessContext) -> bool:
         """Check if the current request has been pre-approved by the user.
@@ -609,6 +621,11 @@ class SSOTRuntimeEngine:
             # v3.13: conversation context
             "conversation_ref": False,
             "conversation_history_used": False,
+            "context_budget": dict(ctx.extras.get("runtime_context_budget") or {}),
+            "context_compacted": False,
+            "context_estimated_tokens": 0,
+            "output_truncated": bool(ctx.extras.get("output_truncated", False)),
+            "output_truncation_reason": str(ctx.extras.get("output_truncation_reason", "")),
         }
         if extra:
             base_meta.update(extra)
@@ -662,6 +679,13 @@ class SSOTRuntimeEngine:
                 "tool_recovery_events": ctx.extras.get("tool_recovery_events", []),
                 "tracking_summary": ctx.extras.get("tracking_summary", {}),
                 "tracking_events": ctx.extras.get("tracking_events", []),
+                "output_truncated": bool(
+                    base_meta.get("output_truncated") or ctx.extras.get("output_truncated", False)
+                ),
+                "output_truncation_reason": str(
+                    base_meta.get("output_truncation_reason")
+                    or ctx.extras.get("output_truncation_reason", "")
+                ),
             },
         )
 

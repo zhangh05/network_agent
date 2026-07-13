@@ -97,11 +97,112 @@ def test_history_compaction_reads_actual_tool_result_messages():
         LLMMessage(role="assistant", content="working"),
     ])
 
-    compacted, info = _compact_messages(messages)
+    compacted, info = _compact_messages(messages, max_tokens=180)
 
     assert info.compacted is True
     assert info.tool_stats["knowledge__manage"]["failed"] > 0
     assert "source lookup failed" in compacted[2].content
+
+
+def test_context_budget_accounts_for_complete_tool_schema_surface():
+    from core.runtime_engine.context_budget import RuntimeContextBudget
+
+    small = RuntimeContextBudget.build(
+        tools=[{"type": "function", "function": {"name": "one", "parameters": {}}}],
+        context_window_tokens=20_000,
+        max_input_tokens=18_000,
+    )
+    large = RuntimeContextBudget.build(
+        tools=[{
+            "type": "function",
+            "function": {
+                "name": f"tool_{index}",
+                "description": "network operation " * 40,
+                "parameters": {"type": "object", "properties": {"query": {"type": "string"}}},
+            },
+        } for index in range(20)],
+        context_window_tokens=20_000,
+        max_input_tokens=18_000,
+    )
+
+    assert large.tool_schema_tokens > small.tool_schema_tokens
+    assert large.message_tokens < small.message_tokens
+
+
+def test_oversized_short_conversation_is_compacted_to_hard_budget():
+    from agent.llm.schemas import LLMMessage
+    from core.runtime_engine.query_loop import _compact_messages, _estimate_message_tokens
+
+    messages = [
+        LLMMessage(role="system", content="system"),
+        LLMMessage(role="user", content="request"),
+        LLMMessage(role="assistant", content="x" * 8000),
+    ]
+    compacted, info = _compact_messages(messages, max_tokens=500)
+
+    assert info.compacted is True
+    assert _estimate_message_tokens(compacted) <= 500
+
+
+def test_compaction_preserves_tool_call_result_pairs_and_control_references():
+    from agent.llm.schemas import LLMMessage
+    from core.runtime_engine.query_loop import _compact_messages, _estimate_message_tokens
+
+    messages = [
+        LLMMessage(role="system", content="system"),
+        LLMMessage(role="user", content="inspect devices"),
+    ]
+    for index in range(4):
+        call_id = f"call_{index}"
+        messages.extend([
+            LLMMessage(role="assistant", content="", tool_calls=[{
+                "id": call_id,
+                "type": "function",
+                "function": {"name": "inspection__manage", "arguments": "{}"},
+            }]),
+            LLMMessage(
+                role="tool",
+                content=(
+                    '{"ok":true,"status":"running","task_id":"task_%d",'
+                    '"report_url":"/reports/task_%d","summary":"%s"}'
+                ) % (index, index, "evidence " * 500),
+                tool_call_id=call_id,
+            ),
+        ])
+
+    compacted, info = _compact_messages(messages, max_tokens=600)
+    retained_call_ids = {
+        str(call.get("id"))
+        for message in compacted
+        for call in (message.tool_calls or [])
+        if isinstance(call, dict)
+    }
+    retained_result_ids = {
+        str(message.tool_call_id)
+        for message in compacted
+        if message.role == "tool"
+    }
+
+    assert info.compacted is True
+    assert retained_result_ids <= retained_call_ids
+    assert _estimate_message_tokens(compacted) <= 600
+    assert "task_id=task_0" in str(compacted[2].content)
+
+
+def test_query_loop_marks_normal_length_finish_as_partial_output():
+    from agent.llm.schemas import LLMResponse
+    from core.runtime_engine.models import SSOTRuntimeConfig
+    from core.runtime_engine.query_loop import QueryLoop
+
+    loop = QueryLoop(SSOTRuntimeConfig(), {}, object())
+    response = loop._coerce_llm_response(LLMResponse(
+        content="partial answer",
+        finish_reason="length",
+    ))
+
+    assert response.metadata["output_truncated"] is True
+    assert response.metadata["truncation_reason"] == "length"
+    assert "可能不完整" in response.content
 
 
 def test_knowledge_list_llm_schema_matches_registered_handler_options():
