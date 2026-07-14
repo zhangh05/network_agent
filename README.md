@@ -2,7 +2,7 @@
 
 Network Agent 是一个面向网络运维场景的本地 AI Agent 工作台。当前架构只保留一套运行时、一套工具边界和一套业务能力目录：前端通过 Flask API 与 WebSocket/SSE 驱动对话，后端由 `AgentApp -> SSOTRuntimeEngine -> ToolRuntimeClient` 统一执行，工具统一收敛为 23 个 canonical tool。
 
-> **运行环境**：Python 3.12+ / Node.js 18+ / Windows 10/11、macOS 或 Linux。
+> **运行环境**：Python 3.12+ / Node.js 18+ / Windows 10/11、macOS 或 Linux。Windows Release 离线包支持 64 位 CPython 3.12 和 3.13。
 
 ## 快速启动
 

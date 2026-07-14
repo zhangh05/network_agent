@@ -15,9 +15,16 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Python 3.12
+        id: python312
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Set up Python 3.13
+        id: python313
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -35,7 +42,29 @@ jobs:
       - name: Build offline Python dependency cache
         shell: pwsh
         run: |
-          python -m pip download --only-binary=:all: --dest wheelhouse -r requirements.txt
+          New-Item -ItemType Directory -Force wheelhouse | Out-Null
+          & "${{ steps.python312.outputs.python-path }}" -m pip download --only-binary=:all: --dest wheelhouse -r requirements.txt
+          & "${{ steps.python313.outputs.python-path }}" -m pip download --only-binary=:all: --dest wheelhouse -r requirements.txt
+
+      - name: Verify dependency cache offline
+        shell: pwsh
+        run: |
+          foreach ($runtime in @(
+            @{ Name = "3.12"; Python = "${{ steps.python312.outputs.python-path }}" },
+            @{ Name = "3.13"; Python = "${{ steps.python313.outputs.python-path }}" }
+          )) {
+            $venv = Join-Path $env:RUNNER_TEMP "network-agent-wheelhouse-$($runtime.Name)"
+            $runtimePython = $runtime.Python
+            & $runtimePython -m venv $venv
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $python = Join-Path $venv "Scripts/python.exe"
+            & $python -m pip install --disable-pip-version-check --no-index --find-links wheelhouse -r requirements.txt
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & $python -m pip check
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & $python -c "import flask, flask_sock, yaml, bs4, lxml, pdfplumber, scapy, paramiko"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - name: Validate Windows launch scripts
         shell: pwsh

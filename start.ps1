@@ -111,29 +111,27 @@ function Find-BasePython {
     # Store app execution alias when a real python.org installation is present.
     $launcher = Get-Command py.exe -ErrorAction SilentlyContinue
     if ($launcher) {
-        $probe = Invoke-Native $launcher.Source @("-3.12", "-c", "import sys") -Quiet
-        if ($probe.ExitCode -eq 0) {
-            return @{ File = $launcher.Source; Args = @("-3.12") }
-        }
-        $probe = Invoke-Native $launcher.Source @("-3", "-c", "import sys; raise SystemExit(0 if sys.version_info >= (3,12) else 1)") -Quiet
-        if ($probe.ExitCode -eq 0) {
-            return @{ File = $launcher.Source; Args = @("-3") }
+        foreach ($minor in @("3.12", "3.13")) {
+            $probe = Invoke-Native $launcher.Source @("-$minor", "-c", "import sys; raise SystemExit(0 if sys.version_info[:2] == tuple(map(int, '$minor'.split('.'))) and sys.maxsize > 2**32 else 1)") -Quiet
+            if ($probe.ExitCode -eq 0) {
+                return @{ File = $launcher.Source; Args = @("-$minor") }
+            }
         }
     }
     $python = Get-Command python.exe -ErrorAction SilentlyContinue
     if ($python) {
-        $probe = Invoke-Native $python.Source @("-c", "import sys; raise SystemExit(0 if sys.version_info >= (3,12) else 1)") -Quiet
+        $probe = Invoke-Native $python.Source @("-c", "import sys; raise SystemExit(0 if sys.version_info[:2] in ((3,12),(3,13)) and sys.maxsize > 2**32 else 1)") -Quiet
         if ($probe.ExitCode -eq 0) {
             return @{ File = $python.Source; Args = @() }
         }
     }
-    Fail "Python 3.12+ was not found. Install it from python.org and enable the Python launcher."
+    Fail "64-bit CPython 3.12 or 3.13 was not found. Install one from python.org and enable the Python launcher."
 }
 
 function Ensure-Python {
     $venvPython = Join-Path (Join-Path $Root ".venv") "Scripts\python.exe"
     if (Test-Path $venvPython) {
-        $existingVersion = Invoke-Native $venvPython @("-c", "import sys; raise SystemExit(0 if sys.version_info >= (3,12) else 1)") -Quiet
+        $existingVersion = Invoke-Native $venvPython @("-c", "import sys; raise SystemExit(0 if sys.version_info[:2] in ((3,12),(3,13)) and sys.maxsize > 2**32 else 1)") -Quiet
         if ($existingVersion.ExitCode -ne 0) {
             Write-Warning "The existing .venv is incomplete or uses an unsupported Python; rebuilding it."
             Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $Root ".venv")
@@ -155,8 +153,8 @@ function Ensure-Python {
             }
         }
     }
-    $version = Invoke-Native $venvPython @("-c", "import sys; raise SystemExit(0 if sys.version_info >= (3,12) else 1)") -Quiet
-    if ($version.ExitCode -ne 0) { Fail-Native "Project .venv does not use Python 3.12+" $version }
+    $version = Invoke-Native $venvPython @("-c", "import sys; raise SystemExit(0 if sys.version_info[:2] in ((3,12),(3,13)) and sys.maxsize > 2**32 else 1)") -Quiet
+    if ($version.ExitCode -ne 0) { Fail-Native "Project .venv does not use CPython 3.12 or 3.13" $version }
     $pip = Invoke-Native $venvPython @("-m", "pip", "--version") -Quiet
     if ($pip.ExitCode -ne 0) {
         $bootstrap = Invoke-Native $venvPython @("-m", "ensurepip", "--upgrade")
@@ -178,10 +176,15 @@ function Ensure-PythonDependencies([string]$Python) {
         $pipArguments = @("-m", "pip", "install", "--disable-pip-version-check")
         if (Test-Path $wheelhouse) {
             Write-Step "Using bundled Windows dependency cache."
-            $pipArguments += @("--no-index", "--find-links", $wheelhouse)
+            $offlineArguments = $pipArguments + @("--no-index", "--find-links", $wheelhouse, "-r", $requirements)
+            $install = Invoke-Native $Python $offlineArguments
+            if ($install.ExitCode -ne 0) {
+                Write-Warning "Bundled dependency cache is incomplete for this Python runtime; retrying from the configured Python package index."
+                $install = Invoke-Native $Python ($pipArguments + @("-r", $requirements))
+            }
+        } else {
+            $install = Invoke-Native $Python ($pipArguments + @("-r", $requirements))
         }
-        $pipArguments += @("-r", $requirements)
-        $install = Invoke-Native $Python $pipArguments
         if ($install.ExitCode -ne 0) { Fail-Native "Python dependency installation failed" $install }
         Set-Content -Path $stamp -Value $hash -Encoding ascii
     }

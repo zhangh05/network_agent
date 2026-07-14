@@ -109,4 +109,17 @@ def test_windows_launchers_delegate_to_single_powershell_implementation():
     assert "--without-pip" in start_ps1
     assert "startup-error.log" in start_ps1
     assert "Using bundled Windows dependency cache" in start_ps1
+    assert 'foreach ($minor in @("3.12", "3.13"))' in start_ps1
+    assert "retrying from the configured Python package index" in start_ps1
     assert "ForEach-Object" in start_ps1
+
+
+def test_windows_release_verifies_every_supported_python_cache_offline():
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+
+    assert 'python-version: "3.12"' in workflow
+    assert 'python-version: "3.13"' in workflow
+    assert workflow.count("pip download --only-binary=:all:") == 2
+    assert "Verify dependency cache offline" in workflow
+    assert "--no-index --find-links wheelhouse -r requirements.txt" in workflow
+    assert "import flask, flask_sock, yaml" in workflow
