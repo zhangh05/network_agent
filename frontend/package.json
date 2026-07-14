@@ -1,8 +1,8 @@
 {
   "name": "network-agent-workbench",
   "private": true,
-  "version": "3.17.0",
-  "description": "Capability-driven Agent Workbench for Network Agent v3.17",
+  "version": "3.22.1",
+  "description": "Capability-driven Agent Workbench for Network Agent v3.22.1",
   "type": "module",
   "scripts": {
     "dev": "vite",

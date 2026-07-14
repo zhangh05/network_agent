@@ -13,7 +13,7 @@ def _read(path: str) -> str:
 def test_current_knowledge_surfaces_exist():
     current_paths = [
         "agent/modules/knowledge",
-        "agent/runtime/knowledge",
+        "core/context/unified_retriever.py",
         "backend/api/knowledge_routes.py",
     ]
     for path in current_paths:

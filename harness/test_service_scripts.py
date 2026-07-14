@@ -49,8 +49,8 @@ def test_unix_stop_never_kills_an_unverified_port_owner():
 
 
 def test_windows_scripts_use_pid_files_and_custom_ports():
-    start = _read("start.bat")
-    stop = _read("stop.bat")
+    start = _read("start.ps1")
+    stop = _read("stop.ps1")
     for script in (start, stop):
         assert "BACKEND_PORT" in script
         assert "FRONTEND_PORT" in script
@@ -59,13 +59,13 @@ def test_windows_scripts_use_pid_files_and_custom_ports():
 
 
 def test_windows_stop_validates_project_command_line():
-    script = _read("stop.bat")
+    script = _read("stop.ps1")
     assert "Win32_Process" in script
     assert "CommandLine" in script
     assert "taskkill /F /PID" not in script
 
 
 def test_scripts_do_not_publish_stale_project_versions():
-    for name in ("start.sh", "stop.sh", "start.bat", "stop.bat"):
+    for name in ("start.sh", "stop.sh", "start.bat", "stop.bat", "start.ps1", "stop.ps1"):
         text = _read(name)
         assert "v2.3.1" not in text

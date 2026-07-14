@@ -1,7 +1,8 @@
 param(
     [switch]$NoBrowser,
     [switch]$SkipInstall,
-    [switch]$ForceBuild
+    [switch]$ForceBuild,
+    [switch]$ValidateOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,6 +27,31 @@ function Write-Step([string]$Message) {
 
 function Fail([string]$Message) {
     throw $Message
+}
+
+function Invoke-Native([string]$File, [string[]]$Arguments = @(), [switch]$Quiet) {
+    # Windows PowerShell can promote a native program's stderr into a terminating
+    # ErrorRecord when ErrorActionPreference is Stop. Capture the complete output
+    # and use the real process exit code instead of losing everything after the
+    # first "Traceback" line.
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $output = @(& $File @Arguments 2>&1)
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+    if (-not $Quiet) {
+        foreach ($line in $output) { Write-Host ([string]$line) }
+    }
+    return @{ ExitCode = $exitCode; Output = @($output | ForEach-Object { [string]$_ }) }
+}
+
+function Fail-Native([string]$Message, [hashtable]$Result) {
+    $details = (@($Result.Output) | Select-Object -Last 30) -join "`n"
+    if ($details) { Fail "$Message`n$details" }
+    Fail "$Message (exit code $($Result.ExitCode))"
 }
 
 function Test-Url([string]$Url) {
@@ -79,18 +105,24 @@ function Assert-Port([string]$Role, [int]$Port, [string]$HealthUrl, [string]$Pid
 }
 
 function Find-BasePython {
-    $python = Get-Command python.exe -ErrorAction SilentlyContinue
-    if ($python) {
-        & $python.Source -c "import sys; raise SystemExit(0 if sys.version_info >= (3,12) else 1)" 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            return @{ File = $python.Source; Args = @() }
-        }
-    }
+    # Prefer the Python launcher. It avoids accidentally selecting the Microsoft
+    # Store app execution alias when a real python.org installation is present.
     $launcher = Get-Command py.exe -ErrorAction SilentlyContinue
     if ($launcher) {
-        & $launcher.Source -3.12 -c "import sys" 2>$null
-        if ($LASTEXITCODE -eq 0) {
+        $probe = Invoke-Native $launcher.Source @("-3.12", "-c", "import sys") -Quiet
+        if ($probe.ExitCode -eq 0) {
             return @{ File = $launcher.Source; Args = @("-3.12") }
+        }
+        $probe = Invoke-Native $launcher.Source @("-3", "-c", "import sys; raise SystemExit(0 if sys.version_info >= (3,12) else 1)") -Quiet
+        if ($probe.ExitCode -eq 0) {
+            return @{ File = $launcher.Source; Args = @("-3") }
+        }
+    }
+    $python = Get-Command python.exe -ErrorAction SilentlyContinue
+    if ($python) {
+        $probe = Invoke-Native $python.Source @("-c", "import sys; raise SystemExit(0 if sys.version_info >= (3,12) else 1)") -Quiet
+        if ($probe.ExitCode -eq 0) {
+            return @{ File = $python.Source; Args = @() }
         }
     }
     Fail "Python 3.12+ was not found. Install it from python.org and enable the Python launcher."
@@ -98,14 +130,36 @@ function Find-BasePython {
 
 function Ensure-Python {
     $venvPython = Join-Path (Join-Path $Root ".venv") "Scripts\python.exe"
+    if (Test-Path $venvPython) {
+        $existingVersion = Invoke-Native $venvPython @("-c", "import sys; raise SystemExit(0 if sys.version_info >= (3,12) else 1)") -Quiet
+        if ($existingVersion.ExitCode -ne 0) {
+            Write-Warning "The existing .venv is incomplete or uses an unsupported Python; rebuilding it."
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $Root ".venv")
+        }
+    }
     if (-not (Test-Path $venvPython)) {
         $base = Find-BasePython
         Write-Step "Creating isolated Python environment (.venv)..."
-        & $base.File @($base.Args) -m venv (Join-Path $Root ".venv")
-        if ($LASTEXITCODE -ne 0) { Fail "Failed to create .venv" }
+        $create = Invoke-Native $base.File (@($base.Args) + @("-m", "venv", (Join-Path $Root ".venv")))
+        if ($create.ExitCode -ne 0) {
+            # Some Windows Python distributions fail while venv invokes
+            # ensurepip even though the interpreter itself is valid. Build the
+            # environment without pip, then bootstrap pip explicitly below.
+            Write-Warning "Standard venv creation failed; retrying with explicit pip bootstrap."
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $Root ".venv")
+            $createWithoutPip = Invoke-Native $base.File (@($base.Args) + @("-m", "venv", "--without-pip", (Join-Path $Root ".venv")))
+            if ($createWithoutPip.ExitCode -ne 0) {
+                Fail-Native "Failed to create .venv" $create
+            }
+        }
     }
-    & $venvPython -c "import sys; raise SystemExit(0 if sys.version_info >= (3,12) else 1)"
-    if ($LASTEXITCODE -ne 0) { Fail "Project .venv does not use Python 3.12+" }
+    $version = Invoke-Native $venvPython @("-c", "import sys; raise SystemExit(0 if sys.version_info >= (3,12) else 1)") -Quiet
+    if ($version.ExitCode -ne 0) { Fail-Native "Project .venv does not use Python 3.12+" $version }
+    $pip = Invoke-Native $venvPython @("-m", "pip", "--version") -Quiet
+    if ($pip.ExitCode -ne 0) {
+        $bootstrap = Invoke-Native $venvPython @("-m", "ensurepip", "--upgrade")
+        if ($bootstrap.ExitCode -ne 0) { Fail-Native "Failed to install pip in .venv" $bootstrap }
+    }
     return $venvPython
 }
 
@@ -115,15 +169,15 @@ function Ensure-PythonDependencies([string]$Python) {
     $stamp = Join-Path $StateDir "requirements.sha256"
     $hash = (Get-FileHash -Algorithm SHA256 $requirements).Hash
     $installedHash = if (Test-Path $stamp) { (Get-Content $stamp -Raw).Trim() } else { "" }
-    & $Python -c "import flask, flask_sock, yaml, bs4, lxml, pdfplumber, scapy, paramiko" 2>$null
-    if ($LASTEXITCODE -ne 0 -or $hash -ne $installedHash) {
+    $probe = Invoke-Native $Python @("-c", "import flask, flask_sock, yaml, bs4, lxml, pdfplumber, scapy, paramiko") -Quiet
+    if ($probe.ExitCode -ne 0 -or $hash -ne $installedHash) {
         Write-Step "Installing Python dependencies..."
-        & $Python -m pip install --disable-pip-version-check -r $requirements
-        if ($LASTEXITCODE -ne 0) { Fail "Python dependency installation failed" }
+        $install = Invoke-Native $Python @("-m", "pip", "install", "--disable-pip-version-check", "-r", $requirements)
+        if ($install.ExitCode -ne 0) { Fail-Native "Python dependency installation failed" $install }
         Set-Content -Path $stamp -Value $hash -Encoding ascii
     }
-    & $Python -m pip check
-    if ($LASTEXITCODE -ne 0) { Fail "Python dependency check failed" }
+    $check = Invoke-Native $Python @("-m", "pip", "check")
+    if ($check.ExitCode -ne 0) { Fail-Native "Python dependency check failed" $check }
 }
 
 function Ensure-Frontend {
@@ -132,8 +186,8 @@ function Ensure-Frontend {
     if (-not $node -or -not $npm) {
         Fail "Node.js 18+ and npm are required. Install the current Node.js LTS release."
     }
-    & $node.Source -e "process.exit(Number(process.versions.node.split('.')[0]) >= 18 ? 0 : 1)"
-    if ($LASTEXITCODE -ne 0) { Fail "Node.js 18+ is required" }
+    $nodeCheck = Invoke-Native $node.Source @("-e", "process.exit(Number(process.versions.node.split('.')[0]) >= 18 ? 0 : 1)") -Quiet
+    if ($nodeCheck.ExitCode -ne 0) { Fail-Native "Node.js 18+ is required" $nodeCheck }
 
     $lockFile = Join-Path $FrontendDir "package-lock.json"
     $lockHash = (Get-FileHash -Algorithm SHA256 $lockFile).Hash
@@ -144,8 +198,8 @@ function Ensure-Frontend {
         if (-not (Test-Path $viteScript) -or $lockHash -ne $installedHash) {
             Write-Step "Installing frontend dependencies with npm ci..."
             Push-Location $FrontendDir
-            try { & $npm.Source ci | Out-Host } finally { Pop-Location }
-            if ($LASTEXITCODE -ne 0) { Fail "Frontend dependency installation failed" }
+            try { $npmInstall = Invoke-Native $npm.Source @("ci") } finally { Pop-Location }
+            if ($npmInstall.ExitCode -ne 0) { Fail-Native "Frontend dependency installation failed" $npmInstall }
             Set-Content -Path $npmStamp -Value $lockHash -Encoding ascii
         }
     }
@@ -155,8 +209,8 @@ function Ensure-Frontend {
     if ($ForceBuild -or -not (Test-Path $distIndex)) {
         Write-Step "Building the frontend..."
         Push-Location $FrontendDir
-        try { & $npm.Source run build | Out-Host } finally { Pop-Location }
-        if ($LASTEXITCODE -ne 0) { Fail "Frontend build failed" }
+        try { $frontendBuild = Invoke-Native $npm.Source @("run", "build") } finally { Pop-Location }
+        if ($frontendBuild.ExitCode -ne 0) { Fail-Native "Frontend build failed" $frontendBuild }
     }
     return @{ Node = $node.Source; Vite = $viteScript }
 }
@@ -181,6 +235,10 @@ try {
     $Python = Ensure-Python
     Ensure-PythonDependencies $Python
     $Frontend = Ensure-Frontend
+    if ($ValidateOnly) {
+        Write-Host "Windows runtime validation completed successfully." -ForegroundColor Green
+        exit 0
+    }
 
     $backendHealth = "http://127.0.0.1:$BackendPort/api/health"
     $frontendHealth = "http://127.0.0.1:$FrontendPort"
@@ -226,6 +284,8 @@ try {
     foreach ($startedId in $startedProcessIds) {
         & taskkill.exe /PID $startedId /T /F 2>$null | Out-Null
     }
+    $errorText = "[$(Get-Date -Format o)] $($_.Exception.Message)`n$($_.ScriptStackTrace)"
+    Add-Content -Path (Join-Path $LogDir "startup-error.log") -Value $errorText -Encoding UTF8
     Write-Host ""
     Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
     Write-Host "See logs in: $LogDir"

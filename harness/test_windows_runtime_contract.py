@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-import sys
+import os
 from types import SimpleNamespace
 
 from core.tools.general_tools import command_tools
@@ -54,7 +54,8 @@ def test_exec_run_propagates_native_shell_failure(monkeypatch):
 
 
 def test_native_shell_nonzero_exit_is_failed():
-    result = _run_shell(f'"{sys.executable}" -c "import sys; sys.exit(7)"')
+    command = "exit /b 7" if os.name == "nt" else "exit 7"
+    result = _run_shell(command)
     assert result["ok"] is False
     assert result["exit_code"] == 7
     assert result["error"] == "Command exited with code 7"
@@ -99,6 +100,11 @@ def test_windows_launchers_delegate_to_single_powershell_implementation():
     assert "start.ps1" in start_bat
     assert "stop.ps1" in stop_bat
     assert "-ExecutionPolicy Bypass" in start_bat
+    assert "startup-error.log" in start_bat
+    assert "notepad.exe" in start_bat
     assert "VITE_DEV_API_TARGET" in start_ps1
     assert '"preview"' in start_ps1
     assert "quotedViteScript" in start_ps1
+    assert "ValidateOnly" in start_ps1
+    assert "--without-pip" in start_ps1
+    assert "startup-error.log" in start_ps1

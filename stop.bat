@@ -1,7 +1,9 @@
 @echo off
 setlocal EnableExtensions
+title Network Agent - Stop
 
 set "ROOT=%~dp0"
+cd /d "%ROOT%"
 if /I "%~1"=="--no-pause" (
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%ROOT%stop.ps1"
 ) else (

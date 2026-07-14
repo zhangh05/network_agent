@@ -6,7 +6,7 @@
 2. 将压缩包完整解压到普通目录，例如 `D:\Apps\network-agent`。不要直接在压缩包预览窗口中运行，也不要放到需要管理员权限的系统目录。
 3. 安装 64 位 Python 3.12+，安装时启用 Python Launcher。
 4. 安装 Node.js 18+ LTS。
-5. 双击 `start.bat`。首次启动会创建 `.venv` 并安装依赖，耗时取决于网络；后续启动只在依赖锁文件变化时更新。
+5. 双击 `start.bat`。这是 Windows 唯一需要操作的启动入口；首次启动会创建 `.venv` 并安装依赖，耗时取决于网络，后续启动只在依赖锁文件变化时更新。内部 PowerShell 脚本由 BAT 自动调用，不需要手工打开。
 
 启动成功后统一访问 `http://127.0.0.1:5173`。`8010` 仅提供后端 API，不是第二套前端，也不会保存另一份数据。
 
@@ -16,6 +16,9 @@
 - 停止：双击 `stop.bat`
 - 后端日志：`logs\backend-8010.log` 和 `logs\backend-8010.err.log`
 - 前端日志：`logs\frontend-5173.log` 和 `logs\frontend-5173.err.log`
+- 首次安装或启动器错误：`logs\startup-error.log`
+
+启动失败时 `start.bat` 会自动用记事本打开 `startup-error.log`，无需再到目录里手工寻找。
 
 脚本只会接管命令行属于当前项目目录的 8010/5173 监听进程。端口被其他程序占用时会直接报出 PID，不会结束不相关进程。
 
