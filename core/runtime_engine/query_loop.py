@@ -425,6 +425,50 @@ def _fit_message_to_tokens(message: LLMMessage, max_tokens: int) -> LLMMessage:
     return cloned
 
 
+def _force_messages_within_budget(
+    messages: List[LLMMessage],
+    token_limit: int,
+) -> List[LLMMessage]:
+    """Apply the final hard cap without leaving orphaned tool messages.
+
+    Normal compaction retains rich recent context. This guard only runs when
+    protocol overhead or unusually large tool-call arguments still exceed the
+    provider budget after that pass.
+    """
+    if _estimate_message_tokens(messages) <= token_limit:
+        return messages
+
+    groups = _message_groups(messages)
+    # Remove oldest non-anchor groups first. Grouping keeps assistant tool calls
+    # and their role=tool results together.
+    while len(groups) > 2:
+        groups.pop(1)
+        candidate = [message for group in groups for message in group]
+        if _estimate_message_tokens(candidate) <= token_limit:
+            return candidate
+
+    # At very small budgets preserve the governing system message and the
+    # newest user intent. Historical tool protocol is less important than a
+    # request the model can actually answer.
+    system = next((message for message in messages if message.role == "system"), None)
+    latest_user = next((message for message in reversed(messages) if message.role == "user"), None)
+    anchors = [message for message in (system, latest_user) if message is not None]
+    if anchors:
+        per_message = max(16, token_limit // len(anchors))
+        fitted = [_fit_message_to_tokens(message, per_message) for message in anchors]
+        if _estimate_message_tokens(fitted) <= token_limit:
+            return fitted
+
+    # The latest user request is the single most useful last resort. A plain
+    # user message has no tool-call envelope, so it can always be reduced to the
+    # hard limit without producing an invalid provider transcript.
+    fallback = latest_user or system or messages[-1]
+    if fallback.role == "tool" or fallback.tool_calls:
+        fallback = LLMMessage(role="user", content="Continue the current task from the available context.")
+    fitted_fallback = _fit_message_to_tokens(fallback, max(8, token_limit - 4))
+    return [fitted_fallback]
+
+
 def _compact_messages(
     messages: List[LLMMessage],
     *,
@@ -468,6 +512,7 @@ def _compact_messages(
     if not middle:
         per_message = max(96, token_limit // max(1, len(messages)))
         compacted = [_fit_message_to_tokens(message, per_message) for message in messages]
+        compacted = _force_messages_within_budget(compacted, token_limit)
         info.compacted = True
         info.before_chars = _estimate_chars(messages)
         info.after_chars = _estimate_chars(compacted)
@@ -549,6 +594,7 @@ def _compact_messages(
         for message in tail:
             fitted_tail.append(_fit_message_to_tokens(message, per_tail))
         compacted = fixed_head + [summary_message] + fitted_tail
+    compacted = _force_messages_within_budget(compacted, token_limit)
     info.compacted = True
     info.before_chars = before
     info.after_chars = _estimate_chars(compacted)

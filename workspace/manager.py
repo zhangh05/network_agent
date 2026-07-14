@@ -100,7 +100,7 @@ def update_workspace_state(ws_id: str, patch: dict) -> dict:
     for k, v in patch.items():
         if isinstance(v, str) and len(v) > 500 and k not in ("last_result_summary",):
             # Truncate large strings (except summary)
-            safe_patch[k] = v[:500]
+            safe_patch[k] = v[:500] + "...[truncated]"
         else:
             safe_patch[k] = v
 

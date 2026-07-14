@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 
 def test_tool_result_projection_preserves_summary_and_content():
     from agent.protocol.module_result import ModuleResult
@@ -129,6 +131,37 @@ def test_context_budget_accounts_for_complete_tool_schema_surface():
     assert large.message_tokens < small.message_tokens
 
 
+def test_context_budget_rejects_impossible_fixed_costs():
+    from core.runtime_engine.context_budget import RuntimeContextBudget
+
+    with pytest.raises(ValueError, match="runtime context budget is impossible"):
+        RuntimeContextBudget.build(
+            tools=[{
+                "type": "function",
+                "function": {"name": "huge", "description": "x" * 20_000},
+            }],
+            context_window_tokens=4_000,
+            max_input_tokens=3_000,
+            reserved_output_tokens=2_000,
+        )
+
+
+def test_tool_api_projection_keeps_nested_json_structured():
+    from backend.api.runtime_routes import _safe_output
+
+    output = {
+        "ok": True,
+        "records": [{"id": index, "body": "x" * 4_000} for index in range(20)],
+        "nested": {"items": ["y" * 4_000 for _ in range(20)]},
+    }
+    safe = _safe_output(output)
+
+    assert safe["ok"] is True
+    assert isinstance(safe.get("records"), list)
+    assert isinstance(safe.get("nested"), dict)
+    assert safe["_api_projection"]["truncated"] is True
+
+
 def test_oversized_short_conversation_is_compacted_to_hard_budget():
     from agent.llm.schemas import LLMMessage
     from core.runtime_engine.query_loop import _compact_messages, _estimate_message_tokens
@@ -142,6 +175,32 @@ def test_oversized_short_conversation_is_compacted_to_hard_budget():
 
     assert info.compacted is True
     assert _estimate_message_tokens(compacted) <= 500
+
+
+def test_tiny_budget_never_leaves_compaction_over_limit():
+    from agent.llm.schemas import LLMMessage
+    from core.runtime_engine.query_loop import _compact_messages, _estimate_message_tokens
+
+    messages = [
+        LLMMessage(role="system", content="system rules " * 300),
+        LLMMessage(role="user", content="inspect the network " * 300),
+        LLMMessage(
+            role="assistant",
+            content="",
+            tool_calls=[{
+                "id": "call_large",
+                "type": "function",
+                "function": {"name": "exec__run", "arguments": "x" * 8_000},
+            }],
+        ),
+        LLMMessage(role="tool", tool_call_id="call_large", content="y" * 20_000),
+    ]
+
+    compacted, info = _compact_messages(messages, max_tokens=160)
+
+    assert info.compacted is True
+    assert _estimate_message_tokens(compacted) <= 160
+    assert all(message.role != "tool" for message in compacted)
 
 
 def test_compaction_preserves_tool_call_result_pairs_and_control_references():

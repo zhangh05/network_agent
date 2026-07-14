@@ -9,9 +9,9 @@
  *  - sending: 是否在等后端
  *
  * 持久化策略:
- *  - 每个会话最多 30 条消息
- *  - 最多保留 5 个最近会话
- *  - 超出 LRU 淘汰 (按会话 ID 字典序简化)
+ *  - 每个会话最多 100 条消息
+ *  - 最多保留 20 个最近会话
+ *  - 超出后按最近一条消息时间执行 LRU 淘汰
  *  - localStorage key: "na_workbench"
  */
 import { create } from "zustand";

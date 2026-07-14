@@ -157,24 +157,21 @@ def _blocked_tool_response(invocation, ws_id: str, risk_level: str, reason: str)
 
 
 def _safe_output(output: dict) -> dict:
-    """Return a sanitized version of tool output for API responses."""
+    """Return a redacted, structured projection of tool output."""
+    from core.runtime_engine.context_budget import project_json_to_tokens
     from core.tools.redaction import redact_tool_output
 
     output = redact_tool_output(output or {})
     if not output:
         return {}
-    safe = {}
-    for k, v in output.items():
-        if isinstance(v, str) and len(v) > 2000:
-            safe[k] = v[:2000] + "... [truncated]"
-        elif isinstance(v, (dict, list)):
-            s = json.dumps(v, ensure_ascii=False)
-            if len(s) > 2000:
-                safe[k] = s[:2000] + '..." [truncated]'
-            else:
-                safe[k] = v
-        else:
-            safe[k] = v
+    safe, truncated = project_json_to_tokens(output, max_tokens=12_000)
+    if not isinstance(safe, dict):
+        safe = {"value": safe}
+    if truncated:
+        safe["_api_projection"] = {
+            "truncated": True,
+            "reason": "response_budget",
+        }
     return safe
 
 
