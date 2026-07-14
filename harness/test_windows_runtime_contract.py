@@ -109,6 +109,9 @@ def test_windows_launchers_delegate_to_single_powershell_implementation():
     assert "--without-pip" in start_ps1
     assert "startup-error.log" in start_ps1
     assert "Using bundled Windows dependency cache" in start_ps1
+    assert 'runtime\\python\\python.exe' in start_ps1
+    assert 'runtime\\node\\node.exe' in start_ps1
+    assert "Using bundled Python runtime" in start_ps1
     assert 'foreach ($minor in @("3.12", "3.13"))' in start_ps1
     assert "retrying from the configured Python package index" in start_ps1
     assert "ForEach-Object" in start_ps1
@@ -124,6 +127,17 @@ def test_windows_release_verifies_every_supported_python_cache_offline():
     assert "--no-index --find-links wheelhouse -r requirements.txt" in workflow
     assert "import flask, flask_sock, yaml" in workflow
     assert "test_session_management.py harness/test_storage_integration.py" in workflow
+    assert 'runtime/python' in workflow
+    assert 'runtime/node' in workflow
+    assert 'frontend/node_modules' in workflow
+    assert 'start.ps1\") -NoBrowser -ValidateOnly' in workflow
+
+
+def test_windows_release_docs_require_no_system_runtime():
+    windows_doc = (ROOT / "docs" / "WINDOWS.md").read_text(encoding="utf-8")
+    assert "不要求用户另行安装开发环境" in windows_doc
+    assert "runtime\\python\\python.exe" in windows_doc
+    assert "runtime\\node\\node.exe" in windows_doc
 
 
 def test_windows_persistence_never_uses_rename_for_atomic_overwrite():

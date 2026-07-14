@@ -20,6 +20,8 @@ $FrontendHost = if ($env:FRONTEND_HOST) { $env:FRONTEND_HOST } else { "0.0.0.0" 
 $BackendPidFile = Join-Path $Root ".backend.pid"
 $FrontendPidFile = Join-Path $Root ".frontend.pid"
 $StateDir = Join-Path $Root ".runtime"
+$BundledPython = Join-Path $Root "runtime\python\python.exe"
+$BundledNode = Join-Path $Root "runtime\node\node.exe"
 
 function Write-Step([string]$Message) {
     Write-Host "[network-agent] $Message" -ForegroundColor Cyan
@@ -118,17 +120,27 @@ function Find-BasePython {
             }
         }
     }
-    $python = Get-Command python.exe -ErrorAction SilentlyContinue
-    if ($python) {
-        $probe = Invoke-Native $python.Source @("-c", "import sys; raise SystemExit(0 if sys.version_info[:2] in ((3,12),(3,13)) and sys.maxsize > 2**32 else 1)") -Quiet
-        if ($probe.ExitCode -eq 0) {
-            return @{ File = $python.Source; Args = @() }
+    foreach ($commandName in @("python3.13.exe", "python3.12.exe", "python.exe")) {
+        $python = Get-Command $commandName -ErrorAction SilentlyContinue
+        if ($python) {
+            $probe = Invoke-Native $python.Source @("-c", "import sys; raise SystemExit(0 if sys.version_info[:2] in ((3,12),(3,13)) and sys.maxsize > 2**32 else 1)") -Quiet
+            if ($probe.ExitCode -eq 0) {
+                return @{ File = $python.Source; Args = @() }
+            }
         }
     }
-    Fail "64-bit CPython 3.12 or 3.13 was not found. Install one from python.org and enable the Python launcher."
+    Fail "64-bit CPython 3.12 or 3.13 was not found. Official Windows releases include Python; re-download the release archive. Source checkouts require Python from python.org."
 }
 
 function Ensure-Python {
+    if (Test-Path $BundledPython) {
+        $bundledVersion = Invoke-Native $BundledPython @("-c", "import sys; raise SystemExit(0 if sys.version_info[:2] in ((3,12),(3,13)) and sys.maxsize > 2**32 else 1)") -Quiet
+        if ($bundledVersion.ExitCode -ne 0) {
+            Fail-Native "The bundled Python runtime is damaged; re-download and fully extract the Windows release" $bundledVersion
+        }
+        Write-Step "Using bundled Python runtime."
+        return $BundledPython
+    }
     $venvPython = Join-Path (Join-Path $Root ".venv") "Scripts\python.exe"
     if (Test-Path $venvPython) {
         $existingVersion = Invoke-Native $venvPython @("-c", "import sys; raise SystemExit(0 if sys.version_info[:2] in ((3,12),(3,13)) and sys.maxsize > 2**32 else 1)") -Quiet
@@ -170,6 +182,15 @@ function Ensure-PythonDependencies([string]$Python) {
     $hash = (Get-FileHash -Algorithm SHA256 $requirements).Hash
     $installedHash = if (Test-Path $stamp) { (Get-Content $stamp -Raw).Trim() } else { "" }
     $probe = Invoke-Native $Python @("-c", "import flask, flask_sock, yaml, bs4, lxml, pdfplumber, scapy, paramiko") -Quiet
+    if ([IO.Path]::GetFullPath($Python) -eq [IO.Path]::GetFullPath($BundledPython)) {
+        if ($probe.ExitCode -ne 0) {
+            Fail-Native "The bundled Python dependencies are damaged; re-download and fully extract the Windows release" $probe
+        }
+        $check = Invoke-Native $Python @("-m", "pip", "check")
+        if ($check.ExitCode -ne 0) { Fail-Native "Bundled Python dependency check failed" $check }
+        Set-Content -Path $stamp -Value $hash -Encoding ascii
+        return
+    }
     if ($probe.ExitCode -ne 0 -or $hash -ne $installedHash) {
         Write-Step "Installing Python dependencies..."
         $wheelhouse = Join-Path $Root "wheelhouse"
@@ -193,10 +214,17 @@ function Ensure-PythonDependencies([string]$Python) {
 }
 
 function Ensure-Frontend {
-    $node = Get-Command node.exe -ErrorAction SilentlyContinue
-    $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
-    if (-not $node -or -not $npm) {
-        Fail "Node.js 18+ and npm are required. Install the current Node.js LTS release."
+    $usingBundledNode = Test-Path $BundledNode
+    $node = if ($usingBundledNode) {
+        @{ Source = $BundledNode }
+    } else {
+        Get-Command node.exe -ErrorAction SilentlyContinue
+    }
+    # A release archive is immutable and ships its Vite dependencies, so it
+    # must not accidentally depend on npm from the host machine.
+    $npm = if ($usingBundledNode) { $null } else { Get-Command npm.cmd -ErrorAction SilentlyContinue }
+    if (-not $node) {
+        Fail "Node.js 18+ was not found. Official Windows releases include Node.js; re-download the release archive. Source checkouts require Node.js LTS."
     }
     $nodeCheck = Invoke-Native $node.Source @("-e", "process.exit(Number(process.versions.node.split('.')[0]) >= 18 ? 0 : 1)") -Quiet
     if ($nodeCheck.ExitCode -ne 0) { Fail-Native "Node.js 18+ is required" $nodeCheck }
@@ -209,6 +237,9 @@ function Ensure-Frontend {
     if (-not $SkipInstall -and $env:INSTALL_DEPS -notin @("0", "false")) {
         $needsInstall = -not (Test-Path $viteScript) -or ($installedHash -and $lockHash -ne $installedHash)
         if ($needsInstall) {
+            if (-not $npm) {
+                Fail "Bundled frontend dependencies are missing or stale; re-download and fully extract the Windows release."
+            }
             Write-Step "Installing frontend dependencies with npm ci..."
             Push-Location $FrontendDir
             try { $npmInstall = Invoke-Native $npm.Source @("ci") } finally { Pop-Location }
@@ -221,10 +252,13 @@ function Ensure-Frontend {
             Set-Content -Path $npmStamp -Value $lockHash -Encoding ascii
         }
     }
-    if (-not (Test-Path $viteScript)) { Fail "Vite is not installed; rerun without -SkipInstall" }
+    if (-not (Test-Path $viteScript)) { Fail "Vite is not installed; re-download the Windows release or rerun the source checkout without -SkipInstall" }
 
     $distIndex = Join-Path $FrontendDir "dist\index.html"
     if ($ForceBuild -or -not (Test-Path $distIndex)) {
+        if (-not $npm) {
+            Fail "The prebuilt frontend is missing and npm is unavailable; re-download and fully extract the Windows release."
+        }
         Write-Step "Building the frontend..."
         Push-Location $FrontendDir
         try { $frontendBuild = Invoke-Native $npm.Source @("run", "build") } finally { Pop-Location }

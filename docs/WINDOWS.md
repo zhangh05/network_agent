@@ -4,9 +4,7 @@
 
 1. 在 GitHub Release 下载 `network-agent-<version>-windows-x64.zip`。不要下载 GitHub 自动生成的 `Source code` 压缩包。
 2. 将压缩包完整解压到普通目录，例如 `D:\Apps\network-agent`。不要直接在压缩包预览窗口中运行，也不要放到需要管理员权限的系统目录。
-3. 安装 64 位 CPython 3.12 或 3.13，安装时启用 Python Launcher。Release 离线依赖缓存与这两个版本逐一验证，不使用 Microsoft Store 的应用执行别名。
-4. 安装 Node.js 18+ LTS。
-5. 双击 `start.bat`。这是 Windows 唯一需要操作的启动入口；首次启动会创建 `.venv`，并从 Release 内置缓存安装 Python 和前端依赖，安装进度会实时显示。后续启动只在依赖锁文件变化时更新。内部 PowerShell 脚本由 BAT 自动调用，不需要手工打开。
+3. 双击 `start.bat`。这是 Windows 唯一需要操作的启动入口。官方 Release 已内置经过验证的 64 位 Python、Node.js、后端依赖和前端构建，不要求用户另行安装开发环境。内部 PowerShell 脚本由 BAT 自动调用，不需要手工打开。
 
 启动成功后统一访问 `http://127.0.0.1:5173`。`8010` 仅提供后端 API，不是第二套前端，也不会保存另一份数据。
 
@@ -24,21 +22,15 @@
 
 ## 常见问题
 
-### Python 或 Node.js 未找到
+### 提示 Python 或 Node.js 未找到
 
-在新的命令提示符中确认：
+官方 Release 不依赖系统 Python 或 Node.js。出现该提示通常说明下载了 GitHub 自动生成的源码包、压缩包没有完整解压，或安全软件移除了 `runtime` 目录。重新下载 Release 中的 `network-agent-<version>-windows-x64.zip`，完整解压后确认存在 `runtime\python\python.exe` 和 `runtime\node\node.exe`。
 
-```bat
-py -3.12 --version
-node --version
-npm --version
-```
-
-安装后如果仍找不到，请注销并重新登录 Windows，让 PATH 生效。
+只有从源码运行时，才需要自行安装 64 位 CPython 3.12/3.13、Node.js 18+ 和 npm。
 
 ### 首次安装失败
 
-官方 Windows Release 内置经过 CPython 3.12/3.13 离线安装验证的依赖缓存，正常情况下不需要访问 PyPI 或 npm。缓存异常时启动器会自动尝试已配置的 Python 包索引，并在两条路径都失败时保留完整日志。关闭 Network Agent 后删除 `.venv` 和 `.runtime`，再双击 `start.bat`，即可重新建立 Python 环境。只有使用 GitHub 自动生成的源码包时才需要在线安装前端依赖。不要删除 `workspaces`，其中保存本地工作区数据。
+官方 Windows Release 已将依赖安装进内置运行时，首次启动不需要访问 PyPI 或 npm。若启动器报告内置运行时损坏，请重新下载并完整解压，不要从旧版本目录覆盖更新。只有源码检出才会创建 `.venv` 并在线安装依赖。不要删除 `workspaces`，其中保存本地工作区数据。
 
 ### 局域网设备无法访问
 

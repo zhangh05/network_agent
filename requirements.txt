@@ -1,5 +1,5 @@
-# Network Agent — Python >= 3.12
-# Uses system fallback Python 3.12.13 (no Team ID).
+# Network Agent - Python 3.12 or 3.13 for source checkouts.
+# Official Windows releases include a verified 64-bit runtime.
 flask>=3.0
 flask-sock>=0.7
 pytest>=8.0

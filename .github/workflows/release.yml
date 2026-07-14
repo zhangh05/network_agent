@@ -93,6 +93,38 @@ jobs:
           robocopy $PWD $stage /E /XD .git .github .venv .runtime node_modules logs data workspaces reports release frontend\test-results frontend\playwright-report /XF .backend.pid .frontend.pid *.log | Out-Null
           $robocopyExitCode = $LASTEXITCODE
           if ($robocopyExitCode -ge 8) { exit $robocopyExitCode }
+
+          # A Windows release is self-contained: users only extract the archive
+          # and double-click start.bat. Bundle the verified Python runtime,
+          # Node executable, and Vite runtime dependencies.
+          $pythonRoot = Split-Path "${{ steps.python312.outputs.python-path }}" -Parent
+          $runtimePython = Join-Path $stage "runtime/python"
+          $runtimeNode = Join-Path $stage "runtime/node"
+          New-Item -ItemType Directory -Force $runtimePython, $runtimeNode | Out-Null
+          robocopy $pythonRoot $runtimePython /E | Out-Null
+          if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE }
+
+          $nodePath = (Get-Command node.exe -ErrorAction Stop).Source
+          Copy-Item $nodePath (Join-Path $runtimeNode "node.exe") -Force
+          robocopy (Join-Path $PWD "frontend/node_modules") (Join-Path $stage "frontend/node_modules") /E | Out-Null
+          if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE }
+
+          $bundledPython = Join-Path $runtimePython "python.exe"
+          & $bundledPython -m pip install --disable-pip-version-check --no-index --find-links (Join-Path $stage "wheelhouse") -r (Join-Path $stage "requirements.txt")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $bundledPython -m pip check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $bundledPython -c "import flask, flask_sock, yaml, bs4, lxml, pdfplumber, scapy, paramiko"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $env:NETWORK_AGENT_NO_PAUSE = "1"
+          & (Get-Command pwsh.exe -ErrorAction Stop).Source -NoProfile -File (Join-Path $stage "start.ps1") -NoBrowser -ValidateOnly
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          # Dependencies are installed into the portable runtime, so the large
+          # wheel cache is no longer needed in the user-facing archive.
+          Remove-Item -Recurse -Force (Join-Path $stage "wheelhouse")
+
           # Robocopy uses 1-7 for successful copy states. Reset the native exit
           # code so GitHub's pwsh wrapper does not mark the step as failed.
           $global:LASTEXITCODE = 0
