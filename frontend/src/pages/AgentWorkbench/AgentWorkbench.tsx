@@ -1304,16 +1304,7 @@ export function TaskWorkbench() {
       </div>
 
       {/* ── Inline approval bubble for high-risk tools ── */}
-      <ApprovalBubble onResolved={(decision) => {
-        if (decision !== "approve") return;
-        if (sendingRef.current) return;
-        if (!lastUserInput) return;
-        void onSendRef.current(
-          lastUserInput,
-          { approved_risk: true, approval_resume: true },
-          { appendUser: false },
-        );
-      }} />
+      <ApprovalBubble />
     </div>
   );
 }

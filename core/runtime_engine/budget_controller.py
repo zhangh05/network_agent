@@ -44,6 +44,8 @@ class BudgetController:
         )
         self._start_time = time.monotonic()
         self._llm_calls = 0
+        self._tool_elapsed_ms = 0.0
+        self._tool_stage_started_at: float | None = None
 
     @property
     def budget(self) -> ExecutionBudget:
@@ -83,13 +85,35 @@ class BudgetController:
         elapsed = (time.monotonic() - self._start_time) * 1000
         total_limit_ms = self._budget.max_total_seconds * 1000
         tool_limit_ms = self._budget.max_tool_seconds * 1000
+        tool_elapsed = self._tool_elapsed_ms
+        if self._tool_stage_started_at is not None:
+            tool_elapsed += (time.monotonic() - self._tool_stage_started_at) * 1000
 
         if elapsed > total_limit_ms:
             return BudgetStatus(ok=False, exceeded="TOTAL_TIME_EXCEEDED", elapsed_total_ms=elapsed)
-        if elapsed > tool_limit_ms:
+        if tool_elapsed > tool_limit_ms:
             return BudgetStatus(ok=False, exceeded="TOOL_TIME_EXCEEDED", elapsed_total_ms=elapsed)
 
         return BudgetStatus(ok=True, elapsed_total_ms=elapsed)
+
+    def begin_execution(self) -> None:
+        """Start a tool stage without charging prior LLM/context time."""
+        if self._tool_stage_started_at is None:
+            self._tool_stage_started_at = time.monotonic()
+
+    def end_execution(self) -> None:
+        """Accumulate the current tool stage exactly once."""
+        if self._tool_stage_started_at is None:
+            return
+        self._tool_elapsed_ms += (time.monotonic() - self._tool_stage_started_at) * 1000
+        self._tool_stage_started_at = None
+
+    @property
+    def tool_elapsed_ms(self) -> float:
+        elapsed = self._tool_elapsed_ms
+        if self._tool_stage_started_at is not None:
+            elapsed += (time.monotonic() - self._tool_stage_started_at) * 1000
+        return elapsed
 
     def elapsed_ms(self) -> float:
         return (time.monotonic() - self._start_time) * 1000

@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import hashlib
+import inspect
 import json
 import re
 import time
@@ -991,12 +992,14 @@ class QueryLoop:
         tool_runtime,
         llm_invoke: Callable[..., Any] | None = None,
         emitter=None,
+        approval_handler: Callable[[StatelessContext, dict[str, Any]], Any] | None = None,
     ):
         self._config = config
         self._tool_registry = tool_registry
         self._tool_runtime = tool_runtime
         self._llm_invoke = llm_invoke
         self._emitter = emitter
+        self._approval_handler = approval_handler
         self._executor = StreamingToolExecutor(tool_runtime, config, emitter)
         self._cached_tools = _build_cached_tool_definitions(tool_registry)
         self._context_budget = RuntimeContextBudget.build(
@@ -1081,12 +1084,16 @@ class QueryLoop:
             ]
             used_call_ids.update(call.id for call in prefetch_calls)
             execution_started = time.monotonic()
-            prefetch_results = await self._executor.execute(
-                prefetch_calls,
-                ctx=ctx,
-                budget=budget,
-            )
-            execution_duration_ms += (time.monotonic() - execution_started) * 1000
+            budget.begin_execution()
+            try:
+                prefetch_results = await self._executor.execute(
+                    prefetch_calls,
+                    ctx=ctx,
+                    budget=budget,
+                )
+            finally:
+                budget.end_execution()
+                execution_duration_ms += (time.monotonic() - execution_started) * 1000
             all_results.extend(prefetch_results)
             messages = self._append_tool_round(
                 messages,
@@ -1191,6 +1198,44 @@ class QueryLoop:
                 tool_calls = self._unique_call_ids(tool_calls, iterations, used_call_ids)
 
                 gate = self._prepare_tool_calls(ctx, tool_calls)
+                if (
+                    not gate["ok"]
+                    and gate.get("approval_required")
+                    and not gate.get("hard_block")
+                    and self._approval_handler is not None
+                ):
+                    if self._emitter:
+                        self._emitter.emit("approval_required", {
+                            "risk_level": gate.get("risk_level", "high"),
+                            "approval_nodes": list(gate.get("approval_nodes") or []),
+                        })
+                    decision = self._approval_handler(ctx, gate)
+                    if inspect.isawaitable(decision):
+                        decision = await decision
+                    if not bool(decision):
+                        ctx.extras["approval_resolved"] = True
+                        ctx.extras["approval_allowed"] = False
+                        return finish(
+                            final_response="操作已取消（审批未通过）。",
+                            tool_results=all_results,
+                            iterations=iterations,
+                            total_tool_calls=len(all_results),
+                            llm_calls=llm_calls,
+                            risk_level=gate.get("risk_level", "high"),
+                            approval_required=False,
+                            metrics={"approval_denied": True},
+                        )
+                    approved_node_ids = set(gate.get("approval_nodes") or [])
+                    approved_keys = set(ctx.extras.get("approved_tool_call_keys") or [])
+                    approved_keys.update(
+                        self._tool_call_key(call)
+                        for call in tool_calls
+                        if not approved_node_ids or call.id in approved_node_ids
+                    )
+                    ctx.extras["approved_tool_call_keys"] = sorted(approved_keys)
+                    ctx.extras["approval_resolved"] = True
+                    ctx.extras["approval_allowed"] = True
+                    gate = self._prepare_tool_calls(ctx, tool_calls)
                 if not gate["ok"]:
                     if gate.get("hard_block") or gate.get("approval_nodes") or gate.get("approval_required"):
                         return finish(
@@ -1293,14 +1338,18 @@ class QueryLoop:
 
                 # Execute tools (parallel read-only, serial writes)
                 execution_started = time.monotonic()
-                results = await self._executor.execute(tool_calls, ctx=ctx, budget=budget)
-                all_results.extend(results)
-                for tc in tool_calls:
-                    completed_call_keys.add(self._tool_call_key(tc))
+                budget.begin_execution()
+                try:
+                    results = await self._executor.execute(tool_calls, ctx=ctx, budget=budget)
+                    all_results.extend(results)
+                    for tc in tool_calls:
+                        completed_call_keys.add(self._tool_call_key(tc))
 
-                # ── Tracking: auto-poll long tasks (e.g. inspection) ──
-                polled_results = await self._settle_tracking(ctx, results, budget=budget)
-                execution_duration_ms += (time.monotonic() - execution_started) * 1000
+                    # ── Tracking: auto-poll producer-declared long tasks ──
+                    polled_results = await self._settle_tracking(ctx, results, budget=budget)
+                finally:
+                    budget.end_execution()
+                    execution_duration_ms += (time.monotonic() - execution_started) * 1000
                 if polled_results:
                     all_results.extend(polled_results)
                     results = results + polled_results
@@ -1867,7 +1916,17 @@ class QueryLoop:
                 "message": f"工具调用被安全策略阻断：{reason}",
             }
 
-        if risk.requires_approval and not ctx.extras.get("approved_risk"):
+        approved_keys = set(ctx.extras.get("approved_tool_call_keys") or [])
+        approval_nodes = [node for node in nodes if node.id in risk.approval_nodes]
+        approval_satisfied = bool(approval_nodes) and all(
+            self._tool_call_key(LLMToolCall(
+                id=node.id,
+                name=node.tool,
+                arguments=dict(node.args or {}),
+            )) in approved_keys
+            for node in approval_nodes
+        )
+        if risk.requires_approval and not approval_satisfied:
             return {
                 "ok": False,
                 "error": "approval_required",
@@ -2119,6 +2178,7 @@ class QueryLoop:
 
         deadline = time.monotonic() + max_seconds
         user_input = ctx.user_input or ""
+        states: list[dict[str, Any]] = []
 
         for r in results:
             tracking = extract_tracking_payload(r.output)
@@ -2150,65 +2210,102 @@ class QueryLoop:
             })
             ctx.extras["tracking_summary"] = tracking
 
-            poll_index = 0
-            last_error_count = 0
-            while poll_index < max_polls and time.monotonic() < deadline:
-                if self._is_cancelled(ctx):
-                    break
-                if tracking.get("done"):
-                    break
+            states.append({
+                "result": r,
+                "tracking": tracking,
+                "task_id": task_id,
+                "tool_name": tool_name,
+                "poll_index": 0,
+                "last_error_count": 0,
+                "due_at": time.monotonic() + self._tracking_wait(
+                    tracking, cap_seconds, deadline
+                ),
+            })
 
-                wait_s = self._tracking_wait(tracking, cap_seconds, deadline)
-                if wait_s > 0:
-                    await asyncio.sleep(wait_s)
+        # Poll the earliest-due task first, then requeue it. This preserves one
+        # global tracking deadline while preventing the first long task from
+        # consuming the entire window and starving the rest.
+        while states and time.monotonic() < deadline and not self._is_cancelled(ctx):
+            states = [
+                state for state in states
+                if not state["tracking"].get("done")
+                and int(state["poll_index"]) < max_polls
+                and int(state["last_error_count"]) < 3
+            ]
+            if not states:
+                break
+            state = min(states, key=lambda item: float(item["due_at"]))
+            wait_s = min(
+                max(0.0, float(state["due_at"]) - time.monotonic()),
+                max(0.0, deadline - time.monotonic()),
+            )
+            if wait_s > 0 and await self._sleep_until_poll_or_cancel(ctx, wait_s):
+                break
 
-                poll_index += 1
-                poll_call_id = f"{r.call_id}_track_{poll_index}"
-                poll_arguments = dict(tracking.get("poll_arguments") or {})
-                poll_arguments.setdefault("task_id", task_id)
-                poll_arguments.setdefault("action", str(tracking.get("poll_action") or "get"))
-                poll_call = LLMToolCall(
-                    id=poll_call_id,
-                    name=tool_name,
-                    arguments=poll_arguments,
+            state["poll_index"] = int(state["poll_index"]) + 1
+            poll_index = int(state["poll_index"])
+            source_result = state["result"]
+            tracking = state["tracking"]
+            tool_name = str(state["tool_name"])
+            task_id = str(state["task_id"])
+            poll_call_id = f"{source_result.call_id}_track_{poll_index}"
+            poll_arguments = dict(tracking.get("poll_arguments") or {})
+            poll_arguments.setdefault("task_id", task_id)
+            poll_arguments.setdefault("action", str(tracking.get("poll_action") or "get"))
+            poll_call = LLMToolCall(
+                id=poll_call_id,
+                name=tool_name,
+                arguments=poll_arguments,
+            )
+            try:
+                poll_result = await self._executor._execute_one(
+                    poll_call, ctx=ctx, budget=budget
                 )
-                try:
-                    poll_result = await self._executor._execute_one(
-                        poll_call, ctx=ctx, budget=budget
-                    )
-                    polled.append(poll_result)
+                polled.append(poll_result)
 
-                    new_tracking = extract_tracking_payload(poll_result.output)
-                    if new_tracking:
-                        tracking = normalize_tracking_payload(new_tracking)
-                        ctx.extras["tracking_summary"] = tracking
-                        ctx.extras["tracking_events"].append({
-                            "tool": tool_name,
-                            "call_id": poll_call_id,
-                            "tracking": tracking,
-                            "source": "poll",
-                            "poll_index": poll_index,
-                        })
-                    if not poll_result.ok:
-                        # Track consecutive poll failures
-                        last_error_count += 1
-                        if last_error_count >= 3:
-                            # Too many consecutive poll failures — stop
-                            break
-                    else:
-                        last_error_count = 0
-                except Exception as e:
-                    # Poll call crashed — record as error and stop polling
-                    polled.append(StreamingToolResult(
-                        tool_name=tool_name,
-                        call_id=poll_call_id,
-                        output={},
-                        ok=False,
-                        error=f"poll_crash: {str(e)[:200]}",
-                    ))
-                    break
+                new_tracking = extract_tracking_payload(poll_result.output)
+                if new_tracking:
+                    tracking = normalize_tracking_payload(new_tracking)
+                    state["tracking"] = tracking
+                    ctx.extras["tracking_summary"] = tracking
+                    ctx.extras["tracking_events"].append({
+                        "tool": tool_name,
+                        "call_id": poll_call_id,
+                        "tracking": tracking,
+                        "source": "poll",
+                        "poll_index": poll_index,
+                    })
+                if poll_result.ok:
+                    state["last_error_count"] = 0
+                else:
+                    state["last_error_count"] = int(state["last_error_count"]) + 1
+                state["due_at"] = time.monotonic() + self._tracking_wait(
+                    state["tracking"], cap_seconds, deadline
+                )
+            except Exception as e:
+                polled.append(StreamingToolResult(
+                    tool_name=tool_name,
+                    call_id=poll_call_id,
+                    output={},
+                    ok=False,
+                    error=f"poll_crash: {str(e)[:200]}",
+                ))
+                state["last_error_count"] = 3
 
         return polled
+
+    async def _sleep_until_poll_or_cancel(
+        self,
+        ctx: StatelessContext,
+        seconds: float,
+    ) -> bool:
+        """Sleep in short slices so a user stop is observed promptly."""
+        wake_at = time.monotonic() + max(0.0, seconds)
+        while time.monotonic() < wake_at:
+            if self._is_cancelled(ctx):
+                return True
+            await asyncio.sleep(min(0.25, max(0.0, wake_at - time.monotonic())))
+        return self._is_cancelled(ctx)
 
     @staticmethod
     def _is_cancelled(ctx: StatelessContext) -> bool:

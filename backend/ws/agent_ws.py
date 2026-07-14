@@ -232,6 +232,22 @@ def _run_agent_thread(
     """Run agent in background thread through the shared AgentApp contract."""
     from agent.runtime.stream_emitter import StreamEmitter
 
+    def put_terminal(event) -> None:
+        """Publish a terminal frame without leaving the worker blocked forever."""
+        try:
+            event_queue.put(event, timeout=0.5)
+            return
+        except queue.Full:
+            pass
+        try:
+            event_queue.get_nowait()
+        except queue.Empty:
+            pass
+        try:
+            event_queue.put_nowait(event)
+        except queue.Full:
+            _log.error("WS terminal event dropped after queue recovery")
+
     def realtime_callback(event):
         try:
             live_count = int(stats.get("live_events", 0)) + 1
@@ -331,7 +347,7 @@ def _run_agent_thread(
         resolved_session_id = result_payload.get("session_id") or session_id or ""
 
         # Send done event first — so frontend sees it immediately
-        event_queue.put({
+        put_terminal({
             "type": "done",
             "session_id": resolved_session_id,
             "turn_id": result_payload.get("turn_id", ""),
@@ -353,10 +369,15 @@ def _run_agent_thread(
     except Exception as e:
         traceback.print_exc()
         error_holder["error"] = str(e)[:500]
-        event_queue.put({"type": "error", "message": str(e)[:500]})
+        put_terminal({"type": "error", "message": str(e)[:500]})
     finally:
         try:
             StreamEmitter.clear_realtime_callback()
         except Exception:
             pass
-        event_queue.put(None)
+        try:
+            event_queue.put(None, timeout=0.2)
+        except queue.Full:
+            # The receiver also exits once the worker is no longer alive and
+            # the queue drains, so a saturated queue does not require blocking.
+            pass

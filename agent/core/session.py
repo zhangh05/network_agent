@@ -36,4 +36,7 @@ class AgentSession:
         from agent.runtime.ssot_runtime import run_ssot_turn
         turn = AgentTurn.from_op(op)
         self.active_turn = turn
-        return run_ssot_turn(self, turn)
+        try:
+            return run_ssot_turn(self, turn)
+        finally:
+            self.active_turn = None

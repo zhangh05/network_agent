@@ -125,127 +125,6 @@ def run_ssot_turn(
             )
         )
 
-        # ── v3.17: SSOT Runtime approval gate → ApprovalStore → frontend bubble ──
-        # When the risk policy requires approval (e.g. destructive commands),
-        # create ApprovalStore entries so the frontend ApprovalBubble detects
-        # them, then block until the user approves/denies.
-        runtime_meta = runtime_result.metadata or {}
-        if runtime_meta.get("approval_required") and runtime_meta.get("approval_nodes"):
-            store = get_approval_store()
-            approval_ids: list[str] = []
-            approval_details = runtime_meta.get("approval_details") or []
-            for detail in approval_details:
-                tool_id = detail.get("tool", "unknown")
-                reason = detail.get("risk_reason", "高危操作需要确认")
-                cmd = detail.get("command", "")
-                desc = f"{reason}: {tool_id}"
-                if cmd:
-                    desc += f" → {cmd[:120]}"
-                req = store.create(
-                    session_id=session_id,
-                    tool_id=tool_id,
-                    arguments=detail,
-                    description=desc,
-                    risk_level=runtime_meta.get("risk_level", "high"),
-                    workspace_id=workspace_id,
-                    run_id=turn.turn_id,
-                )
-                approval_ids.append(req.approval_id)
-
-            # If no approval_details, create one entry for all nodes
-            if not approval_details:
-                nodes = runtime_meta["approval_nodes"]
-                tools = runtime_meta.get("tool_summary", [])
-                req = store.create(
-                    session_id=session_id,
-                    tool_id=", ".join(tools) if tools else ", ".join(nodes),
-                    arguments={"nodes": nodes},
-                    description=runtime_meta.get("approval_reason", "高危操作需要确认"),
-                    risk_level=runtime_meta.get("risk_level", "high"),
-                    workspace_id=workspace_id,
-                    run_id=turn.turn_id,
-                )
-                approval_ids.append(req.approval_id)
-
-            # Wait for approvals via thread-pool to avoid blocking the facade thread.
-            # Each approval harnesses blocking=True (internal threading.Event.wait)
-            # and we run them in parallel with a cutoff slightly longer than
-            # the frontend's 60-second countdown.
-            approved = True
-            if approval_ids:
-                def _await_aid(aid: str) -> bool:
-                    # blocking=True keeps CPU idle via Event.wait(); returns on
-                    # resolution or timeout (whichever first).
-                    return store.wait(
-                        aid,
-                        blocking=True,
-                        timeout=_APPROVAL_WAIT_SECONDS,
-                    )
-
-                with concurrent.futures.ThreadPoolExecutor(
-                    max_workers=min(len(approval_ids), 8),
-                    thread_name_prefix="approval-waiter",
-                ) as pool:
-                    futures = {pool.submit(_await_aid, aid): aid for aid in approval_ids}
-                    for fut in concurrent.futures.as_completed(
-                        futures,
-                        timeout=_APPROVAL_WAIT_SECONDS + 5,
-                    ):
-                        try:
-                            if not fut.result():
-                                approved = False
-                        except Exception:  # noqa: BLE001 — any error counts as denial
-                            approved = False
-
-            if approved:
-                # Re-run with approval bypass flag
-                metadata_in["approved_risk"] = True
-                engine2 = _build_engine(
-                    workspace_id=workspace_id,
-                    session_id=session_id,
-                    run_id=turn.turn_id,
-                    trace_id=trace_id,
-                    allowed_tool_ids=allowed_tool_ids,
-                    requested_by=requested_by,
-                    emitter=emitter,
-                    max_query_loop_iterations=metadata_in.get("max_steps"),
-                    context_budget=runtime_context_budget,
-                )
-                runtime_result = _run_async(
-                    engine2.run(
-                        user_input=user_input,
-                        workspace_id=workspace_id,
-                        session_id=session_id,
-                        extras=metadata_in,
-                    )
-                )
-            else:
-                # User denied — return rejection result
-                denied_result = AgentResult(
-                    ok=True,
-                    final_response="操作已取消（审批未通过）。",
-                    events=events,
-                    trace_id=trace_id,
-                    session_id=session_id,
-                    turn_id=turn.turn_id,
-                    tool_calls=[],
-                    metadata={
-                        **context.metadata,
-                        "runtime_engine": "ssot_runtime",
-                        "ssot_runtime": runtime_meta,
-                        "approval_denied": True,
-                    },
-                )
-                _graph_run_finished(
-                    run_id=turn.turn_id,
-                    result=denied_result,
-                    runtime_result=None,
-                    user_input=user_input,
-                )
-                _sync_session_history(session, user_input, denied_result.final_response)
-                persist_run_record(session, turn, denied_result, context)
-                return denied_result
-
         tool_calls = _project_tool_calls(runtime_result)
         final_response = _final_response(runtime_result)
         if not final_response:
@@ -496,6 +375,12 @@ def _build_engine(
     }
     if emitter is not None:
         engine_kwargs["emitter"] = emitter
+    engine_kwargs["approval_handler"] = _build_approval_handler(
+        workspace_id=workspace_id,
+        session_id=session_id,
+        run_id=run_id,
+        emitter=emitter,
+    )
     engine = SSOTRuntimeEngine(**engine_kwargs)
     client = _tool_runtime_client()
 
@@ -515,6 +400,78 @@ def _build_engine(
             args_schema=registry[tool_id].get("args_schema", {}),
         )
     return engine
+
+
+def _build_approval_handler(
+    *,
+    workspace_id: str,
+    session_id: str,
+    run_id: str,
+    emitter: Any | None = None,
+):
+    """Create the production approval pause/resume callback for QueryLoop."""
+
+    async def _handle(ctx, gate: dict[str, Any]) -> bool:
+        store = get_approval_store()
+        approval_ids: list[str] = []
+        details = list(gate.get("approval_details") or [])
+        for detail in details:
+            tool_id = str(detail.get("tool") or "unknown")
+            reason = str(detail.get("risk_reason") or "高危操作需要确认")
+            command = str(detail.get("command") or "")
+            description = f"{reason}: {tool_id}"
+            if command:
+                description += f" → {command[:120]}"
+            req = store.create(
+                session_id=session_id,
+                tool_id=tool_id,
+                arguments=detail,
+                description=description,
+                risk_level=str(gate.get("risk_level") or "high"),
+                workspace_id=workspace_id,
+                run_id=run_id,
+            )
+            approval_ids.append(req.approval_id)
+
+        if not details:
+            nodes = list(gate.get("approval_nodes") or [])
+            req = store.create(
+                session_id=session_id,
+                tool_id=", ".join(nodes) or "unknown",
+                arguments={"nodes": nodes},
+                description=str(gate.get("message") or "高危操作需要确认"),
+                risk_level=str(gate.get("risk_level") or "high"),
+                workspace_id=workspace_id,
+                run_id=run_id,
+            )
+            approval_ids.append(req.approval_id)
+
+        event = {
+            "approval_ids": approval_ids,
+            "risk_level": str(gate.get("risk_level") or "high"),
+            "status": "pending",
+        }
+        ctx.extras.setdefault("approval_events", []).append(event)
+        if emitter is not None:
+            emitter.emit("approval_waiting", event)
+
+        decisions = await asyncio.gather(*(
+            asyncio.to_thread(
+                store.wait,
+                approval_id,
+                blocking=True,
+                timeout=_APPROVAL_WAIT_SECONDS,
+            )
+            for approval_id in approval_ids
+        ))
+        approved = bool(approval_ids) and all(bool(value) for value in decisions)
+        resolved_event = {**event, "status": "approved" if approved else "rejected"}
+        ctx.extras.setdefault("approval_events", []).append(resolved_event)
+        if emitter is not None:
+            emitter.emit("approval_resolved", resolved_event)
+        return approved
+
+    return _handle
 
 
 def _build_ssot_runtime_tool_registry(allowed_tool_ids=None) -> dict[str, dict[str, Any]]:

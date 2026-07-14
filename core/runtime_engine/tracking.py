@@ -13,6 +13,29 @@ from __future__ import annotations
 from typing import Any
 
 
+_TERMINAL_STATUSES = {
+    "succeeded", "success", "completed", "complete", "done",
+    "failed", "error", "cancelled", "canceled", "partial", "crashed",
+}
+
+
+def _as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on", "done", "terminal"}
+    return False
+
+
+def _as_non_negative_int(value: Any, default: int = 0) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
 def extract_tracking_payload(data: Any) -> dict[str, Any]:
     """Return a tracking payload from a nested tool result, if present."""
     if not isinstance(data, dict):
@@ -35,8 +58,15 @@ def normalize_tracking_payload(tracking: dict[str, Any]) -> dict[str, Any]:
     progress = tracking.get("progress") if isinstance(tracking.get("progress"), dict) else {}
     policy = tracking.get("policy") if isinstance(tracking.get("policy"), dict) else {}
     task_id = tracking.get("task_id") or summary.get("task_id") or ""
-    status = tracking.get("status") or summary.get("status") or ""
-    done = bool(tracking.get("done") or tracking.get("terminal"))
+    status = str(tracking.get("status") or summary.get("status") or "").strip()
+    done = (
+        _as_bool(tracking.get("done"))
+        or _as_bool(tracking.get("terminal"))
+        or status.lower() in _TERMINAL_STATUSES
+    )
+    poll_arguments = tracking.get("poll_arguments")
+    if not isinstance(poll_arguments, dict):
+        poll_arguments = {}
     return {
         "kind": tracking.get("kind") or "long_task",
         "domain": tracking.get("domain") or tracking.get("capability") or "",
@@ -45,13 +75,13 @@ def normalize_tracking_payload(tracking: dict[str, Any]) -> dict[str, Any]:
         "done": done,
         "terminal": done,
         "mode": policy.get("mode", "") or tracking.get("mode", ""),
-        "poll_count": int(tracking.get("poll_count") or 0),
-        "same_status_count": int(tracking.get("same_status_count") or 0),
-        "stall_risk": bool(tracking.get("stall_risk")),
-        "next_poll_seconds": int(tracking.get("next_poll_seconds") or 0),
+        "poll_count": _as_non_negative_int(tracking.get("poll_count")),
+        "same_status_count": _as_non_negative_int(tracking.get("same_status_count")),
+        "stall_risk": _as_bool(tracking.get("stall_risk")),
+        "next_poll_seconds": _as_non_negative_int(tracking.get("next_poll_seconds")),
         "suggested_next_action": tracking.get("suggested_next_action", ""),
         "poll_action": tracking.get("poll_action", "get"),
-        "poll_arguments": dict(tracking.get("poll_arguments") or {}),
+        "poll_arguments": dict(poll_arguments),
         "progress": progress,
         "summary": summary,
         "raw": tracking,

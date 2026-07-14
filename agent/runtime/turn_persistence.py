@@ -1,6 +1,7 @@
 """Turn persistence — write run records, messages, and trace events to disk."""
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,6 +9,9 @@ from types import SimpleNamespace
 from agent.runtime.utils import now_iso
 from workspace.run_store import write_run_record
 from workspace.message_store import SessionMessageStore
+
+
+_log = logging.getLogger(__name__)
 
 
 def persist_run_record(session, turn, result, context) -> None:
@@ -115,10 +119,8 @@ def persist_run_record(session, turn, result, context) -> None:
             try:
                 persist_trace(run_id, ws_id, result.events or _synthetic_trace_events(run_id, result))
             except Exception:
-                pass
+                _log.warning("persist_trace failed for run %s", run_id, exc_info=True)
     except Exception as e:
-        import logging
-        _log = logging.getLogger(__name__)
         _log.warning("persist_run_record failed for run %s: %s", run_id, e, exc_info=True)
 
 
@@ -201,10 +203,12 @@ def _merge_result_projection(run_id: str, ws_id: str, result, context) -> None:
     try:
         record = json.loads(run_path.read_text(encoding="utf-8"))
     except Exception:
+        _log.warning("Cannot read run projection %s", run_path, exc_info=True)
         return
     try:
         result_dict = result.to_dict() if hasattr(result, "to_dict") else {}
     except Exception:
+        _log.warning("Cannot serialize result projection for run %s", run_id, exc_info=True)
         result_dict = {}
     metadata = dict(result_dict.get("metadata") or {})
     if context and getattr(context, "metadata", None):
@@ -242,7 +246,7 @@ def _merge_result_projection(run_id: str, ws_id: str, result, context) -> None:
         tmp_path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
         tmp_path.rename(run_path)
     except Exception:
-        pass
+        _log.warning("Cannot write result projection %s", run_path, exc_info=True)
 
 
 def _safe_tool_calls(tool_calls: list) -> list:

@@ -59,6 +59,7 @@ class SSOTRuntimeEngine:
         tool_registry: dict[str, dict[str, Any]] | None = None,
         tool_runtime: ToolRuntime | None = None,
         emitter: Any | None = None,
+        approval_handler: Callable[[StatelessContext, dict[str, Any]], Any] | None = None,
         heartbeat_interval_s: float = 1.0,
     ):
         self._config = config or SSOTRuntimeConfig()
@@ -70,6 +71,7 @@ class SSOTRuntimeEngine:
         # of staring at "思考中…" for 12 seconds on cold-start.
         # Falls back to a no-op so the engine still works in offline tests.
         self._emitter = emitter
+        self._approval_handler = approval_handler
         self._heartbeat_interval_s = max(0.5, float(heartbeat_interval_s))
         self._heartbeat_task: asyncio.Task | None = None
 
@@ -183,9 +185,9 @@ class SSOTRuntimeEngine:
         """Execute one user request through the canonical QueryLoop pipeline.
 
         Args:
-            extras: caller-supplied metadata map that lands in
-                ``ctx.extras``.  Used for approval bypass
-                (``approved_risk=True``) and other caller signals.
+            extras: caller-supplied metadata map that lands in ``ctx.extras``.
+                Approval decisions are bound internally to exact tool-call
+                fingerprints and cannot be supplied by callers.
         """
         t_total = time.monotonic()
         metrics = MetricsCollector()
@@ -439,6 +441,7 @@ class SSOTRuntimeEngine:
                 self._tool_runtime,
                 llm_invoke=self._llm_invoke,
                 emitter=self._emitter,
+                approval_handler=self._approval_handler,
             )
             loop_result = await query_loop.run(ctx, budget, metrics)
 
@@ -562,17 +565,6 @@ class SSOTRuntimeEngine:
                 content = content.rstrip() + marker
         return content
 
-    def _check_approval_bypass(self, ctx: StatelessContext) -> bool:
-        """Check if the current request has been pre-approved by the user.
-
-        When the frontend shows an approval bubble and the user clicks
-        "approve", the same request is re-submitted with
-        ``ctx.extras["approved_risk"] = True``.  This gate lets the
-        approved request skip the approval_required barrier while
-        keeping the hard_block gate intact.
-        """
-        return bool(ctx.extras.get("approved_risk") or False)
-
     # ========================================================================
     # Result assembly
     # ========================================================================
@@ -679,6 +671,8 @@ class SSOTRuntimeEngine:
                 "tool_recovery_events": ctx.extras.get("tool_recovery_events", []),
                 "tracking_summary": ctx.extras.get("tracking_summary", {}),
                 "tracking_events": ctx.extras.get("tracking_events", []),
+                "approval_events": ctx.extras.get("approval_events", []),
+                "approval_resolved": ctx.extras.get("approval_resolved", False),
                 "output_truncated": bool(
                     base_meta.get("output_truncated") or ctx.extras.get("output_truncated", False)
                 ),

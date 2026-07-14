@@ -111,6 +111,46 @@ def test_tracking_contract_preserves_producer_poll_arguments():
     assert tracking["poll_arguments"] == {"detail": True}
 
 
+def test_tracking_contract_normalizes_terminal_and_malformed_values():
+    from core.runtime_engine.tracking import normalize_tracking_payload
+
+    running = normalize_tracking_payload({
+        "status": "running",
+        "done": "false",
+        "terminal": "0",
+        "poll_count": "bad",
+        "next_poll_seconds": -9,
+        "poll_arguments": ["not", "a", "mapping"],
+    })
+    assert running["done"] is False
+    assert running["poll_count"] == 0
+    assert running["next_poll_seconds"] == 0
+    assert running["poll_arguments"] == {}
+
+    completed = normalize_tracking_payload({"status": "succeeded"})
+    assert completed["done"] is True
+    assert completed["terminal"] is True
+
+
+def test_tool_budget_does_not_charge_prior_llm_time():
+    from core.runtime_engine.budget_controller import BudgetController
+    from core.runtime_engine.models import SSOTRuntimeConfig
+
+    budget = BudgetController(SSOTRuntimeConfig(
+        max_total_seconds=100,
+        max_tool_seconds=1,
+    ))
+    budget._start_time -= 10
+    assert budget.check_execution().ok is True
+
+    budget.begin_execution()
+    budget._tool_stage_started_at -= 2
+    status = budget.check_execution()
+    assert status.ok is False
+    assert status.exceeded == "TOOL_TIME_EXCEEDED"
+    budget.end_execution()
+
+
 def test_websocket_broadcast_is_workspace_scoped(monkeypatch):
     from backend.ws import agent_ws
 

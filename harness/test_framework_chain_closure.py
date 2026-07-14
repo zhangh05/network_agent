@@ -84,6 +84,81 @@ def test_query_loop_tracks_generic_long_tasks_without_keyword_guessing():
     assert QueryLoop._should_poll_tracking("anything", {**tracking, "done": True}) is False
 
 
+def test_query_loop_tracks_multiple_long_tasks_round_robin():
+    from core.runtime_engine.models import SSOTRuntimeConfig, StatelessContext
+    from core.runtime_engine.query_loop import (
+        QueryLoop,
+        StreamingToolResult,
+    )
+
+    class Runtime:
+        @staticmethod
+        def has_tool(tool_id):
+            return tool_id == "inspection.manage"
+
+    class Executor:
+        def __init__(self):
+            self.calls = []
+
+        async def _execute_one(self, call, *, ctx, budget):
+            task_id = call.arguments["task_id"]
+            self.calls.append(task_id)
+            count = self.calls.count(task_id)
+            return StreamingToolResult(
+                tool_name="inspection.manage",
+                call_id=call.id,
+                ok=True,
+                output={
+                    "ok": True,
+                    "tracking": {
+                        "kind": "long_task",
+                        "task_id": task_id,
+                        "status": "succeeded" if count == 2 else "running",
+                        "next_poll_seconds": 0,
+                    },
+                },
+            )
+
+    config = SSOTRuntimeConfig(
+        tracking_max_polls=2,
+        tracking_max_seconds=1,
+        tracking_poll_interval_cap_seconds=0,
+    )
+    loop = QueryLoop(config, {}, Runtime())
+    executor = Executor()
+    loop._executor = executor
+    initial = [
+        StreamingToolResult(
+            tool_name="inspection.manage",
+            call_id=f"call-{task_id}",
+            ok=True,
+            output={
+                "ok": True,
+                "tracking": {
+                    "kind": "long_task",
+                    "task_id": task_id,
+                    "status": "running",
+                    "next_poll_seconds": 0,
+                },
+            },
+        )
+        for task_id in ("task-a", "task-b")
+    ]
+
+    polled = asyncio.run(loop._settle_tracking(
+        StatelessContext(
+            request_id="r",
+            session_id="s",
+            workspace_id="ws",
+            user_input="run",
+        ),
+        initial,
+    ))
+
+    assert executor.calls == ["task-a", "task-b", "task-a", "task-b"]
+    assert len(polled) == 4
+
+
 def test_merged_tool_concurrency_is_action_aware():
     from agent.llm.schemas import LLMToolCall
     from core.runtime_engine.models import SSOTRuntimeConfig
@@ -464,3 +539,135 @@ def test_subagent_runtime_failure_reaches_terminal_projection(monkeypatch):
     assert result["status"] == "failed"
     assert _live_tasks[created["subtask_id"]]["status"] == "failed"
     assert _live_tasks[created["subtask_id"]].get("finished_at")
+
+
+def test_query_loop_approval_resumes_original_plan_without_replanning():
+    from agent.llm.schemas import LLMResponse, LLMToolCall
+    from core.runtime_engine.engine import SSOTRuntimeEngine
+    from core.runtime_engine.models import SSOTRuntimeConfig
+
+    calls = {"llm": 0, "approval": 0, "tool": 0}
+
+    def fake_llm(**_kwargs):
+        calls["llm"] += 1
+        if calls["llm"] == 1:
+            return LLMResponse(tool_calls=[LLMToolCall(
+                id="destructive_call",
+                name="exec.run",
+                arguments={"command": "rm -f /tmp/network-agent-contract-test"},
+            )])
+        return LLMResponse(content="已执行获批操作。")
+
+    async def approve(_ctx, gate):
+        calls["approval"] += 1
+        assert gate["approval_required"] is True
+        return True
+
+    def tool_handler(_args):
+        calls["tool"] += 1
+        return {"ok": True, "stdout": "removed"}
+
+    registry = {
+        "exec.run": {
+            "description": "Execute a shell command",
+            "args_schema": {
+                "required": ["command"],
+                "properties": {"command": {"type": "string"}},
+            },
+        },
+    }
+    engine = SSOTRuntimeEngine(
+        config=SSOTRuntimeConfig(max_query_loop_iterations=4),
+        llm_invoke=fake_llm,
+        tool_registry=registry,
+        approval_handler=approve,
+    )
+    engine.register_tool("exec.run", tool_handler)
+
+    result = asyncio.run(engine.run(
+        "Remove the contract test file",
+        workspace_id="default",
+        session_id="session_approval_contract",
+    ))
+
+    assert result.success is True
+    assert result.final_response == "已执行获批操作。"
+    assert calls == {"llm": 2, "approval": 1, "tool": 1}
+    assert result.metadata["approval_resolved"] is True
+
+
+def test_query_loop_approval_is_bound_to_exact_destructive_call():
+    from agent.llm.schemas import LLMResponse, LLMToolCall
+    from core.runtime_engine.engine import SSOTRuntimeEngine
+    from core.runtime_engine.models import SSOTRuntimeConfig
+
+    calls = {"llm": 0, "approval": 0, "tool": []}
+
+    def fake_llm(**_kwargs):
+        calls["llm"] += 1
+        if calls["llm"] <= 2:
+            target = f"/tmp/network-agent-contract-{calls['llm']}"
+            return LLMResponse(tool_calls=[LLMToolCall(
+                id=f"destructive_{calls['llm']}",
+                name="exec.run",
+                arguments={"command": f"rm -f {target}"},
+            )])
+        return LLMResponse(content="两个获批动作均已执行。")
+
+    async def approve(_ctx, _gate):
+        calls["approval"] += 1
+        return True
+
+    def tool_handler(args):
+        calls["tool"].append(args["command"])
+        return {"ok": True}
+
+    registry = {
+        "exec.run": {
+            "description": "Execute a shell command",
+            "args_schema": {
+                "required": ["command"],
+                "properties": {"command": {"type": "string"}},
+            },
+        },
+    }
+    engine = SSOTRuntimeEngine(
+        config=SSOTRuntimeConfig(max_query_loop_iterations=5),
+        llm_invoke=fake_llm,
+        tool_registry=registry,
+        approval_handler=approve,
+    )
+    engine.register_tool("exec.run", tool_handler)
+
+    result = asyncio.run(engine.run(
+        "Remove two contract files",
+        workspace_id="default",
+        session_id="session_approval_binding",
+    ))
+
+    assert result.success is True
+    assert calls["approval"] == 2
+    assert len(calls["tool"]) == 2
+
+
+def test_agent_session_clears_active_turn_after_failure(monkeypatch):
+    from agent.core.session import AgentSession
+    from agent.protocol.op import AgentOp
+
+    def fail_turn(*_args, **_kwargs):
+        raise RuntimeError("runtime failed")
+
+    monkeypatch.setattr("agent.runtime.ssot_runtime.run_ssot_turn", fail_turn)
+    session = AgentSession(session_id="session_active_turn", workspace_id="default")
+    op = AgentOp.user_message(
+        user_input="test",
+        session_id=session.session_id,
+        workspace_id=session.workspace_id,
+    )
+
+    try:
+        session.submit(op)
+    except RuntimeError:
+        pass
+
+    assert session.active_turn is None

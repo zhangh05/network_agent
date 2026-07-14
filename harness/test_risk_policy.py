@@ -257,7 +257,7 @@ def test_docker_prune_with_credential_hard_block(risk_engine):
 
 # ── Tests: pipeline ────────────────────────────────────────────────────
 
-def test_approval_bypass_resume():
+def test_approval_handler_resumes_exact_call():
     # harness/conftest.py does not install the async hook used by
     # core.runtime_engine/conftest.py, and pytest-asyncio is not a project
     # dependency. We dispatch through asyncio.run() here so the
@@ -279,16 +279,24 @@ def test_approval_bypass_resume():
     }}}
 
     async def _drive():
-        engine = SSOTRuntimeEngine(config=config, llm_invoke=mock_llm, tool_registry=registry)
+        approvals = []
+
+        async def approve(_ctx, gate):
+            approvals.append(gate)
+            return True
+
+        engine = SSOTRuntimeEngine(
+            config=config,
+            llm_invoke=mock_llm,
+            tool_registry=registry,
+            approval_handler=approve,
+        )
         engine.register_tool("exec.run", _mock.AsyncMock(return_value={"ok": True}))
 
-        result1 = await engine.run("test")
-        assert result1.metadata.get("approval_required") is True
-        assert result1.node_success_count == 0
-
-        result2 = await engine.run("test", extras={"approved_risk": True})
-        assert result2.success
-        assert result2.node_success_count == 1
+        result = await engine.run("test")
+        assert result.success
+        assert result.node_success_count == 1
+        assert len(approvals) == 1
 
     asyncio.run(_drive())
 
@@ -313,7 +321,7 @@ def test_hard_block_denied_approval():
         engine = SSOTRuntimeEngine(config=config, llm_invoke=mock_llm, tool_registry=registry)
         engine.register_tool("exec.run", _mock.AsyncMock())
 
-        result = await engine.run("test", extras={"approved_risk": True})
+        result = await engine.run("test")
         assert result.success is False
         assert result.metadata.get("hard_block") is True
 
