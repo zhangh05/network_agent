@@ -64,6 +64,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             & $python -c "import flask, flask_sock, yaml, bs4, lxml, pdfplumber, scapy, paramiko"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & $python -m pytest -q harness/test_windows_runtime_contract.py harness/test_session_management.py harness/test_storage_integration.py
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
       - name: Validate Windows launch scripts

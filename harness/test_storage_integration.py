@@ -128,6 +128,25 @@ def test_message_large_content_uses_artifact(storage_ws):
     assert ref.get("artifact_type") == "message_large_content"
 
 
+def test_message_files_are_windows_safe_but_keep_stable_logical_ids(storage_ws):
+    from workspace.message_store import SessionMessageStore
+
+    store = SessionMessageStore("sess_windows", ws_id="test_ws")
+    assert store.write_message("run_windows_1", "user", "hello") == "run_windows_1:user"
+    assert store.write_message("run_windows_1", "assistant", "world") == "run_windows_1:assistant"
+
+    files = sorted(store._messages_dir().glob("*.json"))
+    assert [f.name for f in files] == [
+        "run_windows_1.assistant.json",
+        "run_windows_1.user.json",
+    ]
+    assert all(":" not in f.name for f in files)
+    assert [m["message_id"] for m in store.get_messages()] == [
+        "run_windows_1:user",
+        "run_windows_1:assistant",
+    ]
+
+
 # ── PCAP file_id support ────────────────────────────────────────────
 
 def test_pcap_parse_accepts_file_id(storage_ws):

@@ -39,4 +39,9 @@ describe("agentResultFromWsDone", () => {
     expect(result.metadata.source_count).toBe(1);
     expect(result.tool_decision?.selected_tools).toEqual(["knowledge.manage"]);
   });
+
+  it("never creates an empty assistant message", () => {
+    const result = agentResultFromWsDone({}, "", "session-1");
+    expect(result.final_response).toBe("未收到可显示的模型回复，请重试。");
+  });
 });

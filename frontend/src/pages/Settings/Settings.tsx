@@ -245,8 +245,7 @@ export function Settings() {
     setTestResult(null);
     try {
       const res = await settingsApi.llmTest({
-        task: "result_summarize",
-        message: "ping from settings UI",
+        message: "Reply with OK.",
         base_url: draft.base_url ?? undefined,
         model: draft.model ?? undefined,
         provider: selectedId,

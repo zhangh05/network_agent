@@ -123,3 +123,18 @@ def test_windows_release_verifies_every_supported_python_cache_offline():
     assert "Verify dependency cache offline" in workflow
     assert "--no-index --find-links wheelhouse -r requirements.txt" in workflow
     assert "import flask, flask_sock, yaml" in workflow
+    assert "test_session_management.py harness/test_storage_integration.py" in workflow
+
+
+def test_windows_persistence_never_uses_rename_for_atomic_overwrite():
+    paths = (
+        ROOT / "workspace" / "session_store.py",
+        ROOT / "workspace" / "run_store.py",
+        ROOT / "agent" / "runtime" / "turn_persistence.py",
+        ROOT / "agent" / "llm" / "provider_store.py",
+        ROOT / "agent" / "llm" / "config.py",
+    )
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        assert ".rename(" not in text, path
+        assert "atomic_write_" in text, path

@@ -232,12 +232,11 @@ def _read_recent_failure() -> dict | None:
 
 
 def _atomic_write_json_cfg(path, data: dict) -> None:
-    import json, logging
+    import logging
+    from workspace.atomic_io import atomic_write_json
     _log = logging.getLogger(__name__)
     try:
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        tmp.rename(path)
+        atomic_write_json(path, data)
     except Exception as e:
         _log.warning("_atomic_write_json_cfg failed for %s: %s", path, e)
 

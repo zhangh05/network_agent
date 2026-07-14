@@ -730,6 +730,7 @@ export function TaskWorkbench() {
         tool_decision?: AgentResult["tool_decision"];
         no_tool_reason?: string;
       } = {};
+      let terminalFrameReceived = false;
 
       await new Promise<void>((resolve) => {
         // P2 fix: per-token setState is replaced with a 50ms flush so
@@ -830,6 +831,7 @@ export function TaskWorkbench() {
                 // the final text is computed.
                 flushTokenBuffer();
                 clearInterval(flushTimer);
+                terminalFrameReceived = true;
                 resolvedSid = msg.session_id || currentSessionId;
                 streamedText = finalizeStreamText(streamState.draft, msg.final_response || "");
                 streamingResult.session_id = msg.session_id;
@@ -852,6 +854,7 @@ export function TaskWorkbench() {
                 break;
               case "error":
                 clearInterval(flushTimer);
+                terminalFrameReceived = true;
                 // P2 fix: flush whatever we had buffered, then keep
                 // the partial text visible to the user.
                 flushTokenBuffer();
@@ -899,6 +902,14 @@ export function TaskWorkbench() {
           resolve();
         };
       });
+
+      if (!terminalFrameReceived) {
+        const interruption = "实时连接已中断，未收到本轮完成消息。请重试。";
+        streamingResult.errors = [interruption];
+        if (!streamedText.trim()) streamedText = interruption;
+      } else if (streamingResult.errors?.length && !streamedText.trim()) {
+        streamedText = streamingResult.errors[0];
+      }
 
       try { ws.close(); } catch { /* already closed */ }
       ws = null;

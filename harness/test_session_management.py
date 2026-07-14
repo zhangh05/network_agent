@@ -194,6 +194,13 @@ class TestSessionMessages:
         assert msgs[0]["role"] == "user"
         assert msgs[1]["role"] == "assistant"
 
+    def test_repeated_session_updates_replace_existing_record(self):
+        s = create_session(TEST_WS, "First")
+        update_session(s["session_id"], TEST_WS, title="Second")
+        update_session(s["session_id"], TEST_WS, title="Third")
+
+        assert get_session(s["session_id"], TEST_WS)["title"] == "Third"
+
     def test_get_session_messages_falls_back_to_linked_run_records(self):
         s = create_session(TEST_WS, "Run-backed Messages")
         state = NetworkAgentState(

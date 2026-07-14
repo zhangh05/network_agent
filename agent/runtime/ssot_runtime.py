@@ -687,6 +687,11 @@ def _is_bogus_final(text: str) -> bool:
 def _final_response(runtime_result) -> str:
     text = str(getattr(runtime_result, "final_response", "") or "").strip()
 
+    if text:
+        from agent.llm.runtime import sanitize_provider_output
+        text, _ = sanitize_provider_output(text)
+        text = text.strip()
+
     # v3.16: if the final response is a known placeholder but we
     # have actual tool results, return empty string — let the caller
     # do a runtime-aware retry instead of surfacing a useless stub.

@@ -20,7 +20,7 @@ export function agentResultFromWsDone(
   streamedText: string,
   fallbackSessionId: string,
 ): AgentResult {
-  const finalText = streamedText || payload.final_response || "(empty response)";
+  const finalText = streamedText || payload.final_response || "未收到可显示的模型回复，请重试。";
   return {
     ok: !(payload.errors?.length),
     final_response: sanitizeAssistantText(finalText),

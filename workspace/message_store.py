@@ -1,8 +1,8 @@
 """SessionMessageStore — canonical persisted chat messages for a session.
 
 This store writes complete user/assistant messages:
-  - `workspaces/<ws>/sessions/<sid>/messages/<run_id>:user.json`
-  - `workspaces/<ws>/sessions/<sid>/messages/<run_id>:assistant.json`
+  - `workspaces/<ws>/sessions/<sid>/messages/<run_id>.user.json`
+  - `workspaces/<ws>/sessions/<sid>/messages/<run_id>.assistant.json`
   - Content is redaction-safe (no keys, no full configs).
   - Content > ARTIFACT_THRESHOLD (50 KB) is written as an artifact
     instead, and the message carries an `artifact_ref`.
@@ -75,7 +75,10 @@ class SessionMessageStore:
     def _msg_path(self, run_id: str, role: str) -> Path:
         """File path for a single full message."""
         rid = _safe_rid(run_id)
-        return self._messages_dir() / f"{rid}:{role}.json"
+        # ':' is part of the logical message_id contract but is forbidden in
+        # Windows filenames. Keep storage naming platform-neutral and rebuild
+        # the logical id from the record when reading.
+        return self._messages_dir() / f"{rid}.{role}.json"
 
     # ── Write ──
 
@@ -185,7 +188,8 @@ class SessionMessageStore:
                 if role not in ("user", "assistant"):
                     continue
 
-                msg_id = f.stem  # e.g. "run_001:user"
+                record_run_id = str(record.get("run_id", ""))
+                msg_id = f"{record_run_id}:{role}"
 
                 m: Dict[str, Any] = {
                     "message_id": msg_id,
@@ -193,7 +197,7 @@ class SessionMessageStore:
                     "role": role,
                     "content": _message_content(role, record.get("content", "")),
                     "created_at": record.get("metadata", {}).get("created_at", ""),
-                    "run_id": record.get("run_id", ""),
+                    "run_id": record_run_id,
                 }
 
                 # Carry artifact_ref if present (large content)
@@ -218,6 +222,8 @@ class SessionMessageStore:
 
                 msgs.append(m)
             except Exception:
+                import logging
+                logging.getLogger(__name__).warning("Cannot read message record %s", f, exc_info=True)
                 continue
 
         msgs.sort(key=_message_sort_key)

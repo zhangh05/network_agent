@@ -3,12 +3,12 @@
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from types import SimpleNamespace
 
 from agent.runtime.utils import now_iso
 from workspace.run_store import write_run_record
 from workspace.message_store import SessionMessageStore
+from workspace.atomic_io import atomic_write_json
 
 
 _log = logging.getLogger(__name__)
@@ -150,9 +150,7 @@ def persist_trace(run_id: str, ws_id: str, events: list) -> None:
         "total_duration_ms": 0,
         "persisted_at": now_iso(),
     }
-    tmp = trace_path.with_suffix(".trace.tmp")
-    tmp.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.rename(trace_path)
+    atomic_write_json(trace_path, record)
 
 
 def _synthetic_trace_events(run_id: str, result) -> list:
@@ -240,11 +238,7 @@ def _merge_result_projection(run_id: str, ws_id: str, result, context) -> None:
         # Only flip to "ok" if the record wasn't explicitly marked planned.
         record["status"] = "ok"
     try:
-        # Atomic write: tmp → rename to avoid corruption on crash
-        import tempfile
-        tmp_path = run_path.with_suffix(".tmp")
-        tmp_path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
-        tmp_path.rename(run_path)
+        atomic_write_json(run_path, record)
     except Exception:
         _log.warning("Cannot write result projection %s", run_path, exc_info=True)
 

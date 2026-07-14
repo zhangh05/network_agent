@@ -13,7 +13,6 @@ from agent.llm.client import LLMClient
 from agent.llm.settings import (
     load_llm_settings, save_llm_settings, delete_llm_settings,
     sanitize_llm_settings, validate_llm_settings,
-    resolve_effective_llm_config,
     get_llm_setting_path,
 )
 from agent.llm.provider_store import (
@@ -21,7 +20,6 @@ from agent.llm.provider_store import (
     get_active_provider, set_active_provider, delete_provider_config,
     PROVIDER_PRESETS,
 )
-from agent.state import NetworkAgentState
 
 
 def handle_llm_status():
@@ -93,66 +91,41 @@ def handle_llm_config_delete():
 
 
 def handle_llm_test():
-    """Test LLM connectivity — uses UI settings as highest priority.
+    """Test one provider's real chat-completions transport.
     
-    Accepts optional config overrides for testing draft values before saving:
-      { task, message, base_url, model, api_key }
+    Accepts config overrides for testing draft values before saving:
+      { message, base_url, model, api_key, provider }
     """
     data = request.get_json(silent=True) or {}
-    task = data.get("task", "result_summarize")
     message = data.get("message", "")
 
-    if task not in ("result_summarize", "context_qa", "response_compose"):
-        return jsonify({"ok": False, "error": f"disallowed test task: {task}"}), 400
-
-    # Use unified effective config for test
-    cfg = resolve_effective_llm_config()
-    if not cfg.get("enabled"):
-        return jsonify({
-            "ok": False,
-            "llm_used": False,
-            "config_source": cfg.get("config_source", "default"),
-            "enabled_by_ui": cfg.get("enabled_by_ui"),
-            "provider": "disabled",
-            "model": "",
-            "fallback_reason": "disabled",
-            "message": "LLM is disabled. Enable it via System Settings.",
-        })
-
-    state = NetworkAgentState(
-        intent="translate_config",
-        tool_results={
-            "ok": True, "deployable_config": "test",
-            "manual_review": [], "unsupported": [], "audit": {},
-        },
-    )
     overrides = {}
     for k in ("base_url", "model", "api_key", "provider"):
         if data.get(k):
             overrides[k] = data[k]
     client = LLMClient(overrides=overrides if overrides else None)
-    output = client.generate(task, state, user_question=message)
+    output = client.probe(message or "Reply with OK.")
     try:
         from agent.llm.config import record_recent_failure, record_recent_success
-        if output.llm_used:
+        if output["ok"]:
             record_recent_success()
-        elif output.fallback_reason:
-            record_recent_failure(output.fallback_reason, "provider_error")
+        elif output["error"]:
+            record_recent_failure(output["error"], "provider_error")
     except Exception:
-        pass
+        logging.getLogger(__name__).warning("Cannot persist LLM probe status", exc_info=True)
 
     return jsonify({
-        "ok": output.llm_used,
-        "provider": client.provider_info().get("provider"),
-        "model": client.provider_info().get("model"),
-        "llm_used": output.llm_used,
-        "config_source": cfg.get("config_source", "default"),
-        "policy_pass": output.policy_decision.allowed if output.policy_decision else True,
-        "response": output.answer,
-        "safe_to_show": output.safe_to_show,
-        "fallback_reason": output.fallback_reason,
-        "warnings": output.warnings,
-        "metadata": output.metadata if hasattr(output, "metadata") else {},
+        "ok": output["ok"],
+        "provider": output["provider"],
+        "model": output["model"],
+        "llm_used": output["ok"],
+        "config_source": client.provider_info().get("config_source", "ui_settings"),
+        "policy_pass": True,
+        "response": output["response"],
+        "safe_to_show": True,
+        "fallback_reason": output["error"],
+        "warnings": [],
+        "metadata": output["metadata"],
     })
 
 

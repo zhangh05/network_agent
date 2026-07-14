@@ -175,6 +175,33 @@ class TestAPI:
         # key_preview contains **** so it's safe
         assert "****" in str(d.get("key_preview", ""))
 
+
+def test_llm_probe_uses_streaming_provider_transport(monkeypatch):
+    from agent.llm.client import LLMClient
+    from agent.llm.schemas import LLMResponse
+
+    captured = {}
+
+    def fake_generate(request, config):
+        captured["request"] = request
+        captured["config"] = config
+        return LLMResponse(content="OK", provider="custom", model="probe-model")
+
+    monkeypatch.setattr("agent.llm.provider.generate", fake_generate)
+    client = LLMClient(overrides={
+        "provider": "custom",
+        "base_url": "https://example.test/v1",
+        "model": "probe-model",
+        "api_key": "secret",
+    })
+    result = client.probe()
+
+    assert result["ok"] is True
+    assert result["response"] == "OK"
+    assert captured["request"].stream is True
+    assert captured["request"].metadata["stream_scope"] == "probe"
+    assert captured["config"]["max_tokens"] == 16
+
 # ═══ Boundary ═══
 class TestBoundary:
     def test_module_no_llm(self):

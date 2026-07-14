@@ -1,13 +1,13 @@
 """Run store — write sanitized run records to workspace."""
 
 import json
-import os
 import time
 from pathlib import Path
 from typing import Optional
 
 from agent.runtime.utils import now_iso, from_iso
 from workspace.redaction import redact_text
+from workspace.atomic_io import atomic_write_json
 
 ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
@@ -102,18 +102,8 @@ def write_run_record(state, ws_id: str = "default") -> str:
         "redaction_applied": True,
     }
 
-    # ── Atomic write (P1-18): UUID tmp + fsync before rename ──
-    import uuid as _uuid
-    from pathlib import Path
     record_path = run_dir / f"{run_id}.json"
-    tmp_path = record_path.with_name(f"{run_id}.{_uuid.uuid4().hex[:8]}.tmp")
-    tmp_path.write_text(
-        json.dumps(record, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    with tmp_path.open("r+") as _f:
-        os.fsync(_f.fileno())
-    tmp_path.rename(record_path)
+    atomic_write_json(record_path, record)
 
     # Associate run with session if session_id is present
     if state.session_id:
@@ -376,12 +366,5 @@ def write_sub_agent_run(
     import uuid as _uuid
     write_id = child_run_id or f"{parent_run_id}.sub.{_uuid.uuid4().hex[:8]}"
     record_path = run_dir / f"{write_id}.json"
-    tmp_path = record_path.with_name(f"{write_id}.{_uuid.uuid4().hex[:8]}.tmp")
-    tmp_path.write_text(
-        json.dumps(record, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    with tmp_path.open("r+") as _f:
-        os.fsync(_f.fileno())
-    tmp_path.rename(record_path)
+    atomic_write_json(record_path, record)
     return write_id

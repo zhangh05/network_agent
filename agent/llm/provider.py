@@ -7,7 +7,7 @@ Only masks real tokens/Authorization/Bearer values.
 
 import json, logging, os, time, urllib.request, urllib.error
 from typing import Optional
-from agent.llm.schemas import LLMRequest, LLMResponse, LLMToolCall
+from agent.llm.schemas import LLMMessage, LLMRequest, LLMResponse, LLMToolCall
 from agent.llm.key_resolver import mask_secret
 
 _LOG = logging.getLogger(__name__)
@@ -130,46 +130,32 @@ def health(cfg: dict = None) -> dict:
                     result["last_error_type"] = ERROR_TYPE_PROVIDER_NETWORK_ERROR
 
     def _check_chat():
-        try:
-            url = base + "/chat/completions"
-            body_dict = {
-                "model": cfg.get("model", ""),
-                "messages": [{"role": "user", "content": "ping"}],
-                "max_tokens": 1,
-            }
-            body = json.dumps(body_dict).encode()
-            r = urllib.request.Request(
-                url, data=body,
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": "Bearer " + api_key,
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(r, timeout=15) as resp:
-                chat_ok = 200 <= resp.status < 400
-                result["chat_completion_ok"] = chat_ok
-                result["chat_completion_endpoint_reachable"] = True
-                result["connected"] = chat_ok
-                if chat_ok:
-                    result["http_status"] = resp.status
-                    result["last_error"] = None
-                    result["last_error_type"] = None
-        except urllib.error.HTTPError as e:
-            result["chat_completion_endpoint_reachable"] = True
-            chat_ok = 200 <= e.code < 300
-            result["chat_completion_ok"] = chat_ok
-            result["connected"] = chat_ok
-            with _health_lock:
-                if not result["last_error"]:
-                    result["last_error"] = _redact_error_detail(str(e))
-                    result["last_error_type"] = f"provider_http_{e.code}"
-                    result["http_status"] = e.code
-        except Exception as e:
-            with _health_lock:
-                if not result["last_error"]:
-                    result["last_error"] = _redact_error_detail(str(e))
-                    result["last_error_type"] = ERROR_TYPE_PROVIDER_NETWORK_ERROR
+        probe_cfg = {**cfg, "temperature": 0.0, "max_tokens": 16}
+        probe = generate(LLMRequest(
+            task="connection_probe",
+            messages=[LLMMessage(role="user", content="Reply with OK.")],
+            model=probe_cfg.get("model", ""),
+            temperature=0.0,
+            max_tokens=16,
+            stream=True,
+            metadata={"stream_to_user": False, "stream_scope": "health"},
+        ), probe_cfg)
+        chat_ok = not bool(probe.error)
+        result["chat_completion_ok"] = chat_ok
+        result["chat_completion_endpoint_reachable"] = chat_ok or bool(
+            (probe.metadata or {}).get("http_status")
+        )
+        result["connected"] = chat_ok
+        with _health_lock:
+            if chat_ok:
+                result["http_status"] = 200
+                result["last_error"] = None
+                result["last_error_type"] = None
+            else:
+                metadata = probe.metadata or {}
+                result["last_error"] = _redact_error_detail(probe.error or "provider probe failed")
+                result["last_error_type"] = metadata.get("error_type", ERROR_TYPE_PROVIDER_NETWORK_ERROR)
+                result["http_status"] = metadata.get("http_status")
 
     # Run all three checks in parallel
     threads = [
@@ -181,6 +167,15 @@ def health(cfg: dict = None) -> dict:
         t.start()
     for t in threads:
         t.join(timeout=20)
+
+    # Chat completions is the only authoritative usability signal. Providers
+    # may intentionally omit HEAD or /models; those advisory checks must not
+    # leave a stale error after the same transport used by real turns worked.
+    if result["chat_completion_ok"]:
+        result["connected"] = True
+        result["last_error"] = None
+        result["last_error_type"] = None
+        result["http_status"] = 200
 
     return result
 

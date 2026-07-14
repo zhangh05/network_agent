@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from workspace.ids import validate_session_id, validate_workspace_id
 from workspace.manager import ensure_workspace
+from workspace.atomic_io import atomic_write_json
 
 ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
@@ -497,14 +498,10 @@ def auto_title_from_input(session_id: str, user_input: str, ws_id: str = "defaul
 # ─── Internal helpers ───
 
 
-# NOTE: fixed .tmp filename (message_store uses UUID) — P2-13
 def _write_session(session: Dict[str, Any], ws_id: str):
     """Persist session to disk atomically to prevent corruption on concurrent writes."""
-    _session_dir(ws_id).mkdir(parents=True, exist_ok=True)
     path = _session_path(session["session_id"], ws_id)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(session, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.rename(path)  # atomic on POSIX
+    atomic_write_json(path, session)
 
 
 # ─── Cleanup helpers ───

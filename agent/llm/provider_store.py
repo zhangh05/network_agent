@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from agent.runtime.utils import now_iso
+from workspace.atomic_io import atomic_write_json, atomic_write_text
 ROOT = Path(__file__).resolve().parent.parent.parent
 PROVIDERS_DIR = ROOT / "config" / "providers"
 ACTIVE_FILE = PROVIDERS_DIR / "_active"
@@ -112,19 +113,16 @@ def _build_provider_config(provider_id: str, data: Optional[dict] = None) -> dic
 def _write_json(path: Path, data: dict):
     _ensure_dir()
     data["updated_at"] = now_iso()
-    # Atomic write: tmp + rename to prevent corruption on crash.
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    atomic_write_json(path, data)
     try:
-        os.chmod(str(tmp), stat.S_IRUSR | stat.S_IWUSR)
+        os.chmod(str(path), stat.S_IRUSR | stat.S_IWUSR)
     except Exception:
         pass
-    tmp.replace(path)
 
 
 def _write_active(provider_id: str):
     _ensure_dir()
-    ACTIVE_FILE.write_text(provider_id)
+    atomic_write_text(ACTIVE_FILE, provider_id)
 
 
 def _sanitize(data: dict) -> dict:
