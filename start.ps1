@@ -36,16 +36,18 @@ function Invoke-Native([string]$File, [string[]]$Arguments = @(), [switch]$Quiet
     # first "Traceback" line.
     $previousPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
+    $output = [System.Collections.Generic.List[string]]::new()
     try {
-        $output = @(& $File @Arguments 2>&1)
+        & $File @Arguments 2>&1 | ForEach-Object {
+            $line = [string]$_
+            $output.Add($line)
+            if (-not $Quiet) { Write-Host $line }
+        }
         $exitCode = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $previousPreference
     }
-    if (-not $Quiet) {
-        foreach ($line in $output) { Write-Host ([string]$line) }
-    }
-    return @{ ExitCode = $exitCode; Output = @($output | ForEach-Object { [string]$_ }) }
+    return @{ ExitCode = $exitCode; Output = @($output) }
 }
 
 function Fail-Native([string]$Message, [hashtable]$Result) {
@@ -172,7 +174,14 @@ function Ensure-PythonDependencies([string]$Python) {
     $probe = Invoke-Native $Python @("-c", "import flask, flask_sock, yaml, bs4, lxml, pdfplumber, scapy, paramiko") -Quiet
     if ($probe.ExitCode -ne 0 -or $hash -ne $installedHash) {
         Write-Step "Installing Python dependencies..."
-        $install = Invoke-Native $Python @("-m", "pip", "install", "--disable-pip-version-check", "-r", $requirements)
+        $wheelhouse = Join-Path $Root "wheelhouse"
+        $pipArguments = @("-m", "pip", "install", "--disable-pip-version-check")
+        if (Test-Path $wheelhouse) {
+            Write-Step "Using bundled Windows dependency cache."
+            $pipArguments += @("--no-index", "--find-links", $wheelhouse)
+        }
+        $pipArguments += @("-r", $requirements)
+        $install = Invoke-Native $Python $pipArguments
         if ($install.ExitCode -ne 0) { Fail-Native "Python dependency installation failed" $install }
         Set-Content -Path $stamp -Value $hash -Encoding ascii
     }
@@ -195,11 +204,17 @@ function Ensure-Frontend {
     $installedHash = if (Test-Path $npmStamp) { (Get-Content $npmStamp -Raw).Trim() } else { "" }
     $viteScript = Join-Path $FrontendDir "node_modules\vite\bin\vite.js"
     if (-not $SkipInstall -and $env:INSTALL_DEPS -notin @("0", "false")) {
-        if (-not (Test-Path $viteScript) -or $lockHash -ne $installedHash) {
+        $needsInstall = -not (Test-Path $viteScript) -or ($installedHash -and $lockHash -ne $installedHash)
+        if ($needsInstall) {
             Write-Step "Installing frontend dependencies with npm ci..."
             Push-Location $FrontendDir
             try { $npmInstall = Invoke-Native $npm.Source @("ci") } finally { Pop-Location }
             if ($npmInstall.ExitCode -ne 0) { Fail-Native "Frontend dependency installation failed" $npmInstall }
+            Set-Content -Path $npmStamp -Value $lockHash -Encoding ascii
+        } elseif (-not $installedHash) {
+            # A release archive contains Windows node_modules but deliberately
+            # excludes runtime stamps. Adopt the bundled lock state without an
+            # unnecessary online npm install.
             Set-Content -Path $npmStamp -Value $lockHash -Encoding ascii
         }
     }

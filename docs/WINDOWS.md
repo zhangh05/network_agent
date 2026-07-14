@@ -6,7 +6,7 @@
 2. 将压缩包完整解压到普通目录，例如 `D:\Apps\network-agent`。不要直接在压缩包预览窗口中运行，也不要放到需要管理员权限的系统目录。
 3. 安装 64 位 Python 3.12+，安装时启用 Python Launcher。
 4. 安装 Node.js 18+ LTS。
-5. 双击 `start.bat`。这是 Windows 唯一需要操作的启动入口；首次启动会创建 `.venv` 并安装依赖，耗时取决于网络，后续启动只在依赖锁文件变化时更新。内部 PowerShell 脚本由 BAT 自动调用，不需要手工打开。
+5. 双击 `start.bat`。这是 Windows 唯一需要操作的启动入口；首次启动会创建 `.venv`，并从 Release 内置缓存安装 Python 和前端依赖，安装进度会实时显示。后续启动只在依赖锁文件变化时更新。内部 PowerShell 脚本由 BAT 自动调用，不需要手工打开。
 
 启动成功后统一访问 `http://127.0.0.1:5173`。`8010` 仅提供后端 API，不是第二套前端，也不会保存另一份数据。
 
@@ -38,7 +38,7 @@ npm --version
 
 ### 首次安装失败
 
-确认网络可以访问 PyPI 和 npm。关闭 Network Agent 后删除 `.venv`、`.runtime` 和 `frontend\node_modules`，再双击 `start.bat`，即可重新建立依赖环境。不要删除 `workspaces`，其中保存本地工作区数据。
+官方 Windows Release 内置依赖缓存，正常情况下不需要访问 PyPI 或 npm。关闭 Network Agent 后删除 `.venv` 和 `.runtime`，再双击 `start.bat`，即可重新建立 Python 环境。只有使用 GitHub 自动生成的源码包时才需要在线安装前端依赖。不要删除 `workspaces`，其中保存本地工作区数据。
 
 ### 局域网设备无法访问
 

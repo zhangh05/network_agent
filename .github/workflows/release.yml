@@ -32,6 +32,11 @@ jobs:
           npm --prefix frontend ci
           npm --prefix frontend run build
 
+      - name: Build offline Python dependency cache
+        shell: pwsh
+        run: |
+          python -m pip download --only-binary=:all: --dest wheelhouse -r requirements.txt
+
       - name: Validate Windows launch scripts
         shell: pwsh
         run: |
@@ -54,7 +59,7 @@ jobs:
         run: |
           $stage = Join-Path $PWD "release/network-agent"
           New-Item -ItemType Directory -Force $stage | Out-Null
-          robocopy $PWD $stage /E /XD .git .github .venv .runtime node_modules logs data workspaces reports release frontend\node_modules frontend\test-results frontend\playwright-report /XF .backend.pid .frontend.pid *.log | Out-Null
+          robocopy $PWD $stage /E /XD .git .github .venv .runtime node_modules logs data workspaces reports release frontend\test-results frontend\playwright-report /XF .backend.pid .frontend.pid *.log | Out-Null
           $robocopyExitCode = $LASTEXITCODE
           if ($robocopyExitCode -ge 8) { exit $robocopyExitCode }
           # Robocopy uses 1-7 for successful copy states. Reset the native exit

@@ -108,3 +108,5 @@ def test_windows_launchers_delegate_to_single_powershell_implementation():
     assert "ValidateOnly" in start_ps1
     assert "--without-pip" in start_ps1
     assert "startup-error.log" in start_ps1
+    assert "Using bundled Windows dependency cache" in start_ps1
+    assert "ForEach-Object" in start_ps1
