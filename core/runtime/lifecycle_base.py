@@ -70,11 +70,13 @@ def get_active_refs(ws_dir: Path) -> set:
     # From recent runs
     runs_dir = ws_dir / "runs"
     if runs_dir.is_dir():
+        from workspace.run_store import is_run_record_file
+
         for rf in list(runs_dir.iterdir())[:100]:
-            if rf.suffix != ".json":
+            if not is_run_record_file(rf):
                 continue
             try:
-                record = json.loads(rf.read_text())
+                record = json.loads(rf.read_text(encoding="utf-8-sig"))
                 art_refs = record.get("artifact_refs", [])
                 if isinstance(art_refs, list):
                     for ref in art_refs:

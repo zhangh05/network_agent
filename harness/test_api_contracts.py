@@ -251,17 +251,19 @@ class TestArtifactApiContract:
 class TestRunSidecarFiltering:
     def test_run_store_excludes_trace_sidecars(self):
         from pathlib import Path
-        from workspace.run_store import _is_run_record_file
+        from workspace.run_store import is_run_record_file
 
-        assert _is_run_record_file(Path("run_1.json"))
-        assert not _is_run_record_file(Path("run_1.trace.json"))
+        assert is_run_record_file(Path("run_1.json"))
+        assert not is_run_record_file(Path("run_1.trace.json"))
+        assert not is_run_record_file(Path("run_1.decision.json"))
+        assert not is_run_record_file(Path("run_1.artifacts.json"))
 
     def test_workspace_manager_excludes_trace_sidecars(self):
         from pathlib import Path
-        from workspace.manager import _is_run_record_file
+        from workspace.manager import is_run_record_file
 
-        assert _is_run_record_file(Path("run_1.json"))
-        assert not _is_run_record_file(Path("run_1.trace.json"))
+        assert is_run_record_file(Path("run_1.json"))
+        assert not is_run_record_file(Path("run_1.trace.json"))
 
 
 class TestPcapApiContract:

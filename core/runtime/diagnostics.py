@@ -67,7 +67,12 @@ def get_diagnostics(workspace_id: str = "default") -> DiagnosticReport:
     runs_dir = ws_dir / "runs"
     if runs_dir.is_dir():
         try:
-            count = len(list(runs_dir.iterdir()))
+            from workspace.run_store import is_run_record_file
+
+            count = sum(
+                1 for path in runs_dir.iterdir()
+                if path.is_file() and is_run_record_file(path)
+            )
             components.append(ComponentStatus("runs", "ok", f"{count} run records",
                 {"count": count}))
         except Exception:

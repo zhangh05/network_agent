@@ -9,6 +9,7 @@ from pathlib import Path
 from agent.runtime.utils import now_iso
 from workspace.ids import validate_workspace_id, is_valid_workspace_id
 from workspace.atomic_io import atomic_write_text, atomic_write_json, safe_read_json
+from workspace.run_store import is_run_record_file
 
 ROOT = Path(__file__).resolve().parent.parent
 WS_ROOT = ROOT / "workspaces"
@@ -240,10 +241,10 @@ def get_workspace_runs(ws_id: str = "default") -> list:
     runs = []
     if runs_dir.is_dir():
         for f in sorted(runs_dir.glob("*.json"), reverse=True):
-            if not _is_run_record_file(f):
+            if not is_run_record_file(f):
                 continue
             try:
-                runs.append(json.loads(f.read_text(encoding="utf-8")))
+                runs.append(json.loads(f.read_text(encoding="utf-8-sig")))
             except Exception:
                 _LOG.debug("corrupt run file: %s", f, exc_info=True)
     return runs
@@ -268,18 +269,8 @@ def _count_runs(ws_id: str) -> int:
     ws_id = validate_workspace_id(ws_id)
     runs_dir = WS_ROOT / ws_id / "runs"
     if runs_dir.is_dir():
-        return len([p for p in runs_dir.glob("*.json") if _is_run_record_file(p)])
+        return len([p for p in runs_dir.glob("*.json") if is_run_record_file(p)])
     return 0
-
-
-def _is_run_record_file(path: Path) -> bool:
-    name = path.name
-    if not name.endswith(".json"):
-        return False
-    return not (
-        name.endswith(".trace.json")
-    )
-
 
 def _count_sessions(ws_id: str) -> int:
     """Count active session records when session storage exists."""

@@ -1,5 +1,6 @@
 """Runtime Selfcheck Tests — v0.1"""
 import pytest
+import json
 from core.runtime.selfcheck import run_selfcheck, SelfcheckStatus
 from workspace.manager import ensure_workspace
 
@@ -10,6 +11,48 @@ def _default_workspace_exists():
 
 
 class TestSelfcheck:
+    def test_utf8_run_and_trace_are_checked_with_separate_contracts(self, tmp_path, monkeypatch):
+        from core.runtime import selfcheck
+
+        ws_root = tmp_path / "workspaces"
+        ws_dir = ws_root / "utf8"
+        (ws_dir / "runs").mkdir(parents=True)
+        (ws_dir / "sys").mkdir()
+        (ws_dir / "sys" / "state.json").write_text("{}", encoding="utf-8")
+        (ws_dir / "runs" / "run-1.json").write_text(
+            json.dumps({"run_id": "run-1", "final_response": "你好"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (ws_dir / "runs" / "run-1.trace.json").write_text(
+            json.dumps({"run_id": "run-1", "events": [{"name": "最终回复"}]}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (ws_dir / "runs" / "run-1.decision.json").write_text("not run json", encoding="utf-8")
+        (ws_dir / "runs" / "run-1.artifacts.json").write_text("not run json", encoding="utf-8")
+        monkeypatch.setattr(selfcheck, "WS_ROOT", ws_root)
+
+        result = selfcheck.run_selfcheck("utf8")
+
+        assert result.checks["runs_count"] == 1
+        assert result.checks["run_traces_count"] == 1
+        assert not [issue for issue in result.issues if issue.code in {"RUN_JSON_INVALID", "TRACE_JSON_INVALID"}]
+
+    def test_invalid_run_and_trace_have_distinct_issues(self, tmp_path, monkeypatch):
+        from core.runtime import selfcheck
+
+        ws_root = tmp_path / "workspaces"
+        runs_dir = ws_root / "invalid" / "runs"
+        runs_dir.mkdir(parents=True)
+        (runs_dir / "run-1.json").write_text("{", encoding="utf-8")
+        (runs_dir / "run-1.trace.json").write_text("{", encoding="utf-8")
+        monkeypatch.setattr(selfcheck, "WS_ROOT", ws_root)
+
+        result = selfcheck.run_selfcheck("invalid")
+        codes = [issue.code for issue in result.issues]
+
+        assert codes.count("RUN_JSON_INVALID") == 1
+        assert codes.count("TRACE_JSON_INVALID") == 1
+
     def test_selfcheck_healthy_default(self):
         """Selfcheck on default workspace should complete."""
         result = run_selfcheck("default")

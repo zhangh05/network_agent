@@ -56,8 +56,9 @@ class SelfcheckResult:
 
 def _safe_read_json(path: Path) -> Optional[dict]:
     try:
-        return json.loads(path.read_text())
-    except Exception:
+        record = json.loads(path.read_text(encoding="utf-8-sig"))
+        return record if isinstance(record, dict) else None
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
 
 
@@ -66,6 +67,13 @@ def _safe_list_dir(path: Path) -> list:
         return [p for p in path.iterdir() if not p.name.startswith(".")]
     except Exception:
         return []
+
+
+def _safe_mtime(path: Path) -> float:
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def run_selfcheck(workspace_id: str = "default") -> SelfcheckResult:
@@ -102,7 +110,19 @@ def run_checks(result: SelfcheckResult, ws_id: str):
 
     # 3. Runs directory
     runs_dir = ws_dir / "runs"
-    run_files = _safe_list_dir(runs_dir) if runs_dir.is_dir() else []
+    from workspace.run_store import is_run_record_file
+
+    all_run_files = _safe_list_dir(runs_dir) if runs_dir.is_dir() else []
+    run_files = sorted(
+        (path for path in all_run_files if path.is_file() and is_run_record_file(path)),
+        key=_safe_mtime,
+        reverse=True,
+    )
+    trace_files = sorted(
+        (path for path in all_run_files if path.is_file() and path.name.endswith(".trace.json")),
+        key=_safe_mtime,
+        reverse=True,
+    )
     result.checks["runs_count"] = len(run_files)
     for rf in run_files[:20]:  # Check first 20
         record = _safe_read_json(rf)
@@ -110,6 +130,12 @@ def run_checks(result: SelfcheckResult, ws_id: str):
             result.issues.append(SelfcheckIssue("warning", "RUN_JSON_INVALID",
                 f"Run record not parseable: {rf.name}", rf.name[:12],
                 "Remove or repair the run record"))
+    result.checks["run_traces_count"] = len(trace_files)
+    for tf in trace_files[:20]:
+        if _safe_read_json(tf) is None:
+            result.issues.append(SelfcheckIssue("warning", "TRACE_JSON_INVALID",
+                f"Run trace not parseable: {tf.name}", tf.name[:12],
+                "Remove or repair the run trace"))
 
     # 4. Artifacts directory
     art_dir = ws_dir / "files"
@@ -193,7 +219,7 @@ def run_checks(result: SelfcheckResult, ws_id: str):
 
     # 11. Forbidden API not restored
     try:
-        main_py = (ROOT / "backend" / "main.py").read_text()
+        main_py = (ROOT / "backend" / "main.py").read_text(encoding="utf-8")
         if "/api/translate" in main_py and "route(" in main_py:
             result.issues.append(SelfcheckIssue("critical", "FORBIDDEN_API",
                 "/api/translate found in backend", "",

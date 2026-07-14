@@ -252,29 +252,34 @@ def list_runs(ws_id: str = "default", limit: int = 50) -> list:
 
     runs = []
     for f in sorted(runs_dir.glob("*.json"), reverse=True):
-        if not _is_run_record_file(f):
+        if not is_run_record_file(f):
             continue
         try:
-            runs.append(_normalize_run_record(json.loads(f.read_text(encoding="utf-8"))))
+            runs.append(_normalize_run_record(json.loads(f.read_text(encoding="utf-8-sig"))))
         except Exception:
             pass
     runs.sort(key=run_sort_key, reverse=True)
     return runs[:limit]
 
 
-def _is_run_record_file(path: Path) -> bool:
+_RUN_SIDECAR_SUFFIXES = (
+    ".trace.json",
+    ".decision.json",
+    ".artifacts.json",
+)
+
+
+def is_run_record_file(path: Path) -> bool:
     """Return True only for canonical run records.
 
     The runs directory also stores sidecar JSON documents such as
-    ``*.trace.json``. Those must never be surfaced as
-    user-visible run rows.
+    ``*.trace.json``, ``*.decision.json``, and ``*.artifacts.json``. Those
+    must never be surfaced as user-visible run rows or counted as runs.
     """
     name = path.name
     if not name.endswith(".json"):
         return False
-    return not (
-        name.endswith(".trace.json")
-    )
+    return not name.endswith(_RUN_SIDECAR_SUFFIXES)
 
 
 def run_sort_key(record: dict) -> tuple:
