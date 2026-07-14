@@ -249,6 +249,17 @@ _PRIVATE_IP_PREFIXES = ("10.", "172.16.", "172.17.", "172.18.", "172.19.",
 # Re-export shared web handlers from the split implementation module.
 from core.tools.general_tools.shared_web import *
 
+def _shell_argv(command, shell: str = "/bin/bash", os_name: str | None = None):
+    """Build the native shell argv without invoking a process."""
+    import os as _os
+    if isinstance(command, list):
+        return command
+    if (os_name or _os.name) == "nt":
+        command_shell = _os.environ.get("COMSPEC") or "cmd.exe"
+        return [command_shell, "/d", "/s", "/c", command]
+    return [shell, "-c", command]
+
+
 def _run_shell(command: str, cwd: str = None, shell: str = "/bin/bash",
                env: dict = None, timeout: int = None) -> dict:
     """Execute a shell command with safety limits + process tree cleanup.
@@ -257,7 +268,7 @@ def _run_shell(command: str, cwd: str = None, shell: str = "/bin/bash",
     on Windows) so that on timeout ALL child processes are killed — not just
     the immediate parent.
     """
-    import subprocess, shlex, os as _os
+    import subprocess, os as _os
     if not command or not command.strip():
         return {"ok": False, "error": "empty command"}
 
@@ -284,6 +295,7 @@ def _run_shell(command: str, cwd: str = None, shell: str = "/bin/bash",
         "stdout": subprocess.PIPE,
         "stderr": subprocess.PIPE,
         "text": True,
+        "errors": "replace",
         "cwd": cwd or str(ROOT),
         "env": sub_env,
     }
@@ -296,22 +308,26 @@ def _run_shell(command: str, cwd: str = None, shell: str = "/bin/bash",
 
     proc = None
     try:
-        proc = subprocess.Popen(
-            command if isinstance(command, list) else [shell, "-c", command],
-            **popen_kwargs,
-        )
+        # The previous unconditional /bin/bash default made exec.run unusable
+        # on Windows; choose the native shell at this final execution boundary.
+        argv = _shell_argv(command, shell=shell, os_name=_os.name)
+        proc = subprocess.Popen(argv, **popen_kwargs)
         stdout, stderr = proc.communicate(timeout=actual_timeout)
 
         from core.tools.redaction import redact_tool_output
         stdout = redact_tool_output(stdout or "")[:_SHELL_MAX_OUTPUT]
         stderr = redact_tool_output(stderr or "")[:_SHELL_MAX_OUTPUT]
-        return {
-            "ok": True,
+        ok = proc.returncode == 0
+        result = {
+            "ok": ok,
             "exit_code": proc.returncode,
             "stdout": stdout,
             "stderr": stderr,
             "timeout_seconds": actual_timeout,
         }
+        if not ok:
+            result["error"] = stderr.strip() or f"Command exited with code {proc.returncode}"
+        return result
     except subprocess.TimeoutExpired:
         # ── Kill the entire process group, not just the parent ──
         from core.tools.general_tools.process_manager import kill_process_tree

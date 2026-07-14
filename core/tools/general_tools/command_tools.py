@@ -69,18 +69,17 @@ def _build_safe_env(allowlist: set[str] | None = None) -> dict:
 
 
 def _build_safe_shell_env() -> dict:
-    return _build_safe_env(_LINUX_SAFE_ENV_ALLOWLIST)
+    return _build_safe_env(
+        _PS_SAFE_ENV_ALLOWLIST if os.name == "nt" else _LINUX_SAFE_ENV_ALLOWLIST
+    )
 
 def handle_command_approved_exec(inv: ToolInvocation) -> dict:
-    """Shell command execution on Linux/macOS.
+    """Run a local shell command through the native platform shell.
 
-    Accepts a shell command string, executes via /bin/bash -c.
+    Linux/macOS use ``/bin/bash -c``; Windows uses ``cmd.exe /d /s /c``.
     Safety limits: dangerous command detection, configurable timeout, output truncation.
     Base risk is medium; destructive patterns escalate to high-risk approval.
     """
-    import platform
-    if platform.system() == "Windows":
-        return _unavailable(inv, "Shell execution only available on Linux/macOS. Use exec.run on Windows.")
     # Only accept `command`; alternate identifiers are never executed as shell.
     command = (inv.arguments.get("command") or "").strip()
     if not command:
@@ -104,8 +103,9 @@ def handle_command_approved_exec(inv: ToolInvocation) -> dict:
     # could replace the system PATH or inject malicious library paths.
     if isinstance(env_vars, dict):
         env_vars = {
-            k: v for k, v in env_vars.items()
-            if k not in _BLOCKED_ENV_KEYS
+            str(k): str(v) for k, v in env_vars.items()
+            if str(k).upper() not in _BLOCKED_ENV_KEYS
+            and not _is_sensitive_env_key(str(k))
         }
 
     result = _run_shell(command, cwd=cwd, env=env_vars, timeout=timeout)
@@ -142,13 +142,28 @@ def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
     if safety["blocked"]:
         return {"ok": False, "error": safety["reason"],
                 "warnings": safety["warnings"], "suspicious": safety["suspicious"]}
+    import shutil
     import subprocess
     try:
-        safe_env = _build_safe_env() if platform.system() == "Windows" else None
+        safe_env = _build_safe_env()
+        env_vars = inv.arguments.get("env_vars")
+        if isinstance(env_vars, dict):
+            safe_env.update({
+                str(key): str(value)
+                for key, value in env_vars.items()
+                if str(key).upper() not in _BLOCKED_ENV_KEYS
+                and not _is_sensitive_env_key(str(key))
+            })
+        timeout = max(1, min(int(inv.arguments.get("timeout", 120) or 120), 600))
+        cwd = str(inv.arguments.get("working_dir") or "").strip() or None
+        executable = shutil.which("powershell.exe") or shutil.which("pwsh.exe")
+        if not executable:
+            return _error_inv(inv, "PowerShell executable not found")
         result = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
-            capture_output=True, text=True, timeout=15,
+            [executable, "-NoProfile", "-NonInteractive", "-Command", command],
+            capture_output=True, text=True, errors="replace", timeout=timeout,
             env=safe_env,
+            cwd=cwd,
         )
         stdout = (result.stdout or "")[:_SHELL_MAX_OUTPUT]
         stderr = (result.stderr or "")[:_SHELL_MAX_OUTPUT]
@@ -161,9 +176,11 @@ def handle_powershell_approved_script(inv: ToolInvocation) -> dict:
             output["warnings"] = safety["warnings"]
         if safety["suspicious"]:
             output["suspicious"] = safety["suspicious"]
-        return _ok(inv, f"PowerShell command finished (exit={result.returncode}).", output)
+        if result.returncode != 0:
+            output["error"] = stderr.strip() or f"PowerShell exited with code {result.returncode}"
+        return _result(inv, result.returncode == 0, output)
     except subprocess.TimeoutExpired:
-        return _error_inv(inv, "command timed out after 15s")
+        return _error_inv(inv, f"command timed out after {timeout}s")
     except FileNotFoundError:
         return _error_inv(inv, "powershell not found")
     except Exception as e:

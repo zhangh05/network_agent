@@ -70,3 +70,31 @@ jobs:
               for e in errors[:20]:
                   print(e)
           " || true
+
+  windows-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate Windows scripts and shell routing
+        shell: pwsh
+        run: |
+          python -m pip install pytest
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "start.ps1"), [ref]$tokens, [ref]$errors
+          )
+          if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
+          $tokens = $null
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "stop.ps1"), [ref]$tokens, [ref]$errors
+          )
+          if ($errors.Count -gt 0) { $errors | Format-List; exit 1 }
+          python -m pytest harness/test_windows_runtime_contract.py -q
