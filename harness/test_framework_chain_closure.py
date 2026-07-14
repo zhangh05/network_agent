@@ -491,6 +491,48 @@ def test_prefetched_artifact_skips_planner_and_uses_one_llm_call():
     assert calls == {"llm": 1, "tool": 1}
 
 
+def test_response_only_metadata_disables_tools_without_hiding_task_facts():
+    from core.runtime_engine.budget_controller import BudgetController
+    from core.runtime_engine.models import SSOTRuntimeConfig, StatelessContext
+    from core.runtime_engine.query_loop import QueryLoop
+
+    calls = {"llm": 0}
+
+    def fake_llm(**kwargs):
+        calls["llm"] += 1
+        assert kwargs["tools"] == []
+        assert "没有产生原始采集制品" in kwargs["user"]
+        assert "[RESPONSE_ONLY]" in kwargs["user"]
+        return "巡检未形成可分析制品，请先处理设备连接与分页问题。"
+
+    class RuntimeStub:
+        def has_tool(self, _name):
+            return True
+
+    config = SSOTRuntimeConfig(max_query_loop_iterations=4)
+    loop = QueryLoop(
+        config=config,
+        tool_registry={"inspection.manage": {"description": "Inspection"}},
+        tool_runtime=RuntimeStub(),
+        llm_invoke=fake_llm,
+    )
+    ctx = StatelessContext(
+        "default", "session", "request",
+        "巡检结束，但没有产生原始采集制品。设备 CE1：paging_loop_limit_exceeded。",
+    )
+    ctx.extras.update({
+        "response_only": True,
+        "response_only_reason": "inspection_completed_without_artifacts",
+    })
+
+    result = asyncio.run(loop.run(ctx, BudgetController(config), metrics=None))
+
+    assert result.final_response.startswith("巡检未形成")
+    assert result.total_tool_calls == 0
+    assert result.llm_calls == 1
+    assert calls["llm"] == 1
+
+
 def test_memory_retrieval_only_returns_governed_active_records():
     from core.context.unified_retriever import UnifiedRetriever
 

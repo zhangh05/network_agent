@@ -1166,9 +1166,40 @@ def test_telnet_batch_advances_paging(monkeypatch):
     ))
 
     assert result["ok"] is True
-    assert b" " in session.sent
+    assert session.sent.count(b" ") == 1
     assert "line 2" in result["output"]
     assert "More" not in result["output"]
+
+
+def test_telnet_connect_only_opens_session_without_command(monkeypatch):
+    """Inspection can establish a session before explicit Enter script rows."""
+    from core.tools.canonical_registry import _handler_network_telnet
+    from core.tools.schemas import ToolInvocation
+    from agent.modules.remote import core as remote_core
+
+    connected = []
+    executed = []
+    monkeypatch.setattr(
+        remote_core,
+        "telnet_connect",
+        lambda sid, host, port, username, password, vendor, workspace_id="":
+            connected.append((sid, host, port, workspace_id)),
+    )
+    monkeypatch.setattr(remote_core, "exec_command", lambda *args, **kwargs: executed.append(args))
+
+    result = _handler_network_telnet(ToolInvocation(
+        arguments={
+            "host": "10.0.0.1", "port": 23, "connect_only": True,
+            "command": "",
+        },
+        workspace_id="ws_connect_only",
+    ))
+
+    assert result["ok"] is True
+    assert result["session_active"] is True
+    assert result["session_id"].startswith("telnet_")
+    assert connected and connected[0][1:] == ("10.0.0.1", 23, "ws_connect_only")
+    assert executed == []
 
 
 def test_inspection_enter_action_sends_newline_to_existing_session(monkeypatch):
@@ -1189,3 +1220,72 @@ def test_inspection_enter_action_sends_newline_to_existing_session(monkeypatch):
 
     assert result["ok"] is True
     assert sent == [("sid_enter", "\n")]
+
+
+def test_inspection_opens_session_before_preserving_enter_order(monkeypatch):
+    """Pre/post Enter rows run in authored order after a real session exists."""
+    from types import SimpleNamespace
+    from agent.modules.inspection import runner
+    from agent.modules.inspection.models import (
+        InspectionProfile, InspectionScope, InspectionTask, VendorCommandProfile,
+    )
+    from agent.modules.inspection.profiles import ENTER_ACTION
+
+    operations = []
+
+    def fake_exec(_ws, _asset, _protocol, command, timeout, session_id="", *, batch=False, connect_only=False):
+        operations.append(("exec", command, session_id, batch, connect_only))
+        if connect_only:
+            return {"ok": True, "output": "", "session_id": "sid-live"}
+        return {
+            "ok": True,
+            "output": "display version output" if batch else "<CE1>",
+            "session_id": session_id,
+        }
+
+    def fake_enter(_ws, session_id):
+        operations.append(("enter", session_id))
+        return {"ok": True, "output": "<CE1>", "session_id": session_id}
+
+    monkeypatch.setattr(runner, "_exec_one_command", fake_exec)
+    monkeypatch.setattr(runner, "_send_enter_action", fake_enter)
+    monkeypatch.setattr(runner, "_cancel_requested", lambda *_args: False)
+    monkeypatch.setattr(runner, "_register_task_session", lambda *_args: None)
+    monkeypatch.setattr(runner, "_forget_task_session", lambda *_args: None)
+    monkeypatch.setattr(runner, "_close_remote_session", lambda *_args: None)
+    monkeypatch.setattr(runner, "save_artifact", lambda **_kwargs: SimpleNamespace(artifact_id="art-raw"))
+    monkeypatch.setattr(
+        runner,
+        "load_command_profile",
+        lambda *_args, **_kwargs: VendorCommandProfile(
+            vendor="h3c",
+            commands=["display version"],
+            pre_commands=[ENTER_ACTION, "screen-length disable"],
+            post_commands=[ENTER_ACTION, "undo screen-length disable"],
+        ),
+    )
+
+    task = InspectionTask(
+        task_id="ins-order", workspace_id="ws-order",
+        scope=InspectionScope(asset_ids=("asset-1",)), profile_id="general",
+        profile_display_name="通用巡检",
+    )
+    profile = InspectionProfile(
+        profile_id="general", display_name="通用巡检",
+        description="", checks=(),
+    )
+    result = runner._run_checks_on_asset(task, profile, {
+        "asset_id": "asset-1", "name": "CE1", "host": "10.0.0.1",
+        "vendor": "h3c", "type": "switch", "protocol": "telnet",
+    }, "ws-order")
+
+    assert operations == [
+        ("exec", "", "", False, True),
+        ("enter", "sid-live"),
+        ("exec", "screen-length disable", "sid-live", False, False),
+        ("exec", "display version\n", "sid-live", True, False),
+        ("enter", "sid-live"),
+        ("exec", "undo screen-length disable", "sid-live", False, False),
+    ]
+    assert result.status == "succeeded"
+    assert any(cr.command == "batch" and cr.artifact_id == "art-raw" for cr in result.command_results)

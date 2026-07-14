@@ -18,6 +18,7 @@ describe("CMDB inspection launch", () => {
   beforeEach(() => {
     resetMocks();
     installMockApi();
+    localStorage.removeItem("workbench_inspection");
     useSessionStore.setState({
       currentWorkspaceId: "default",
       currentSessionId: "sess-cmdb",
@@ -217,5 +218,71 @@ describe("CMDB inspection launch", () => {
     await waitFor(() => {
       expect(localStorage.getItem("workbench_inspection")).toBeTruthy();
     });
+  });
+
+  it("notifies the LLM about zero artifacts without allowing another tool loop", async () => {
+    localStorage.setItem("workbench_inspection", JSON.stringify({
+      task_id: "insp-no-artifact",
+      metadata: {
+        intent: "cmdb_region_inspection",
+        source: "cmdb_region_button",
+        target: "CMDB 区域「华东」",
+        typeLabel: "通用巡检",
+      },
+    }));
+    enqueue("/sessions/sess-cmdb/messages", { status: 200, data: { ok: true, messages: [], count: 0 } });
+    enqueue("/inspection/tasks/insp-no-artifact", {
+      status: 200,
+      data: {
+        ok: true,
+        task: {
+          task_id: "insp-no-artifact",
+          status: "partial",
+          devices: {
+            "asset-1": {
+              asset_id: "asset-1",
+              asset_name: "CE1",
+              host: "192.168.5.8",
+              status: "partial",
+              errors: [],
+              command_results: [{
+                command: "batch", ok: false,
+                error: "paging_loop_limit_exceeded",
+              }],
+            },
+          },
+        },
+      },
+    });
+    enqueue("/agent/message", {
+      status: 200,
+      data: {
+        ok: true,
+        final_response: "本次巡检未形成原始制品，请先检查设备分页处理。",
+        events: [],
+        trace_id: "trace-no-artifact",
+        session_id: "sess-cmdb",
+        turn_id: "turn-no-artifact",
+        tool_calls: [],
+        warnings: [],
+        errors: [],
+        metadata: {},
+      },
+    });
+    enqueue("/sessions/sess-cmdb/messages", { status: 200, data: { ok: true, messages: [], count: 0 } });
+
+    render(<TaskWorkbench />);
+
+    await screen.findByText("本次巡检未形成原始制品，请先检查设备分页处理。", {}, { timeout: 3000 });
+    const request = getRequests().find((r) => r.url === "/agent/message");
+    expect(request?.data?.metadata).toMatchObject({
+      inspection_task_id: "insp-no-artifact",
+      inspection_status: "partial",
+      response_only: true,
+      response_only_reason: "inspection_completed_without_artifacts",
+      prefetch_artifact_ids: [],
+    });
+    expect(String(request?.data?.message || "")).toContain("paging_loop_limit_exceeded");
+    expect(getRequests().some((r) => (r.url || "").includes("/artifacts/"))).toBe(false);
   });
 });

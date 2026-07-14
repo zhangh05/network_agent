@@ -1108,6 +1108,15 @@ class QueryLoop:
                     "answer the original request now; do not call tools.",
                 )
 
+        if ctx.extras.get("response_only") and not self._is_response_only(messages):
+            reason = str(ctx.extras.get("response_only_reason") or "caller_requested")
+            messages = self._append_turn_nudge(
+                messages,
+                RESPONSE_ONLY_MARKER
+                + f" Response-only mode ({reason}). Use the facts already supplied, "
+                "do not call tools, and do not invent missing evidence.",
+            )
+
         while iterations < max_iterations:
             if self._is_cancelled(ctx):
                 # If tools already produced results, surface them as a
@@ -2405,13 +2414,17 @@ class QueryLoop:
                 task_id = output.get("task_id", "")
                 status = output.get("status", "")
                 summary = output.get("summary", {})
-                if isinstance(summary, dict):
+                report_content = str(output.get("content") or output.get("report") or "").strip()
+                if task_id or status:
                     lines.append(f"任务 `{task_id}` — {status}")
+                if isinstance(summary, dict) and summary:
                     lines.append(f"总计: {summary.get('total_devices','?')} 台, "
                                  f"成功: {summary.get('succeeded_devices','?')}, "
                                  f"失败: {summary.get('failed_devices','?')}")
-                else:
-                    lines.append(f"任务 `{task_id}` — {status}")
+                elif report_content:
+                    lines.append(report_content[:4000])
+                elif not task_id and not status:
+                    lines.append(str(output.get("message") or "巡检操作已完成。")[:800])
 
             # ── other tools: compact summary ──
             else:

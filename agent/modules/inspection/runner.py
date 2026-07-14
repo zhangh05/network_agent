@@ -555,7 +555,8 @@ def _parse_tool_result(result) -> dict:
 
 def _exec_one_command(workspace_id: str, asset_id: str, protocol: str,
                       command: str, timeout: int,
-                      session_id: str = "", *, batch: bool = False) -> dict:
+                      session_id: str = "", *, batch: bool = False,
+                      connect_only: bool = False) -> dict:
     """Run a single read-only command through ``exec.run`` over SSH/Telnet.
 
     ``session_id`` (optional): if a previous call on the same asset
@@ -591,6 +592,8 @@ def _exec_one_command(workspace_id: str, asset_id: str, protocol: str,
         inv_args["session_id"] = session_id
     if batch:
         inv_args["batch"] = True
+    if connect_only:
+        inv_args["connect_only"] = True
     # v3.10: surface the inspection call to the audit trail with
     # caller = INSPECTION_CALLER + asset + command key. The canonical
     # runtime records the call regardless; this logger entry
@@ -778,12 +781,35 @@ def _run_checks_on_asset(task: InspectionTask,
             if new_sid:
                 bucket_session_id = new_sid
                 _register_task_session(workspace_id, task.task_id, dr.protocol, bucket_session_id)
+            all_outputs.append({
+                "command": cmd,
+                "ok": bool(run_result.get("ok")),
+                "output": run_result.get("output", ""),
+                "error": run_result.get("error", ""),
+                "elapsed_ms": 0,
+                "session_id": bucket_session_id,
+            })
         except Exception:
             if logger:
                 logger.warning("inspection: session registration failed", exc_info=True)
             pass
 
     try:
+        # Establish the remote session before consuming explicit Enter actions.
+        # Enter rows are user-authored script steps and must retain their order;
+        # they are not connection probes themselves.
+        connect_result = _exec_one_command(
+            workspace_id, asset_id, dr.protocol, "",
+            timeout=15, connect_only=True,
+        )
+        bucket_session_id = str(connect_result.get("session_id", "") or "")
+        if not connect_result.get("ok") or not bucket_session_id:
+            dr.errors.append(str(connect_result.get("error") or "remote_session_open_failed"))
+            dr.status = "failed"
+            dr.finished_at = now_iso()
+            return dr
+        _register_task_session(workspace_id, task.task_id, dr.protocol, bucket_session_id)
+
         # ── pre_commands (welcome-banner flush + screen-length disable) ──
         for cmd in pre_commands:
             if _cancel_requested(workspace_id, task.task_id):
@@ -811,7 +837,9 @@ def _run_checks_on_asset(task: InspectionTask,
             if new_sid:
                 bucket_session_id = new_sid
                 _register_task_session(workspace_id, task.task_id, dr.protocol, bucket_session_id)
-            batch_output = run_result.get("output", "") if run_result.get("ok") else ""
+            # Preserve partial output even when the batch terminates on a
+            # device-side pager/timeout. Collected evidence is still useful.
+            batch_output = run_result.get("output", "") or ""
             all_outputs.append({
                 "command": "batch",
                 "ok": bool(run_result.get("ok")),
@@ -851,7 +879,7 @@ def _run_checks_on_asset(task: InspectionTask,
         # command with empty output (e.g. stdout consumed by session
         # reuse race) is a legitimate result that still needs an
         # artifact record for the LLM analysis phase.
-        if ok and rec.get("output") is not None and cmd != ENTER_ACTION:
+        if is_batch and rec.get("output"):
             try:
                 # Pre-redact raw output so network-device config fields
                 # (password, community, etc.) don't trigger the artifact

@@ -109,11 +109,15 @@ interface InspectionDevice {
   asset_name?: string;
   asset_id?: string;
   host?: string;
+  errors?: string[];
   command_results?: InspectionCommandResult[];
 }
 
 interface InspectionCommandResult {
   artifact_id?: string;
+  command?: string;
+  ok?: boolean;
+  error?: string;
 }
 
 function terminalInspectionStatus(status: string): boolean {
@@ -423,6 +427,7 @@ export function TaskWorkbench() {
       let artifactRefs: string[] = [];
       const artifactIds: string[] = [];
       let deviceList = "";
+      let collectionIssues = "";
       let finalStatus = String(completedTask?.status || inspectionStatus || "");
       try {
         let task = completedTask;
@@ -432,9 +437,29 @@ export function TaskWorkbench() {
         }
         if (task) {
           finalStatus = String(task.status || finalStatus);
-          const devices = (Object.values(task.devices || {}) as InspectionDevice[])
-            .filter((d: InspectionDevice) => successfulInspectionStatus(d.status));
-          deviceList = devices.map((d: InspectionDevice) => `- ${d.asset_name || d.asset_id} (${d.host || ""})`).join("\n");
+          const allDevices = Object.values(task.devices || {}) as InspectionDevice[];
+          const devices = allDevices.filter((d: InspectionDevice) => successfulInspectionStatus(d.status));
+          deviceList = allDevices.map((d: InspectionDevice) =>
+            `- ${d.asset_name || d.asset_id} (${d.host || ""})：${d.status || "unknown"}`
+          ).join("\n");
+          const issueGroups = new Map<string, string[]>();
+          allDevices.forEach((d: InspectionDevice) => {
+            const deviceErrors = Array.isArray(d.errors) ? d.errors : [];
+            const commandErrors = (d.command_results || [])
+              .filter((cr: InspectionCommandResult) => cr.ok === false && Boolean(cr.error))
+              .map((cr: InspectionCommandResult) =>
+                `${cr.command || "command"}: ${cr.error}`
+              );
+            const issues = [...new Set([...deviceErrors, ...commandErrors])];
+            if (!issues.length) return;
+            const signature = issues.join("；");
+            const names = issueGroups.get(signature) || [];
+            names.push(String(d.asset_name || d.asset_id || "unknown"));
+            issueGroups.set(signature, names);
+          });
+          collectionIssues = [...issueGroups.entries()]
+            .map(([issue, names]) => `- ${names.join("、")}：${issue}`)
+            .join("\n");
           for (const d of devices) {
             for (const cr of (d.command_results || []) as InspectionCommandResult[]) {
               const artId = cr?.artifact_id;
@@ -458,6 +483,31 @@ export function TaskWorkbench() {
         ? `\n巡检原始采集制品（设备命令输入与回显输出）：\n${artifactRefs.map(s => `- ${s}`).join("\n")}\n\n请先读取这些原始制品内容，再逐设备分析。`
         : "\n暂无制品。";
       const deviceBlock = deviceList ? `\n设备清单：\n${deviceList}\n` : "";
+
+      // Zero artifacts is still a meaningful inspection outcome. Give the LLM
+      // the persisted task facts, but force a response-only turn so it explains
+      // the failure instead of querying missing artifacts or rerunning the task.
+      if (artifactRefs.length === 0) {
+        const noArtifactPrompt = [
+          `${target}${vendor} ${typeLabel}任务已结束，状态：${finalStatus || "unknown"}，任务 ID：${task_id}。`,
+          deviceBlock,
+          `本次巡检没有产生原始采集制品。`,
+          collectionIssues ? `系统记录的采集问题：\n${collectionIssues}` : "系统未记录更具体的设备错误。",
+          `请只依据以上任务事实，用用户能理解的话说明：是否完成、哪些设备未形成结果、可能需要检查的连接/前置命令/分页环节，以及下一步建议。不要声称已分析设备指标。`,
+        ].join("\n");
+        const noArtifactMetadata = {
+          ...metadata,
+          inspection_task_id: task_id,
+          inspection_status: finalStatus,
+          prefetch_artifact_ids: [],
+          response_only: true,
+          response_only_reason: "inspection_completed_without_artifacts",
+        };
+        setInput(noArtifactPrompt);
+        pendingAutoMetadataRef.current = noArtifactMetadata;
+        onSendRef.current(noArtifactPrompt, noArtifactMetadata);
+        return;
+      }
 
       const prompt = [
         `${target}${vendor} ${typeLabel}任务已结束，状态：${finalStatus || "unknown"}，任务 ID：${task_id}。`,

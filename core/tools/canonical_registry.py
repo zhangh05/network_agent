@@ -1618,6 +1618,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
     vendor = str(args.get("vendor", "generic")).strip()
     session_id = str(args.get("session_id", "")).strip()
     close_session = bool(args.get("close_session", False))
+    connect_only = bool(args.get("connect_only", False))
     sudo = bool(args.get("sudo", False))
     timeout = _safe_int(args.get("timeout"), 0)  # 0 = no enforcement
 
@@ -1686,7 +1687,7 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
         return {"ok": False, "error": "username is required"}
     if not password:
         return {"ok": False, "error": "SSH password is missing. Use asset_id (from CMDB) so credentials are resolved server-side, or provide password explicitly."}
-    if not command:
+    if not command and not connect_only:
         return {"ok": False, "error": "command is required"}
 
     # Safety: block dangerous commands
@@ -1704,6 +1705,11 @@ def _handler_network_ssh(inv: ToolInvocation) -> dict:
             new_sid, host, port, username, password, vendor,
             workspace_id=workspace_id,
         )
+        if connect_only:
+            return {
+                "ok": True, "host": host, "output": "",
+                "session_id": new_sid, "session_active": True,
+            }
         exec_result = exec_command(new_sid, command, timeout=timeout)
         if isinstance(exec_result, dict) and not exec_result.get("ok"):
             # Command failed — clean up session
@@ -1766,6 +1772,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
     vendor = str(args.get("vendor", "generic")).strip()
     session_id = str(args.get("session_id", "")).strip()
     close_session = bool(args.get("close_session", False))
+    connect_only = bool(args.get("connect_only", False))
     batch = bool(args.get("batch", False))
 
     if asset_id:
@@ -1811,6 +1818,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
             idle_deadline = _t.time() + 5.0  # 5s idle timeout
             absolute_deadline = _t.time() + max(60, command.count("\n") * 5)
             page_advances = 0
+            paging_tail = b""
             profile = getattr(sess, "vendor", None)
             while _t.time() < absolute_deadline:
                 chunk = sess.recv(timeout=0.3)
@@ -1818,11 +1826,13 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
                     buf += chunk
                     idle_deadline = _t.time() + 1.0  # reset idle timer
                     text = buf.decode("utf-8", errors="replace")
-                    if profile and profile.match_paging(text):
+                    page_probe = (paging_tail + chunk).decode("utf-8", errors="replace")
+                    if profile and profile.match_paging(page_probe):
                         page_advances += 1
                         if page_advances <= 200:
                             sess.send(str(getattr(profile, "paging_response", " ") or " ").encode())
                             idle_deadline = _t.time() + 3.0
+                            paging_tail = b""
                             continue
                         return {
                             "ok": False,
@@ -1830,6 +1840,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
                             "output": text[:100000],
                             "session_id": session_id,
                         }
+                    paging_tail = (paging_tail + chunk)[-64:]
                 elif _t.time() >= idle_deadline:
                     break
             output = _strip_paging_markers(buf.decode("utf-8", errors="replace"))[:100000]
@@ -1861,7 +1872,7 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
 
     if not host:
         return {"ok": False, "error": "host is required"}
-    if not command:
+    if not command and not connect_only:
         return {"ok": False, "error": "command is required"}
 
     is_dangerous, reason = _is_dangerous_command(command)
@@ -1874,6 +1885,11 @@ def _handler_network_telnet(inv: ToolInvocation) -> dict:
             new_sid, host, port, username, password, vendor,
             workspace_id=workspace_id,
         )
+        if connect_only:
+            return {
+                "ok": True, "host": host, "output": "",
+                "session_id": new_sid, "session_active": True,
+            }
         exec_result = exec_command(new_sid, command)
         return {
             "ok": True, "host": host, "command": command,
@@ -2484,6 +2500,7 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "vendor": {"type": "string", "description": "[target=ssh|telnet] Device vendor hint for command adaptation."},
             "session_id": {"type": "string", "description": "[target=ssh] Reuse existing SSH session (faster)."},
             "close_session": {"type": "boolean", "description": "[target=ssh] Close SSH session after execution."},
+            "connect_only": {"type": "boolean", "description": "[target=ssh|telnet] Establish a reusable session without executing a command. Internal orchestration option."},
             "working_dir": {"type": "string", "description": "[action=shell] Working directory for command execution."},
             "env_vars": {"type": "object", "description": "[action=shell] Environment variables (PATH/LD_PRELOAD blocked)."},
             "timeout": {"type": "integer", "description": "[action=shell|python|stream] Timeout in seconds (default: shell=120, python=30, stream=30)."},
