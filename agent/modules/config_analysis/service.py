@@ -62,6 +62,9 @@ def run_config_analysis(
             source_vendor=source_vendor,
             target_vendor=target_vendor,
             workspace_id=workspace_id,
+            session_id=str(kwargs.get("session_id", "")),
+            run_id=str(kwargs.get("run_id", "")),
+            source_file_id=file_id,
         )
 
     if action == "parse":

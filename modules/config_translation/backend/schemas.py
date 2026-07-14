@@ -1,28 +1,17 @@
 # modules/config_translation/backend/schemas.py
 
 from dataclasses import dataclass, field
-from typing import Optional
-
-
 @dataclass
 class TranslateRequest:
     source_config: str
     source_vendor: str = "auto"
-    target_vendor: str = "huawei"
-    source_domain: str = "auto"
-    target_domain: str = "auto"
-    source_platform: str = "auto"
-    target_platform: str = "auto"
+    target_vendor: str = ""
 
     def as_dict(self) -> dict:
         return {
             "source_config": self.source_config,
             "source_vendor": self.source_vendor,
             "target_vendor": self.target_vendor,
-            "source_domain": self.source_domain,
-            "target_domain": self.target_domain,
-            "source_platform": self.source_platform,
-            "target_platform": self.target_platform,
         }
 
 

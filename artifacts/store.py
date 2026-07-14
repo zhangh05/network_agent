@@ -511,6 +511,12 @@ def list_artifacts(workspace_id: str, run_id: str = None, artifact_type: str = N
             continue
         if not include_deleted and rec.lifecycle == "deleted":
             continue
+        # PCAP session snapshots and connection indexes are runtime state, not
+        # user deliverables. Older releases persisted them as artifacts; keep
+        # them queryable by an explicit type for maintenance while excluding
+        # them from the normal Artifact Center projection.
+        if not artifact_type and rec.artifact_type in {"pcap_session", "pcap_connections"}:
+            continue
         if run_id and rec.run_id != run_id:
             continue
         if artifact_type and rec.artifact_type != artifact_type:

@@ -1450,6 +1450,8 @@ def _handler_config_analysis_run(inv: ToolInvocation) -> dict:
         source_config=str(args.get("source_config", "")),
         source_vendor=str(args.get("source_vendor", "")),
         target_vendor=str(args.get("target_vendor", "")),
+        session_id=str(inv.session_id or ""),
+        run_id=str(inv.run_id or ""),
     )
 
 
@@ -2787,8 +2789,14 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "filepath": _S["filepath"],
             "file_id": {"type": "string", "description": "FileStore file_id; takes priority over filepath."},
             "source_config": {"type": "string", "description": "Inline config text."},
-            "source_vendor": {"type": "string"},
-            "target_vendor": {"type": "string"},
+            "source_vendor": {
+                "type": "string",
+                "description": "Source vendor or 'auto'. Common values: huawei, h3c, cisco, ruijie.",
+            },
+            "target_vendor": {
+                "type": "string",
+                "description": "Required for translate. Explicit target platform, for example huawei, h3c, cisco, ruijie, hillstone, topsec, or dptech.",
+            },
         }, ["action"]),
         description="Config analysis: parse, translate, extract interfaces/routes, diff, summarize.",
     ),

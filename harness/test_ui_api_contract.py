@@ -5,7 +5,7 @@ Ensures the Vite/React frontend source aligns with Foundation Baseline:
 - Correct backend provider enums
 - MiniMax-M3 as default (not MiniMax-M1)
 - Planned modules marked as planned/coming_soon
-- Configuration translation uses correct entry points
+- Configuration translation has no standalone frontend bypass
 - No hardcoded fake statistics
 - No "可直接下发" deployability claims
 - No secret/key/token leaks
@@ -137,13 +137,6 @@ class TestRequiredAPIs:
             "/agent/message not found — must be the Workbench execution entry point"
         )
 
-    def test_has_config_translate_api(self):
-        """POST /api/modules/config-translation/translate must be present."""
-        html = _html()
-        assert "/modules/config-translation/translate" in html, (
-            "/modules/config-translation/translate not found — module translate API"
-        )
-
     def test_has_jobs_api(self):
         """/api/jobs must be present."""
         html = _html()
@@ -255,22 +248,3 @@ class TestDashboardAPI:
         """App shell must fetch backend version for status display."""
         html = _html()
         assert "/version" in html, "App shell should fetch backend version"
-
-
-class TestTranslatePage:
-    """Config translation page uses correct endpoints."""
-
-    def test_translate_uses_module_endpoint(self):
-        """doTranslate must call /api/modules/config-translation/translate."""
-        html = _html()
-        assert "/modules/config-translation/translate" in html
-
-    def test_translate_no_old_endpoint(self):
-        """Translate page must NOT call /api/translate."""
-        html = _html()
-        assert "/api/translate" not in html
-
-    def test_translate_displays_manual_review(self):
-        """Translate results must show manual_review tab."""
-        html = _html()
-        assert "manual_review" in html or "人工复核" in html

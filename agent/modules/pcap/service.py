@@ -98,31 +98,6 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "",
     except Exception:
         pass
 
-    # Save result artifacts (non-fatal)
-    artifacts = []
-    try:
-        from artifacts.store import save_artifact
-        session_art = save_artifact(
-            workspace_id=workspace_id, content=json.dumps(meta, ensure_ascii=False, indent=2),
-            artifact_type="pcap_session", title=f"PCAP session: {path.name}",
-            scope="workspace", sensitivity="internal", run_id=run_id, session_id=session_id,
-            metadata={"source_file_id": source_file_id, "pcap_session_id": sid, "storage_managed": True},
-        )
-        if session_art:
-            artifacts.append({"artifact_id": session_art.artifact_id, "file_id": session_art.file_id,
-                              "artifact_type": "pcap_session"})
-        conn_art = save_artifact(
-            workspace_id=workspace_id, content=json.dumps(groups, ensure_ascii=False, indent=2),
-            artifact_type="pcap_connections", title=f"PCAP connections: {path.name}",
-            scope="workspace", sensitivity="internal", run_id=run_id, session_id=session_id,
-            metadata={"source_file_id": source_file_id, "pcap_session_id": sid, "storage_managed": True},
-        )
-        if conn_art:
-            artifacts.append({"artifact_id": conn_art.artifact_id, "file_id": conn_art.file_id,
-                              "artifact_type": "pcap_connections"})
-    except Exception:
-        pass
-
     # ReferenceIndex: link source file to pcap session (non-fatal)
     if source_file_id:
         try:
@@ -133,8 +108,6 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "",
 
     result = {"ok": True, "tool_id": "pcap.manage", "status": "succeeded",
               "summary": f"共解析 {len(packets)} 个报文，识别 {len(groups)} 条连接。", **meta}
-    if artifacts:
-        result["artifacts"] = artifacts
     return result
 
 

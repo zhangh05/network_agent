@@ -12,6 +12,51 @@ from modules.config_translation.backend.schemas import TranslateRequest, Transla
 
 _translator = None
 
+_VENDOR_ALIASES = {
+    "ios": "cisco",
+    "iosxe": "cisco",
+    "ios_xe": "cisco",
+    "cisco_ios": "cisco",
+    "cisco_ios_xe": "cisco",
+    "comware": "h3c",
+    "h3c_comware": "h3c",
+    "vrp": "huawei",
+    "huawei_vrp": "huawei",
+    "rgos": "ruijie",
+}
+
+
+def normalize_vendor(vendor: str) -> str:
+    normalized = str(vendor or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return _VENDOR_ALIASES.get(normalized, normalized)
+
+
+def detect_vendor(config_text: str) -> str:
+    """Conservatively identify the source CLI family from distinctive syntax."""
+    text = str(config_text or "").lower()
+    hints = {
+        "cisco": (
+            "hostname ", "router ospf", "router bgp", "switchport ",
+            "spanning-tree ", "ip route ", "interface gigabitethernet",
+        ),
+        "h3c": (
+            "interface bridge-aggregation", "interface vlan-interface",
+            "port link-aggregation group",
+            "comware software", "h3c ",
+        ),
+        "huawei": (
+            "interface eth-trunk", "interface vlanif", "ip route-static",
+            "huawei ", "vrp (r) software",
+        ),
+        "ruijie": (
+            "ruijie", "rgos", "show running-config", "interface aggregateport",
+        ),
+        "juniper": ("set interfaces ", "set routing-options ", "set protocols "),
+    }
+    scores = {vendor: sum(text.count(token) for token in tokens) for vendor, tokens in hints.items()}
+    best = max(scores, key=scores.get)
+    return best if scores[best] > 0 else "unknown"
+
 
 def _get_translator():
     global _translator
@@ -33,8 +78,10 @@ def translate_config(req: TranslateRequest) -> TranslateResponse:
         })
 
     t0 = time.time()
+    source_vendor = normalize_vendor(req.source_vendor)
+    target_vendor = normalize_vendor(req.target_vendor)
     translator = _get_translator()
-    bundle = translator.translate_bundle(source_config, req.source_vendor, req.target_vendor)
+    bundle = translator.translate_bundle(source_config, source_vendor, target_vendor)
 
     deployable_config = bundle.deployable_config or ""
 
@@ -74,7 +121,7 @@ def translate_config(req: TranslateRequest) -> TranslateResponse:
 
     # ═══ Quality Audit ═══
     from modules.config_translation.core.quality import QualityAuditor
-    auditor = QualityAuditor(source_config, req.source_vendor, req.target_vendor)
+    auditor = QualityAuditor(source_config, source_vendor, target_vendor)
 
     # Build output accounting dict (which lines went where)
     accounted = {}

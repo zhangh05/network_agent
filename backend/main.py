@@ -20,7 +20,6 @@ if str(_NETWORK_AGENT_DIR) not in sys.path:
 from flask import Flask, jsonify, request
 
 from backend.api.version import get_version
-from backend.api.modules_translate import handle_module_translate
 from backend.api.llm_api import (
     handle_llm_status, handle_llm_test,
     handle_llm_config_get, handle_llm_config_post, handle_llm_config_delete,
@@ -229,11 +228,6 @@ def create_app():
     @app.route("/api/capabilities")
     def api_capabilities():
         return handle_capabilities()
-
-    # ── Module: config-translation ──
-    @app.route("/api/modules/config-translation/translate", methods=["POST"])
-    def api_module_config_translate():
-        return handle_module_translate()
 
     # ── Memory ──
     @app.route("/api/memory/status")

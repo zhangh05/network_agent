@@ -109,6 +109,32 @@ def test_save_artifact_source_file_id_reference(storage_ws):
     assert any(r["relation"] == "source" for r in refs)
 
 
+def test_default_listing_hides_pcap_runtime_state(storage_ws):
+    from artifacts.store import list_artifacts, save_artifact
+
+    save_artifact(
+        "test_ws",
+        content='{"session_id":"pcap_1"}',
+        artifact_type="pcap_session",
+        title="session",
+    )
+    save_artifact(
+        "test_ws",
+        content="[]",
+        artifact_type="pcap_connections",
+        title="connections",
+    )
+    analysis = save_artifact(
+        "test_ws",
+        content='{"anomalies":[]}',
+        artifact_type="pcap_analysis",
+        title="analysis",
+    )
+
+    assert [item["artifact_id"] for item in list_artifacts("test_ws")] == [analysis.artifact_id]
+    assert len(list_artifacts("test_ws", artifact_type="pcap_session")) == 1
+
+
 # ── SessionMessageStore large content ────────────────────────────────
 
 def test_message_large_content_uses_artifact(storage_ws):

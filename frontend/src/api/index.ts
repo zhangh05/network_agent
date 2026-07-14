@@ -66,23 +66,6 @@ export const agentApi = {
     ),
 };
 
-export const configTranslationApi = {
-  translate: (
-    data: {
-      source_config: string;
-      target_vendor: string;
-      source_vendor?: string;
-      options?: Record<string, unknown>;
-    },
-    signal?: AbortSignal,
-  ): Promise<Record<string, unknown>> =>
-    apiRequest<Record<string, unknown>>(
-      { method: "POST", url: "/modules/config-translation/translate", data },
-      signal,
-      TIMEOUTS.agentTurn,
-    ),
-};
-
 export const sessionsApi = {
   list: (
     workspace_id: string,

@@ -421,7 +421,6 @@ _sync_contracts_from_canonical_registry()
 ALWAYS_READ_ONLY_TOOLS: frozenset[str] = frozenset({
     "web.manage",
     "data.manage",
-    "config.manage",
     "pcap.manage",
     "skill.manage",
     "text.analyze",
@@ -430,6 +429,7 @@ ALWAYS_READ_ONLY_TOOLS: frozenset[str] = frozenset({
 })
 
 READ_ONLY_ACTIONS: dict[str, frozenset[str]] = {
+    "config.manage": frozenset({"parse", "extract_interfaces", "extract_routes", "diff", "summarize"}),
     "agent.manage": frozenset({"list", "get", "status"}),
     "browser.manage": frozenset({"snapshot", "screenshot", "extract", "wait", "network", "console"}),
     "device.manage": frozenset({"list", "get", "export"}),

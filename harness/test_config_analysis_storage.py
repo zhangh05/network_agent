@@ -68,3 +68,93 @@ def test_config_analysis_file_id_only_no_source_config(config_ws):
     )
     assert isinstance(result, dict)
     assert "ok" in result or "error" not in str(result).lower()[:50]
+
+
+def test_config_translation_auto_detects_source_vendor(config_ws):
+    from agent.modules.config_analysis.service import run_config_analysis
+
+    result = run_config_analysis(
+        action="translate",
+        workspace_id="test_ws",
+        source_config=(
+            "hostname Edge01\n"
+            "interface GigabitEthernet0/0\n"
+            " ip address 10.0.0.1 255.255.255.0\n"
+        ),
+        source_vendor="auto",
+        target_vendor="huawei",
+        run_id="run_translate_auto",
+        session_id="session_translate_auto",
+    )
+
+    assert result["ok"] is True
+    assert result["source_vendor"] == "cisco"
+    assert result["target_vendor"] == "huawei"
+    assert len(result["artifacts"]) == 1
+
+
+def test_config_translation_requires_explicit_target_vendor(config_ws):
+    from agent.modules.config_analysis.service import run_config_analysis
+
+    result = run_config_analysis(
+        action="translate",
+        workspace_id="test_ws",
+        source_config="hostname Edge01\n",
+        source_vendor="cisco",
+    )
+
+    assert result["ok"] is False
+    assert result["errors"] == ["missing_target_vendor"]
+    assert result["artifacts"] == []
+
+
+def test_config_translation_does_not_guess_ambiguous_comware_vendor():
+    from modules.config_translation.backend.service import detect_vendor
+
+    assert detect_vendor("sysname Edge01\ndisplay current-configuration\n") == "unknown"
+
+
+def test_config_translation_is_an_artifact_write_action():
+    from core.runtime_engine.contracts import is_read_only_call
+
+    assert is_read_only_call("config.manage", {"action": "parse"}) is True
+    assert is_read_only_call("config.manage", {"action": "translate"}) is False
+
+
+def test_config_translation_retry_reuses_run_artifact(config_ws):
+    from agent.modules.config_analysis.service import run_config_analysis
+    from artifacts.store import get_artifact, list_artifacts
+    from storage.file_store import write_agent_output
+
+    source = write_agent_output(
+        "test_ws",
+        "hostname Edge01\ninterface GigabitEthernet0/0\n description uplink\n",
+        "config_input",
+        "text",
+        title="edge config",
+    )
+    kwargs = {
+        "action": "translate",
+        "workspace_id": "test_ws",
+        "file_id": source.file_id,
+        "source_vendor": "auto",
+        "target_vendor": "h3c",
+        "run_id": "run_translate_retry",
+        "session_id": "session_translate_retry",
+    }
+
+    first = run_config_analysis(**kwargs)
+    second = run_config_analysis(**kwargs)
+    artifacts = list_artifacts(
+        "test_ws",
+        run_id="run_translate_retry",
+        artifact_type="translated_config",
+    )
+
+    assert first["ok"] is True and second["ok"] is True
+    assert first["artifacts"][0]["artifact_id"] == second["artifacts"][0]["artifact_id"]
+    assert len(artifacts) == 1
+    stored = get_artifact("test_ws", artifacts[0]["artifact_id"])
+    assert stored is not None
+    assert stored.session_id == "session_translate_retry"
+    assert artifacts[0]["metadata"]["source_file_id"] == source.file_id

@@ -7,17 +7,18 @@ Does NOT generate deployable_config directly from LLM.
 Saves translated_config as an artifact with authoritative=false, deployable_config=false.
 """
 
+import hashlib
 import uuid
-from typing import Optional
 
 
 def translate_config(
     source_config: str,
     source_vendor: str = "",
     target_vendor: str = "",
-    options: Optional[dict] = None,
-    workspace_id: str = "default",
+    workspace_id: str = "",
     session_id: str = "",
+    run_id: str = "",
+    source_file_id: str = "",
 ) -> dict:
     """Execute config translation via the canonical module service."""
     warnings = []
@@ -32,22 +33,69 @@ def translate_config(
             "line_count": 0,
             "translated_config": "",
             "manual_review_items": [],
+            "manual_review_count": 0,
             "warnings": [],
             "errors": ["missing_source_config"],
             "artifacts": [],
             "metadata": {},
         }
 
-    source_vendor = source_vendor or "auto"
-    target_vendor = target_vendor or "huawei"
+    try:
+        from workspace.ids import validate_workspace_id
+        workspace_id = validate_workspace_id(workspace_id)
+    except ValueError:
+        return {
+            "ok": False,
+            "summary": "配置翻译需要有效的 workspace_id。",
+            "source_vendor": source_vendor or "unknown",
+            "target_vendor": target_vendor or "unknown",
+            "line_count": 0,
+            "translated_config": "",
+            "manual_review_items": [],
+            "manual_review_count": 0,
+            "warnings": [],
+            "errors": ["invalid_workspace_id"],
+            "artifacts": [],
+            "metadata": {},
+        }
+
+    from modules.config_translation.backend.service import detect_vendor, normalize_vendor
+
+    source_vendor = normalize_vendor(source_vendor or "auto")
+    target_vendor = normalize_vendor(target_vendor)
+    if not target_vendor or target_vendor in {"auto", "unknown"}:
+        return {
+            "ok": False,
+            "summary": "需要明确目标厂商，例如 huawei、h3c、cisco 或 ruijie。",
+            "source_vendor": source_vendor or "unknown",
+            "target_vendor": "unknown",
+            "line_count": len(source_config.strip().splitlines()),
+            "translated_config": "",
+            "manual_review_items": [],
+            "manual_review_count": 0,
+            "warnings": [],
+            "errors": ["missing_target_vendor"],
+            "artifacts": [],
+            "metadata": {},
+        }
 
     if source_vendor == "auto":
-        try:
-            from modules.config_translation.backend.client import detect_vendor
-            detected = detect_vendor(source_config)
-            source_vendor = detected or "auto"
-        except Exception:
-            pass
+        source_vendor = detect_vendor(source_config)
+    if source_vendor == "unknown":
+        return {
+            "ok": False,
+            "summary": "无法可靠识别源配置厂商，请明确 source_vendor 后重试。",
+            "source_vendor": "unknown",
+            "target_vendor": target_vendor,
+            "line_count": len(source_config.strip().splitlines()),
+            "translated_config": "",
+            "manual_review_items": [],
+            "manual_review_count": 0,
+            "warnings": [],
+            "errors": ["source_vendor_detection_failed"],
+            "artifacts": [],
+            "metadata": {},
+        }
 
     try:
         from modules.config_translation.backend.schemas import TranslateRequest
@@ -79,6 +127,11 @@ def translate_config(
                 translated_config, source_vendor, target_vendor,
                 workspace_id, session_id, line_count, mr_count,
                 manual_review_items, quality, warnings,
+                run_id=run_id,
+                source_file_id=source_file_id,
+                translation_fingerprint=_translation_fingerprint(
+                    source_config, source_vendor, target_vendor,
+                ),
             )
 
         return {
@@ -181,15 +234,28 @@ def _save_translation_artifact(
     manual_review_items: list,
     quality: dict,
     warnings: list,
+    *,
+    run_id: str = "",
+    source_file_id: str = "",
+    translation_fingerprint: str = "",
 ) -> list:
     """Save translated_config as an artifact. Never blocks translation.
 
-    v0.9.1: Stores manual_review_items in artifact metadata so
-    system.manage(action=review_list) can find them. Without this the LLM
-    would see manual_review_count > 0 but review_list returns 0.
+    Stores manual_review_items in artifact metadata so
+    system.manage(action=review_list) can expose them immediately.
     """
     try:
-        from artifacts.store import save_artifact
+        from artifacts.store import list_artifacts, save_artifact
+        if run_id and translation_fingerprint:
+            for existing in reversed(list_artifacts(
+                workspace_id,
+                run_id=run_id,
+                artifact_type="translated_config",
+            )):
+                metadata = existing.get("metadata") or {}
+                if metadata.get("translation_fingerprint") == translation_fingerprint:
+                    return [_artifact_descriptor(existing)]
+
         rec = save_artifact(
             workspace_id=workspace_id,
             content=translated_config,
@@ -200,9 +266,14 @@ def _save_translation_artifact(
             module="config_translation",
             skill="config_translation",
             source="module_output",
+            run_id=run_id,
+            session_id=session_id,
+            capability_id="config_translation",
             metadata={
                 "source_vendor": source_vendor,
                 "target_vendor": target_vendor,
+                "source_file_id": source_file_id,
+                "translation_fingerprint": translation_fingerprint,
                 "line_count": line_count,
                 "manual_review_count": mr_count,
                 "manual_review_items": manual_review_items,
@@ -215,78 +286,40 @@ def _save_translation_artifact(
             },
         )
         if rec:
-            # v0.9.1: initialize review sidecar so system.manage(action=review_list)
-            # works immediately — no need to wait for deferred creation.
+            # Initialize the review projection at artifact creation time.
             try:
                 from agent.modules.review.service import init_review_sidecar
                 init_review_sidecar(workspace_id, rec.artifact_id, manual_review_items)
             except Exception:
                 pass
-            return [{
-                "artifact_id": rec.artifact_id,
-                "artifact_type": "translated_config",
-                "title": f"Translated config: {source_vendor} to {target_vendor}",
-                "scope": "workspace",
-                "sensitivity": "internal",
-                "source": "module_output",
-                "metadata": {
-                    "authoritative": False,
-                    "deployable_config": False,
-                    "source_vendor": source_vendor,
-                    "target_vendor": target_vendor,
-                },
-            }]
+            return [_artifact_descriptor(rec)]
         # save_artifact returned None (blocked or failed silently)
         warnings.append("artifact_save_failed")
         return []
-    except Exception as e:
+    except Exception:
         warnings.append("artifact_save_failed")
         return []
 
 
-# ── v0.8.2 — ModuleResult projection ──
+def _translation_fingerprint(source_config: str, source_vendor: str, target_vendor: str) -> str:
+    payload = "\0".join((source_vendor, target_vendor, source_config.strip()))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
-def to_module_result(result: dict) -> "ModuleResult":
-    """Project a v0.7.1 result dict into a standard ModuleResult.
 
-    The result dict's keys (translated_config, manual_review_items,
-    manual_review_count, source_vendor, target_vendor, line_count,
-    artifacts, warnings, errors, metadata, ok, summary) all become
-    first-class ModuleResult fields:
-      - data: {translated_config, manual_review_items,
-               manual_review_count, source_vendor, target_vendor,
-               line_count}
-      - artifacts: result["artifacts"]  (verbatim)
-      - errors / warnings / metadata: verbatim
-      - ok / summary: verbatim
-    """
-    from agent.protocol.module_result import ModuleResult
-    if not isinstance(result, dict):
-        return ModuleResult.failure(
-            summary="translate_config returned non-dict result",
-            errors=["invalid_result_shape"],
-        )
-    ok = bool(result.get("ok", False))
-    data = {
-        "translated_config": result.get("translated_config", ""),
-        "manual_review_items": list(result.get("manual_review_items") or []),
-        "manual_review_count": int(result.get("manual_review_count", 0)),
-        "source_vendor": result.get("source_vendor", ""),
-        "target_vendor": result.get("target_vendor", ""),
-        "line_count": int(result.get("line_count", 0)),
+def _artifact_descriptor(record) -> dict:
+    get = record.get if isinstance(record, dict) else lambda key, default=None: getattr(record, key, default)
+    metadata = get("metadata", {}) or {}
+    return {
+        "artifact_id": get("artifact_id", ""),
+        "artifact_type": "translated_config",
+        "title": get("title", "Translated config"),
+        "scope": get("scope", "workspace"),
+        "sensitivity": get("sensitivity", "internal"),
+        "source": get("source", "module_output"),
+        "metadata": {
+            "authoritative": False,
+            "deployable_config": False,
+            "source_vendor": metadata.get("source_vendor", ""),
+            "target_vendor": metadata.get("target_vendor", ""),
+        },
     }
-    if ok:
-        return ModuleResult.success(
-            summary=str(result.get("summary", "")),
-            data=data,
-            artifacts=list(result.get("artifacts") or []),
-            warnings=list(result.get("warnings") or []),
-            metadata=dict(result.get("metadata") or {}),
-        )
-    return ModuleResult.failure(
-        summary=str(result.get("summary", "")),
-        errors=list(result.get("errors") or ["unknown_error"]),
-        warnings=list(result.get("warnings") or []),
-        data=data,
-        metadata=dict(result.get("metadata") or {}),
-    )

@@ -106,7 +106,8 @@ MANIFESTS: dict[str, CapabilityManifest] = {
             "extract_routes, diff, summarize."
         ),
         action_class="read",
-        risk_level="low", side_effects="none", idempotency="safe_to_retry",
+        risk_level="low", side_effects="write", idempotency="safe_to_retry",
+        reads_artifact=True, writes_artifact=True,
         timeout_seconds=120,
     ),
 

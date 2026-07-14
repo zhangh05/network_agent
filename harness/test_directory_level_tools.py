@@ -72,6 +72,29 @@ def test_pcap_session_returns_protocol_counts(tmp_path):
         PCAP_SESSIONS.pop("sid_proto", None)
 
 
+def test_pcap_parse_keeps_runtime_state_out_of_artifact_store(monkeypatch, temp_dirs):
+    from io import BytesIO
+
+    from agent.modules.pcap import service
+    from storage.file_store import import_user_upload
+
+    rec = import_user_upload(
+        "pcap_runtime_state",
+        BytesIO(b"pcap-placeholder"),
+        "capture.pcap",
+        logical_type="pcap_input",
+        file_kind="pcap",
+        binary=True,
+    )
+    monkeypatch.setattr(service, "parse_pcap", lambda _path: [object()])
+    monkeypatch.setattr(service, "get_connection_groups", lambda _packets: [])
+
+    result = service.parse_pcap_file("pcap_runtime_state", file_id=rec.file_id)
+
+    assert result["ok"] is True
+    assert "artifacts" not in result
+
+
 def test_config_analysis_translate_without_config():
     """translate action should delegate to config_translation service."""
     from core.tools.canonical_registry import get_entry
