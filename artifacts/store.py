@@ -108,7 +108,7 @@ def _load_index(ws_id: str) -> ArtifactIndex:
     p = _index_path(ws_id)
     if p.is_file():
         try:
-            d = json.loads(p.read_text())
+            d = json.loads(p.read_text(encoding="utf-8"))
             return ArtifactIndex(workspace_id=ws_id, artifact_ids=d.get("artifact_ids", []),
                                 artifact_count=d.get("artifact_count", 0),
                                 updated_at=d.get("updated_at", ""))
@@ -129,7 +129,7 @@ def _save_index(idx: ArtifactIndex):
     p.parent.mkdir(parents=True, exist_ok=True)
     idx.updated_at = now_iso()
     idx.artifact_count = len(idx.artifact_ids)
-    p.write_text(json.dumps(idx.as_dict(), indent=2, ensure_ascii=False))
+    p.write_text(json.dumps(idx.as_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def _record_meta_dict(rec: ArtifactRecord) -> dict:
@@ -338,7 +338,7 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
         file_size = sp.stat().st_size
         if file_size > max_size:
             return None
-        content = sp.read_text()
+        content = sp.read_text(encoding="utf-8")
         artifact_type = artifact_type or "unknown"
 
     if not content:
@@ -610,7 +610,7 @@ def get_run_artifacts(workspace_id: str, run_id: str) -> dict:
     p = _get_ws_root() / workspace_id / "runs" / f"{run_id}.artifacts.json"
     if p.is_file():
         try:
-            return json.loads(p.read_text())
+            return json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             _LOG.warning("artifacts.store: silent exception", exc_info=True)
     return {"workspace_id": workspace_id, "run_id": run_id,
@@ -656,7 +656,9 @@ def _update_run_index(ws_id, run_id, art_id, artifact_type, title):
         idx.setdefault("temp_artifacts", []).append(info)
     run_dir = _get_ws_root() / ws_id / "runs"
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / f"{run_id}.artifacts.json").write_text(json.dumps(idx, indent=2, ensure_ascii=False))
+    (run_dir / f"{run_id}.artifacts.json").write_text(
+        json.dumps(idx, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def _type_dir(artifact_type: str) -> str:

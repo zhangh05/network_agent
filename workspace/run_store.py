@@ -235,7 +235,7 @@ def get_run(run_id: str, ws_id: str = "default") -> dict:
     path = WS_ROOT / ws_id / "runs" / f"{run_id}.json"
     if path.is_file():
         try:
-            return _normalize_run_record(json.loads(path.read_text()))
+            return _normalize_run_record(json.loads(path.read_text(encoding="utf-8")))
         except Exception:
             pass
     return {}
@@ -255,7 +255,7 @@ def list_runs(ws_id: str = "default", limit: int = 50) -> list:
         if not _is_run_record_file(f):
             continue
         try:
-            runs.append(_normalize_run_record(json.loads(f.read_text())))
+            runs.append(_normalize_run_record(json.loads(f.read_text(encoding="utf-8"))))
         except Exception:
             pass
     runs.sort(key=run_sort_key, reverse=True)

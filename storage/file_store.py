@@ -174,7 +174,7 @@ def import_user_upload(
     target_dir = ws / rel_dir
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / f"{fid}__{safe}"
-    rel_path = str(target.relative_to(ws))
+    rel_path = target.relative_to(ws).as_posix()
 
     # Write file
     if isinstance(file_source, (str, Path)):
@@ -257,7 +257,7 @@ def write_agent_output(
     tmp_dir.mkdir(parents=True, exist_ok=True)
     tmp_file = tmp_dir / f"{fid}.tmp"
     target = target_dir / f"{fid}__{safe_title}.{ext}"
-    rel_path = str(target.relative_to(ws))
+    rel_path = target.relative_to(ws).as_posix()
 
     is_binary = isinstance(content, bytes)
     if is_binary:
@@ -314,7 +314,7 @@ def write_knowledge_document(
     tmp.write_text(str(content or ""), encoding="utf-8")
     os.replace(tmp, target)
 
-    rel_path = str(target.relative_to(ws))
+    rel_path = target.relative_to(ws).as_posix()
     data = target.read_bytes()
     updates = {
         "logical_type": "knowledge_normalized",

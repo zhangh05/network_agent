@@ -106,7 +106,7 @@ def save_rollback_plan(plan: RollbackPlan):
 def get_rollback_plan(ws_id: str, rb_id: str) -> Optional[dict]:
     p = WS_ROOT / ws_id / "delivery" / "rollback" / f"{rb_id}.json"
     if not p.exists(): return None
-    try: return json.loads(p.read_text())
+    try: return json.loads(p.read_text(encoding="utf-8"))
     except Exception: return None
 
 

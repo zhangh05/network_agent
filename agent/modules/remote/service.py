@@ -221,7 +221,7 @@ def delete_device(workspace_id: str, device_id: str) -> dict:
         if rec.get("device_id") == device_id:
             continue
         kept.append(line)
-    path.write_text("\n".join(kept) + ("\n" if kept else ""))
+    path.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
     return {"ok": True}
 
 

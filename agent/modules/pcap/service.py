@@ -149,7 +149,7 @@ def delete_pcap_session(session_id: str, workspace_id: str = "") -> dict:
         import json
         idx_path = workspace_root(workspace_id) / "index" / "pcap_sessions.jsonl"
         if idx_path.exists():
-            lines = idx_path.read_text().strip().split("\n")
+            lines = idx_path.read_text(encoding="utf-8").strip().split("\n")
             kept = []
             for line in lines:
                 if not line.strip():
@@ -162,7 +162,7 @@ def delete_pcap_session(session_id: str, workspace_id: str = "") -> dict:
                 if rec.get("session_id") == session_id:
                     continue
                 kept.append(line)
-            idx_path.write_text("\n".join(kept) + ("\n" if kept else ""))
+            idx_path.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
     except Exception:
         pass
 

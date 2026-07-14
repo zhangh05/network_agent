@@ -487,7 +487,7 @@ def list_subagent_tasks(ws_id: str, limit: int = 200) -> list[dict]:
     rows: list[dict] = []
     for path in sorted(directory.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
         try:
-            raw = json.loads(path.read_text())
+            raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         if raw.get("workspace_id") != ws_id:
@@ -544,7 +544,7 @@ def reconcile_subagent_tasks() -> list[str]:
             continue
         for path in directory.glob("sub-*.json"):
             try:
-                raw = json.loads(path.read_text())
+                raw = json.loads(path.read_text(encoding="utf-8"))
                 if raw.get("workspace_id") != ws_id or raw.get("status") not in {"created", "running"}:
                     continue
                 task = SubagentTask(**{
@@ -601,7 +601,7 @@ def _load_task(ws_id: str, subtask_id: str) -> Optional[SubagentTask]:
     p = WS_ROOT / ws_id / "subagents" / f"{subtask_id}.json"
     if not p.exists(): return None
     try:
-        raw = json.loads(p.read_text())
+        raw = json.loads(p.read_text(encoding="utf-8"))
         return SubagentTask(**{k:v for k,v in raw.items() if k in SubagentTask.__dataclass_fields__})
     except Exception: return None
 

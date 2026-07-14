@@ -168,7 +168,7 @@ def load_provider_config(provider_id: str) -> dict:
 
     if path.is_file():
         try:
-            stored = json.loads(path.read_text())
+            stored = json.loads(path.read_text(encoding="utf-8"))
             return _build_provider_config(provider_id, stored)
         except Exception:
             pass
@@ -201,7 +201,7 @@ def get_active_provider() -> str:
     _ensure_dir()
     if ACTIVE_FILE.is_file():
         try:
-            pid = ACTIVE_FILE.read_text().strip()
+            pid = ACTIVE_FILE.read_text(encoding="utf-8").strip()
             if pid in PROVIDER_PRESETS:
                 return pid
         except Exception:

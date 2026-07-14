@@ -37,7 +37,7 @@ def save_task(task: TaskState):
 def get_task(ws_id: str, task_id: str) -> Optional[TaskState]:
     p = _task_dir(ws_id) / f"{task_id}.json"
     if not p.exists(): return None
-    try: return TaskState.from_dict(json.loads(p.read_text()))
+    try: return TaskState.from_dict(json.loads(p.read_text(encoding="utf-8")))
     except Exception: return None
 
 def list_tasks(ws_id: str, session_id="", limit=50) -> list[TaskState]:
@@ -47,7 +47,7 @@ def list_tasks(ws_id: str, session_id="", limit=50) -> list[TaskState]:
     tasks = []
     for f in sorted(d.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
         try:
-            t = TaskState.from_dict(json.loads(f.read_text()))
+            t = TaskState.from_dict(json.loads(f.read_text(encoding="utf-8")))
             if session_id and t.session_id != session_id: continue
             tasks.append(t)
             if len(tasks) >= limit: break
@@ -77,7 +77,7 @@ def get_events(ws_id, task_id, limit=100) -> list[dict]:
     if not p.exists(): return []
     evts = []
     try:
-        for line in p.read_text().splitlines():
+        for line in p.read_text(encoding="utf-8").splitlines():
             if line.strip(): evts.append(json.loads(line))
         return evts[-limit:]
     except (OSError, json.JSONDecodeError):
@@ -101,7 +101,7 @@ def get_checkpoints(ws_id, task_id) -> list[dict]:
     cps = []
     for f in sorted(d.glob("*.json"), key=lambda x: x.stat().st_mtime):
         try:
-            cps.append(json.loads(f.read_text()))
+            cps.append(json.loads(f.read_text(encoding="utf-8")))
         except (OSError, json.JSONDecodeError):
             # v3.9.9: skip + log corrupt checkpoint files.
             logger.debug("durable: skip corrupt checkpoint %s", f, exc_info=True)

@@ -203,7 +203,7 @@ def delete_asset(workspace_id: str, asset_id: str) -> dict:
     path = _db_dir(workspace_id) / "assets.jsonl"
     with _get_cmdb_lock(path):
         # Read all, filter out the target asset and its tombstones
-        lines = path.read_text().strip().split("\n") if path.is_file() else []
+        lines = path.read_text(encoding="utf-8").strip().split("\n") if path.is_file() else []
         name = existing.get("name", "")
         kept = []
         for line in lines:
@@ -219,7 +219,7 @@ def delete_asset(workspace_id: str, asset_id: str) -> dict:
             if rec.get("deleted") and rec.get("asset_id") == asset_id:
                 continue  # remove tombstone
             kept.append(line)
-        path.write_text("\n".join(kept) + ("\n" if kept else ""))
+        path.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
     return {"ok": True, "name": name}
 
 

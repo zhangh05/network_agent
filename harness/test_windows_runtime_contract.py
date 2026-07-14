@@ -138,3 +138,22 @@ def test_windows_persistence_never_uses_rename_for_atomic_overwrite():
         text = path.read_text(encoding="utf-8")
         assert ".rename(" not in text, path
         assert "atomic_write_" in text, path
+
+
+def test_persisted_text_is_read_as_utf8_and_logical_paths_are_posix():
+    utf8_readers = (
+        ROOT / "workspace" / "manager.py",
+        ROOT / "workspace" / "run_store.py",
+        ROOT / "workspace" / "memory_governance.py",
+        ROOT / "artifacts" / "store.py",
+        ROOT / "agent" / "llm" / "config.py",
+        ROOT / "agent" / "llm" / "provider_store.py",
+        ROOT / "agent" / "runtime" / "durable" / "store.py",
+    )
+    for path in utf8_readers:
+        text = path.read_text(encoding="utf-8")
+        assert ".read_text()" not in text, path
+
+    file_store = (ROOT / "storage" / "file_store.py").read_text(encoding="utf-8")
+    assert "str(target.relative_to(ws))" not in file_store
+    assert file_store.count("target.relative_to(ws).as_posix()") == 3

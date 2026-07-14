@@ -24,7 +24,7 @@ def find_orphan_files(workspace_id: str) -> list[dict]:
             continue
         for f in d.iterdir():
             if f.is_file():
-                rel = str(f.relative_to(ws))
+                rel = f.relative_to(ws).as_posix()
                 if rel not in indexed_paths:
                     orphans.append({"path": rel, "size": f.stat().st_size})
     return orphans

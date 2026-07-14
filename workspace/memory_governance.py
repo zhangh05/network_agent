@@ -186,7 +186,7 @@ class MemoryStore:
         except ValueError:
             return None
         if not p.exists(): return None
-        try: return MemoryRecord.from_dict(json.loads(p.read_text()))
+        try: return MemoryRecord.from_dict(json.loads(p.read_text(encoding="utf-8")))
         except Exception: return None
 
     def list_all(self, ws_id: str) -> list[MemoryRecord]:
@@ -194,7 +194,7 @@ class MemoryStore:
         if not d.exists(): return []
         recs = []
         for f in sorted(d.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
-            try: recs.append(MemoryRecord.from_dict(json.loads(f.read_text())))
+            try: recs.append(MemoryRecord.from_dict(json.loads(f.read_text(encoding="utf-8"))))
             except Exception: continue
         return recs
 

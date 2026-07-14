@@ -42,7 +42,7 @@ def ensure_workspace(ws_id: str = "default") -> str:
                 f"name: {ws_id}\n"
                 f"created: {time.time()}\n"
             )
-            yaml_path.write_text(yaml_text)
+            yaml_path.write_text(yaml_text, encoding="utf-8")
         except Exception:
             _LOG.warning("failed to write workspace.yaml for ws=%s", ws_id, exc_info=True)
 
@@ -69,7 +69,7 @@ def ensure_workspace(ws_id: str = "default") -> str:
                 "updated_at": "",
             }
             state_text = json.dumps(default_state, indent=2, ensure_ascii=False)
-            state_path.write_text(state_text)
+            state_path.write_text(state_text, encoding="utf-8")
         except Exception:
             _LOG.warning("failed to write state.json for ws=%s", ws_id, exc_info=True)
 
@@ -80,7 +80,7 @@ def get_workspace_state(ws_id: str = "default") -> dict:
     """Get workspace state. Returns empty dict if not found."""
     ws_id = validate_workspace_id(ws_id)
     try:
-        state = json.loads((WS_ROOT / ws_id / "sys" / "state.json").read_text())
+        state = json.loads((WS_ROOT / ws_id / "sys" / "state.json").read_text(encoding="utf-8"))
         # Enrich with live counts
         state["runs_count"] = _count_runs(ws_id)
         state["memory_count"] = _count_memory(ws_id)
@@ -163,7 +163,7 @@ def rename_workspace(old_id: str, new_id: str) -> dict:
         # Update workspace.yaml
         yaml_path = new_path / "sys" / "workspace.yaml"
         if yaml_path.is_file():
-            lines = yaml_path.read_text().splitlines()
+            lines = yaml_path.read_text(encoding="utf-8").splitlines()
             updated = []
             for line in lines:
                 if line.startswith("id: "):
@@ -173,17 +173,17 @@ def rename_workspace(old_id: str, new_id: str) -> dict:
                 else:
                     updated.append(line)
             try:
-                yaml_path.write_text("\n".join(updated) + "\n")
+                yaml_path.write_text("\n".join(updated) + "\n", encoding="utf-8")
             except Exception:
                 pass
         # Update state.json
         state_path = new_path / "sys" / "state.json"
         if state_path.is_file():
             try:
-                s = json.loads(state_path.read_text())
+                s = json.loads(state_path.read_text(encoding="utf-8"))
                 s["workspace_id"] = new_id
                 s["name"] = new_id
-                state_path.write_text(json.dumps(s, indent=2, ensure_ascii=False))
+                state_path.write_text(json.dumps(s, indent=2, ensure_ascii=False), encoding="utf-8")
             except Exception:
                 pass
         return {"ok": True, "workspace_id": new_id}
@@ -243,7 +243,7 @@ def get_workspace_runs(ws_id: str = "default") -> list:
             if not _is_run_record_file(f):
                 continue
             try:
-                runs.append(json.loads(f.read_text()))
+                runs.append(json.loads(f.read_text(encoding="utf-8")))
             except Exception:
                 _LOG.debug("corrupt run file: %s", f, exc_info=True)
     return runs
@@ -255,7 +255,7 @@ def get_run(run_id: str, ws_id: str = "default") -> Optional[dict]:
     path = WS_ROOT / ws_id / "runs" / f"{run_id}.json"
     if path.is_file():
         try:
-            return json.loads(path.read_text())
+            return json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             _LOG.debug("corrupt run file: %s", path, exc_info=True)
     return None
