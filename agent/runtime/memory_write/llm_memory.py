@@ -34,6 +34,11 @@ the downstream gate will enforce your score and keep decision. Each item:
   1-2 is noise or too vague.
 - "keep": true only when score >= 3.
 - "summary": max 80 chars, same language, optimized for future retrieval.
+- Prefer concrete relationships that will help a future task, such as a named
+  device interface connected to a peer. Do not retain isolated identifiers
+  merely because an IP, MAC, VLAN, or port appears in tool output.
+- "ttl_days": optional integer. Use 7 for transient device_state observations
+  and 365 for durable user_preference items. Omit it for other memory types.
 
 Skip trivial or redundant facts. In particular, do NOT create memories that
 only state a tool completed without any substantive finding (e.g. "pcap
@@ -145,6 +150,7 @@ def _parse_json(raw: str) -> list[dict[str, Any]]:
         except (TypeError, ValueError):
             continue
         keep = item.get("keep") is True and score >= 3
+        ttl_days = _normalized_ttl_days(item.get("ttl_days"), memory_type)
         result.append({
             "content": content,
             "type": memory_type,
@@ -152,5 +158,20 @@ def _parse_json(raw: str) -> list[dict[str, Any]]:
             "score": score,
             "keep": keep,
             "summary": str(item.get("summary", "") or "").strip()[:80],
+            "ttl_days": ttl_days,
         })
     return result
+
+
+def _normalized_ttl_days(value: Any, memory_type: str) -> int | None:
+    if memory_type not in {"device_state", "user_preference"}:
+        return None
+    default_days = 7 if memory_type == "device_state" else 365
+    max_days = 30 if memory_type == "device_state" else 365
+    if value is None or isinstance(value, bool):
+        return default_days
+    try:
+        days = int(value)
+    except (TypeError, ValueError):
+        return default_days
+    return max(1, min(days, max_days))

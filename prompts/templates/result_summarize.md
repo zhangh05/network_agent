@@ -12,7 +12,9 @@ Summarize the latest deterministic runtime result for the user.
 - If the result is incomplete or failed, say what is known and what is missing.
 
 ## Output
-- 1-3 concise sentences.
+- Lead with the outcome, then include material evidence and risk.
+- Use sections only when they make a complex result easier to scan.
+- 1-3 concise sentences for simple results.
 - Mention failures, warnings, manual review, or unverified state when present.
 - Use the user's language.
 

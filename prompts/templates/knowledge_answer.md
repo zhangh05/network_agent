@@ -39,4 +39,6 @@ No knowledge results found.
 
 ## Your Answer
 
-Provide your answer now, following all rules above. Include source references.
+Lead with the answer, support it with specific information from
+[source: <artifact_id>/<chunk_id>], and state material evidence gaps when the
+results are incomplete. Follow all rules above and include source references.

@@ -458,3 +458,91 @@ class TestMemoryLLMGate:
             "reason": "llm_gate_unavailable",
             "memory_type": "operational_fact",
         }]
+
+
+class TestLLMFirstMemoryGeneration:
+    def test_parser_preserves_only_bounded_ttl_for_supported_types(self):
+        from agent.runtime.memory_write.llm_memory import _parse_json
+
+        items = _parse_json(json.dumps([
+            {
+                "content": "PE1 interface GE0/0 was observed down.",
+                "type": "device_state",
+                "confidence": 0.9,
+                "score": 4,
+                "keep": True,
+                "summary": "PE1 GE0/0 down",
+                "ttl_days": 7,
+            },
+            {
+                "content": "Use OSPF area 0 for this topology.",
+                "type": "operational_fact",
+                "confidence": 0.9,
+                "score": 4,
+                "keep": True,
+                "summary": "OSPF area 0",
+                "ttl_days": 365,
+            },
+            {
+                "content": "User prefers Chinese responses.",
+                "type": "user_preference",
+                "confidence": 1.0,
+                "score": 5,
+                "keep": True,
+                "summary": "Chinese responses",
+                "ttl_days": 9999,
+            },
+        ]))
+
+        assert [item["ttl_days"] for item in items] == [7, None, 365]
+        assert _parse_json(json.dumps({
+            "content": "PE2 interface GE0/1 is up.",
+            "type": "device_state",
+            "confidence": 0.9,
+            "score": 4,
+            "keep": True,
+            "summary": "PE2 GE0/1 up",
+        }))[0]["ttl_days"] == 7
+        assert _parse_json(json.dumps({
+            "content": "PE2 interface GE0/1 is up.",
+            "type": "device_state",
+            "confidence": 0.9,
+            "score": 4,
+            "keep": True,
+            "summary": "PE2 GE0/1 up",
+            "ttl_days": 9999,
+        }))[0]["ttl_days"] == 30
+
+    def test_ssot_writer_converts_llm_ttl_days_to_record_seconds(self, monkeypatch):
+        import agent.runtime.ssot_runtime as runtime
+        import workspace.memory_governance as governance
+        from agent.runtime.memory_write import llm_memory
+
+        captured = []
+        monkeypatch.setattr(governance, "get_memory_gate_mode", lambda workspace_id: "llm_first")
+        monkeypatch.setattr(llm_memory, "generate_memories", lambda **kwargs: [{
+            "content": "PE1 interface GE0/0 was observed down.",
+            "type": "device_state",
+            "confidence": 0.9,
+            "score": 4,
+            "keep": True,
+            "summary": "PE1 GE0/0 down",
+            "ttl_days": 7,
+        }])
+        monkeypatch.setattr(
+            governance.MemoryWriteGate,
+            "write",
+            lambda self, record, gate_mode=None: captured.append(record) or {"ok": True},
+        )
+
+        runtime._write_turn_memories(
+            workspace_id="default",
+            session_id="session-1",
+            user_input="Check PE1",
+            assistant_response="GE0/0 is down.",
+            tool_calls=[],
+        )
+
+        assert len(captured) == 1
+        assert captured[0].ttl_seconds == 7 * 24 * 60 * 60
+        assert captured[0].expires_at

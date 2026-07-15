@@ -69,8 +69,8 @@ flowchart LR
 - `inspection.manage action=get` 返回 slim 数据（不含 output_snippet），避免轮询撑爆上下文
 
 ### LLM 配置
-- 默认 `max_tokens: 4096`（v3.11 从 1200 提升，避免巡检分析输出截断）
-- `config/providers/` 保存每 provider 配置（不入 git），`config/llm.local.yaml` 管理本地覆盖
+- 仓库基础配置 `config/llm.yaml` 使用 `max_tokens: 50000`；未配置 provider 时运行时回退值为 `4096`
+- `config/providers/` 保存每 provider 配置，`config/llm.local.yaml` 保存本机覆盖；两者均不入 git
 - `NETWORK_AGENT_AUTH_ENABLED=true` 时 WebSocket 也需携带 `auth_token`
 
 ### 安全
@@ -95,7 +95,7 @@ flowchart LR
 - API 入参缺失或非法 `workspace_id` 必须返回 400。
 - `workspaces/default/` 是本地默认工作区数据。
 - `workspaces/_runtime/` 保存 durable task、checkpoint、trajectory 等运行时状态。
-- `config/providers/` 与 `config/llm.local.yaml` 保存本机 LLM 配置，不入库。
+- `config/llm.yaml` 是入库的基础配置；`config/providers/` 与 `config/llm.local.yaml` 保存本机 LLM 配置且不入库。
 
 ## 验证命令
 

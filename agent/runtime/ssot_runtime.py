@@ -294,6 +294,12 @@ def _write_turn_memories(
         if items:
             gate = MemoryWriteGate()
             for item in items:
+                ttl_days = item.get("ttl_days")
+                ttl_seconds = (
+                    int(ttl_days) * 24 * 60 * 60
+                    if isinstance(ttl_days, int) and ttl_days > 0
+                    else None
+                )
                 rec = MemoryRecord(
                     workspace_id=workspace_id,
                     session_id=session_id,
@@ -304,6 +310,7 @@ def _write_turn_memories(
                     content=str(item.get("content", ""))[:2000],
                     summary=str(item.get("summary") or item.get("content", ""))[:200],
                     confidence=float(item.get("confidence", 0.7)),
+                    ttl_seconds=ttl_seconds,
                     created_by="llm",
                     redacted=True,
                     metadata={
