@@ -7,7 +7,8 @@ from artifacts.store import (
     save_artifact, sanitize_record,
     list_artifacts, get_artifact, read_artifact_content,
     delete_artifact, promote_artifact, summarize_artifact_content,
-    get_run_artifacts, _get_max_size, _get_ws_root,
+    get_run_artifacts, get_artifact_governance, artifact_governance_summary,
+    _get_max_size, _get_ws_root,
 )
 
 
@@ -89,12 +90,23 @@ def register_artifact_routes(app):
         art_type = request.args.get("artifact_type")
         scope = request.args.get("scope")
         sens = request.args.get("sensitivity")
+        evidence_view = request.args.get("evidence_view", "")
+        if evidence_view not in {"", "current", "history", "deliverables"}:
+            return jsonify({"ok": False, "error": "invalid_evidence_view"}), 400
         inc_del = request.args.get("include_deleted", "0") == "1"
         lim, err = _validated_limit(default=100, max_value=500)
         if err:
             return err
-        return jsonify({"artifacts": list_artifacts(ws_id, run_id=run_id, artifact_type=art_type,
-                        scope=scope, sensitivity=sens, include_deleted=inc_del, limit=lim)})
+        return jsonify({
+            "artifacts": list_artifacts(
+                ws_id, run_id=run_id, artifact_type=art_type, scope=scope,
+                sensitivity=sens, include_deleted=inc_del, limit=lim,
+                evidence_view=evidence_view,
+                producer_id=request.args.get("producer_id", ""),
+                asset_id=request.args.get("asset_id", ""),
+            ),
+            "governance": artifact_governance_summary(ws_id),
+        })
 
     @app.route("/api/workspaces/<ws_id>/artifacts", methods=["POST"])
     def api_workspace_artifact_create(ws_id):
@@ -230,7 +242,7 @@ def register_artifact_routes(app):
             return jsonify({"ok": False, "error": "artifact_ids (list) required"}), 400
         deleted = []
         for aid in ids:
-            ok = delete_artifact(ws_id, aid)
+            ok = delete_artifact(ws_id, aid, hard=True)
             if ok:
                 deleted.append(aid)
         return jsonify({"ok": True, "deleted": len(deleted), "total": len(ids)})
@@ -243,7 +255,9 @@ def register_artifact_routes(app):
         rec = get_artifact(ws_id, artifact_id)
         if not rec:
             return jsonify({"ok": False, "error": "artifact not found"}), 404
-        return jsonify({"ok": True, "artifact": sanitize_record(rec)})
+        artifact = sanitize_record(rec, include_metadata=True)
+        artifact["governance"] = get_artifact_governance(ws_id, artifact_id)
+        return jsonify({"ok": True, "artifact": artifact})
 
     @app.route("/api/workspaces/<ws_id>/artifacts/<artifact_id>/content")
     def api_artifact_content(ws_id, artifact_id):

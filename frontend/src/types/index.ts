@@ -383,10 +383,24 @@ export interface Artifact {
   skill: string;
   /** Run that produced this artifact (empty for user uploads). */
   run_id: string;
+  created_by?: string;
   /** True if the content was redacted before persistence. */
   redaction_applied: boolean;
   /** Server-side metadata bag (varies by artifact_type). */
   metadata: Record<string, unknown>;
+  governance?: {
+    evidence_key?: string;
+    evidence_role?: string;
+    evidence_quality?: "complete" | "partial" | "unknown" | string;
+    authority_status: "authoritative" | "provisional" | "historical" | "incomplete" | "not_applicable" | string;
+    authority_reason?: string;
+    authority_policy?: string;
+    authoritative_artifact_id?: string;
+    latest_artifact_id?: string;
+    is_latest_observation?: boolean;
+    version?: number;
+    version_count?: number;
+  };
 }
 
 /* ──────────────────────────── Reviews ──────────────────────────── */

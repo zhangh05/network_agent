@@ -11,10 +11,17 @@ def handle_artifact_search(inv: ToolInvocation) -> dict:
     args = inv.arguments
     ws = _caller_workspace(inv)
     query = (args.get("query") or "").strip().lower()
+    evidence_view = str(args.get("evidence_view") or "").strip()
+    if evidence_view not in {"", "current", "history", "deliverables"}:
+        return _error_inv(inv, "evidence_view must be current, history, or deliverables")
     try:
         validate_workspace_id(ws)
-        from artifacts.store import list_artifacts
-        arts = list_artifacts(ws, limit=100)
+        from artifacts.store import artifact_governance_summary, list_artifacts
+        arts = list_artifacts(
+            ws, limit=100, evidence_view=evidence_view,
+            producer_id=str(args.get("producer_id") or ""),
+            asset_id=str(args.get("asset_id") or ""),
+        )
         results = []
         for a in arts:
             title = (a.get("title") or "").lower()
@@ -27,8 +34,14 @@ def handle_artifact_search(inv: ToolInvocation) -> dict:
                     "lifecycle": a.get("lifecycle", "active"),
                     "sensitivity": a.get("sensitivity", "internal"),
                     "created_at": a.get("created_at", ""),
+                    "producer_id": (a.get("metadata") or {}).get("producer_id", ""),
+                    "asset_id": (a.get("metadata") or {}).get("asset_id", ""),
+                    "governance": a.get("governance") or {},
                 })
-        return _ok(inv, "", {"results": results[:20], "count": len(results)})
+        return _ok(inv, "", {
+            "results": results[:20], "count": len(results),
+            "governance": artifact_governance_summary(ws),
+        })
     except Exception as e:
         return _error_inv(inv, str(e)[:200])
 

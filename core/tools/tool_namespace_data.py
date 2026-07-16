@@ -8,6 +8,10 @@ from __future__ import annotations
 
 
 CATEGORY_DEFS: dict[str, dict[str, str]] = {
+    "assurance": {
+        "name": "Assurance 网络保障",
+        "description": "基线、漂移、拓扑影响、故障调查、变更保障和持续检查。",
+    },
     "agent": {
         "name": "Agent 多 Agent",
         "description": "子 Agent、角色、团队和结果读取。",
@@ -262,4 +266,12 @@ NS_DATA = [
      "Don't use raw shell commands -- the runner dispatches a fixed profile. "
      'Never expose device passwords in tool output.',
      'inspection.manage'),
+
+    # assurance.manage — composes CMDB and inspection evidence into durable assurance facts
+    ('assurance.manage', 'assurance', 'assurance', 'manage', '网络保障', 'assurance.manage',
+     'Network assurance workflow. Baseline, topology, impact, incident, change pre/post checks, and schedules '
+     'all use fresh inspection evidence. Long actions return operation_id; poll operation_get until terminal. '
+     'Change actions validate only and never deploy configuration.',
+     'Do not fabricate topology or drift. Do not treat memory as live state. Do not deploy configuration.',
+     'assurance.manage'),
 ] 

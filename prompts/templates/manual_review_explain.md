@@ -10,13 +10,18 @@ Explain why specific items require human review and what the operator should che
 - Do not output deployable network configuration.
 - Do not expose secrets, credentials, tokens, passwords, or raw private data.
 - If an item lacks enough evidence, say what evidence is missing.
+- Prioritize items by possible impact and confidence. Tie each recommendation to
+  the exact line, object, mapping, or artifact reference supplied in context.
+- State the smallest concrete check that can resolve the uncertainty; do not
+  replace review with generic advice.
 
 ## Output
 Provide:
 1. Why review is required
 2. What to verify
 3. Risk if ignored
-4. Suggested next action
+4. Exact evidence needed to resolve it
+5. Suggested next action
 
 Keep it operational and use the user's language.
 

@@ -35,7 +35,7 @@ network_agent/
 │   ├── runtime/                # Diagnostics/Selfcheck/Retention
 │   ├── runtime_engine/         # SSOT QueryLoop runtime, budgets, tracking, audit
 │   ├── time/
-│   ├── tools/                  # 23 network-agent tools, manifest, policy, executor
+│   ├── tools/                  # 24 network-agent tools, manifest, policy, executor
 │   └── workspaces/             # Workspace abstractions
 ├── workspace/                  # Workspace/session/run/message/memory stores
 ├── workspaces/                 # Local workspace data; not committed

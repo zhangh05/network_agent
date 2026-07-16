@@ -26,6 +26,7 @@ import {
   ArtifactCenter,
   MemoryPage,
   CMDBPage,
+  AssurancePage,
   ReviewCenter,
   RuntimeAudit,
   FileManager,
@@ -44,6 +45,7 @@ const SKELETON_BY_PATH: Record<string, "list" | "table"> = {
   "/audit": "table",
   "/reviews": "list",
   "/cmdb": "list",
+  "/assurance": "table",
   "/knowledge": "list",
   "/artifacts": "list",
   "/memory": "list",
@@ -180,6 +182,7 @@ function AppShell() {
                 <Route path="/artifacts" element={<ErrorBoundary><ArtifactCenter /></ErrorBoundary>} />
                 <Route path="/memory" element={<ErrorBoundary><MemoryPage /></ErrorBoundary>} />
                 <Route path="/cmdb" element={<ErrorBoundary><CMDBPage /></ErrorBoundary>} />
+                <Route path="/assurance" element={<ErrorBoundary><AssurancePage /></ErrorBoundary>} />
                 <Route path="/capabilities" element={<ErrorBoundary><CapabilityCenter /></ErrorBoundary>} />
                 <Route path="/diagnostics" element={<ErrorBoundary><Diagnostics /></ErrorBoundary>} />
                 <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />

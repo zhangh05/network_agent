@@ -171,8 +171,7 @@ class MemoryStore:
                 from core.context.context_store import get_context_store
                 context_store = get_context_store(ws_id)
                 item_id = f"mh_{memory_id}"
-                if context_store.get(item_id) is not None:
-                    context_store.delete(item_id)
+                context_store.purge({item_id})
             except Exception as exc:
                 logging.getLogger("memory_governance.delete").warning(
                     "ContextStore delete failed for memory %s: %s", memory_id, exc,

@@ -65,11 +65,11 @@ canonical tool id
   -> ToolResult
 ```
 
-当前只有 23 个 canonical tool。`handler_id` 是内部实现细节，不暴露给 LLM、前端或公共 API。SSOT Runtime 节点不会直接调用 handler，只能通过 `ToolRuntimeClient.invoke()` 进入工具边界。
+当前只有 24 个 canonical tool。`handler_id` 是内部实现细节，不暴露给 LLM、前端或公共 API。SSOT Runtime 节点不会直接调用 handler，只能通过 `ToolRuntimeClient.invoke()` 进入工具边界。
 
 ## Capability Catalog
 
-`agent/capabilities/catalog.py` 是业务能力目录，当前 12 个能力，全部 enabled。目录只提供：
+`agent/capabilities/catalog.py` 是业务能力目录，当前 13 个能力，全部 enabled。目录只提供：
 
 - 能力说明
 - 推荐 canonical tool

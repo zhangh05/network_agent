@@ -26,9 +26,10 @@ def test_tool_registries_expose_only_current_network_surface():
     from core.tools.tool_namespace import TOOL_NAMESPACE
 
     expected = set(CANONICAL_REGISTRY)
-    assert len(expected) == 23
+    assert len(expected) == 24
     assert expected == set(MANIFESTS) == set(TOOL_NAMESPACE) == set(BUILTIN_CONTRACTS)
     assert REMOVED_DEVELOPMENT_TOOLS.isdisjoint(expected)
+    assert "assurance.manage" in expected
 
 
 def test_exec_keeps_general_execution_capabilities():

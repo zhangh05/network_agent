@@ -74,6 +74,7 @@ class ArtifactRecord:
             "updated_at": self.updated_at, "expires_at": self.expires_at,
             "tags": self.tags, "redaction_applied": self.redaction_applied,
             "parent_artifact_id": self.parent_artifact_id,
+            "created_by": self.created_by,
         }
         # Always include metadata in the meta file so that
         # callers can recover the original metadata (e.g. review service

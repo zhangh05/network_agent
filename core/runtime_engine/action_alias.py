@@ -222,6 +222,13 @@ _CANONICAL_ACTIONS: Final[dict[str, frozenset[str]]] = {
     "inspection.manage": frozenset({
         "run", "list", "get", "cancel", "report",
     }),
+    "assurance.manage": frozenset({
+        "overview", "baseline_list", "baseline_create", "check", "check_get", "check_list", "drift_list",
+        "topology_get", "topology_build", "impact", "operation_get", "operation_list", "incident_list",
+        "incident_create", "incident_update", "change_list", "change_create",
+        "change_precheck", "change_postcheck", "change_update", "schedule_list", "schedule_create",
+        "schedule_update", "schedule_run",
+    }),
 }
 
 

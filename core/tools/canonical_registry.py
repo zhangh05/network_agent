@@ -451,6 +451,79 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
     return {"ok": False, "error": f"unknown_action: {action}"}
 
 
+def _handle_assurance_managed(inv: ToolInvocation) -> dict:
+    """assurance.manage — evidence-backed network assurance operations."""
+    from agent.modules.assurance import service as assurance_service
+
+    ws = _inv_workspace(inv)
+    action, raw = _action(inv)
+    args = dict(raw)
+    handlers: dict[str, Callable[[], dict | list]] = {
+        "overview": lambda: assurance_service.get_overview(ws),
+        "baseline_list": lambda: assurance_service.list_baselines(ws),
+        "baseline_create": lambda: assurance_service.create_baseline(
+            ws, str(args.get("name", "")), args.get("scope"),
+            str(args.get("inspection_task_id", "")),
+        ),
+        "check": lambda: assurance_service.start_baseline_check(
+            ws, str(args.get("baseline_id", "")),
+        ),
+        "check_get": lambda: assurance_service.get_baseline_check(
+            ws, str(args.get("check_id", "")),
+        ),
+        "check_list": lambda: assurance_service.list_baseline_checks(ws),
+        "drift_list": lambda: assurance_service.list_drifts(
+            ws, str(args.get("baseline_id", "")),
+        ),
+        "topology_get": lambda: assurance_service.get_topology(ws),
+        "topology_build": lambda: assurance_service.start_assurance_operation(
+            ws, "topology_refresh",
+        ),
+        "impact": lambda: assurance_service.start_assurance_operation(
+            ws, "impact", asset_ids=list(args.get("asset_ids") or []),
+            depth=int(args.get("depth", 2)),
+        ),
+        "operation_get": lambda: assurance_service.get_assurance_operation(ws, str(args.get("operation_id", ""))),
+        "operation_list": lambda: assurance_service.list_assurance_operations(ws, str(args.get("operation_kind", ""))),
+        "incident_list": lambda: assurance_service.list_incidents(ws),
+        "incident_create": lambda: assurance_service.create_incident(
+            ws, str(args.get("title", "")), str(args.get("symptom", "")),
+            args.get("scope"), str(args.get("drift_id", "")),
+        ),
+        "incident_update": lambda: assurance_service.update_incident(
+            ws, str(args.get("incident_id", "")), dict(args.get("updates") or {}),
+        ),
+        "change_list": lambda: assurance_service.list_change_plans(ws),
+        "change_create": lambda: assurance_service.create_change_plan(
+            ws, str(args.get("title", "")), str(args.get("summary", "")),
+            list(args.get("asset_ids") or []),
+        ),
+        "change_precheck": lambda: assurance_service.start_change_precheck(
+            ws, str(args.get("change_id", "")),
+        ),
+        "change_postcheck": lambda: assurance_service.start_change_postcheck(ws, str(args.get("change_id", ""))),
+        "change_update": lambda: assurance_service.update_change_plan(
+            ws, str(args.get("change_id", "")), dict(args.get("updates") or {}),
+        ),
+        "schedule_list": lambda: assurance_service.list_schedules(ws),
+        "schedule_create": lambda: assurance_service.create_schedule(
+            ws, str(args.get("name", "")), str(args.get("baseline_id", "")),
+            int(args.get("interval_minutes", 60)), args.get("scope"),
+        ),
+        "schedule_update": lambda: assurance_service.update_schedule(
+            ws, str(args.get("schedule_id", "")), dict(args.get("updates") or {}),
+        ),
+        "schedule_run": lambda: assurance_service.run_schedule_now(ws, str(args.get("schedule_id", ""))),
+    }
+    handler = handlers.get(action)
+    if handler is None:
+        return {"ok": False, "error": f"unknown_action: {action}"}
+    result = handler()
+    if isinstance(result, list):
+        return {"ok": True, "items": result, "count": len(result)}
+    return {"ok": True, **result}
+
+
 def _handle_browser_merged(inv: ToolInvocation) -> dict:
     """browser.manage — 16 action dispatcher."""
     action, _ = _action(inv)
@@ -2845,6 +2918,10 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             },
             "query": _S["query"],
             "limit": _S["limit"],
+            "evidence_view": {"type": "string", "enum": ["current", "history", "deliverables"],
+                              "description": "[list] Filter current evidence, historical/incomplete evidence, or business deliverables."},
+            "producer_id": {"type": "string", "description": "[list] Exact producing inspection task id."},
+            "asset_id": {"type": "string", "description": "[list] Exact CMDB asset id."},
             "include_disabled": {"type": "boolean", "description": "[list] Include disabled sources.", "default": False},
             "include_deleted": {"type": "boolean", "description": "[list] Include soft-deleted sources.", "default": False},
             "level": {"type": "string", "enum": ["chunk", "source", "parent"], "default": "chunk"},
@@ -3095,7 +3172,8 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
         permission_action="",
         description=(
             "Workspace artifact management. "
-            "action=list (list all), read (view content), save (create), "
+            "action=list (list all or filter governed evidence by evidence_view, producer_id, asset_id), "
+            "read (view content), save (create), "
             "tag (label), delete (soft-delete, requires approval). "
             "For diff/comparison use report.manage(action=diff). "
             "For saving reports use report.manage(action=save)."
@@ -3170,6 +3248,51 @@ _RAW_REGISTRY: list[CanonicalToolEntry] = [
             "(scope by type/vendor/region), returns task_id. get polls status "
             "(wait for succeeded/partial before report). cancel stops a task. "
             "list shows history. Credentials auto-selected via CMDB."
+        ),
+    ),
+
+    # 30. assurance.manage (baseline, topology, incident, change, schedule)
+    CanonicalToolEntry(
+        canonical_tool_id="assurance.manage",
+        handler=_adapt(_handle_assurance_managed),
+        input_schema=_schema({
+            "workspace_id": _S["workspace_id"],
+            "action": {
+                "type": "string",
+                "enum": [
+                    "overview", "baseline_list", "baseline_create", "check", "check_get",
+                    "check_list", "drift_list",
+                    "topology_get", "topology_build", "impact", "operation_get", "operation_list", "incident_list",
+                    "incident_create", "incident_update", "change_list", "change_create",
+                    "change_precheck", "change_postcheck", "change_update", "schedule_list", "schedule_create",
+                    "schedule_update", "schedule_run",
+                ],
+                "description": "Network assurance operation.",
+            },
+            "name": {"type": "string"},
+            "title": {"type": "string"},
+            "summary": {"type": "string"},
+            "symptom": {"type": "string"},
+            "baseline_id": {"type": "string"},
+            "check_id": {"type": "string"},
+            "inspection_task_id": {"type": "string"},
+            "drift_id": {"type": "string"},
+            "incident_id": {"type": "string"},
+            "change_id": {"type": "string"},
+            "schedule_id": {"type": "string"},
+            "operation_id": {"type": "string"},
+            "operation_kind": {"type": "string", "enum": ["topology_refresh", "impact", "incident", "change_pre", "change_post"]},
+            "scope": {"type": "object", "description": "CMDB scope filter."},
+            "asset_ids": {"type": "array", "items": {"type": "string"}},
+            "depth": {"type": "integer", "description": "Impact traversal depth, 1-6."},
+            "interval_minutes": {"type": "integer", "description": "Schedule interval, minimum 5."},
+            "updates": {"type": "object", "description": "Allowed status or workflow field updates."},
+        }, ["action"]),
+        description=(
+            "Network assurance from CMDB and fresh inspection evidence: create baselines, start and track "
+            "real inspection-backed checks with check/check_get/check_list, compare baselines, and run "
+            "topology, impact, incident, and change evidence collection asynchronously. Retain operation_id "
+            "and poll operation_get until terminal. Change checks never deploy configuration."
         ),
     ),
 ]

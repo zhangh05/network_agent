@@ -55,12 +55,21 @@ Approval requests are durable interrupts. Approval is required only when policy 
 | `GET` | `/api/sessions/<session_id>/messages?workspace_id=<ws>` | Session messages |
 | `POST` | `/api/sessions/<session_id>/restore?workspace_id=<ws>` | Restore archived session |
 | `GET` | `/api/runs/recent?workspace_id=<ws>&session_id=<id>` | Recent runs |
+| `GET` | `/api/workspaces/<ws>/artifacts?evidence_view=current\|history\|deliverables` | Managed artifacts with evidence authority projection |
+| `GET` | `/api/workspaces/<ws>/artifacts/<artifact_id>` | Artifact metadata, lineage, and authority status |
 | `GET` | `/api/memory/search?workspace_id=<ws>` | Search active memories |
 | `POST` | `/api/memory/write` | Write memory through MemoryWriteGate |
 | `GET` | `/api/cmdb/assets?workspace_id=<ws>` | Device assets |
 | `POST` | `/api/cmdb/assets` | Save device asset |
 | `GET` | `/api/remote/devices?workspace_id=<ws>` | Remote devices |
 | `POST` | `/api/remote/connect` | Connect to remote device |
+
+Inspection artifacts form immutable evidence streams keyed by CMDB asset and
+script profile. The newest complete observation is the current authoritative
+evidence. A partial observation is provisional only when the stream has never
+completed successfully; incomplete observations never replace a complete one.
+Baselines, incidents, changes, and scheduled checks retain their exact task and
+artifact IDs even after a newer observation becomes authoritative.
 
 ## Inspection
 
@@ -74,6 +83,29 @@ CMDB-driven inspection runs only fixed read-only scripts selected by each asset'
 | `POST` | `/api/inspection/tasks/<task_id>/cancel` | Cancel inspection task when supported |
 | `GET` | `/api/inspection/tasks/<task_id>/report?workspace_id=<ws>&format=md` | Render Markdown, JSON, or HTML report metadata |
 | `GET` | `/api/inspection/tasks/<task_id>/report.html?workspace_id=<ws>` | Open the HTML inspection report directly |
+
+## Network Assurance
+
+Network Assurance derives state from CMDB identity and completed inspection evidence. It stores no credentials, does not execute configuration changes, and marks incomplete inspection comparisons as `partial` rather than inventing removed state.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/assurance/overview?workspace_id=<ws>` | Current assurance health and counts |
+| `GET/POST` | `/api/assurance/baselines` | List or create a complete-evidence baseline |
+| `POST` | `/api/assurance/checks` | Start a fresh inspection-backed baseline check (202) |
+| `GET` | `/api/assurance/checks?workspace_id=<ws>` | List and refresh baseline check tasks |
+| `GET` | `/api/assurance/checks/<check_id>?workspace_id=<ws>` | Track collection progress and final drift ID |
+| `GET` | `/api/assurance/drifts?workspace_id=<ws>` | List drift records |
+| `GET` | `/api/assurance/topology?workspace_id=<ws>` | Latest evidence-backed topology |
+| `POST` | `/api/assurance/topology/build` | Start a fresh inspection-backed topology refresh (202) |
+| `POST` | `/api/assurance/topology/impact` | Start fresh evidence collection and impact analysis (202) |
+| `GET` | `/api/assurance/operations[/<id>]` | List or track topology, impact, incident, and change operations |
+| `GET/POST/PATCH` | `/api/assurance/incidents[...]` | Start and manage evidence-collecting investigations |
+| `GET/POST` | `/api/assurance/changes` | List or create non-deploying change plans |
+| `POST` | `/api/assurance/changes/<id>/validate` | Start the real pre-change inspection (202) |
+| `POST` | `/api/assurance/changes/<id>/postcheck` | Start post-change inspection and compare with pre-change state (202) |
+| `GET/POST/PATCH` | `/api/assurance/schedules[...]` | Manage recurring inspection-and-drift checks |
+| `POST` | `/api/assurance/schedules/<id>/run` | Run a scheduled check immediately (202) |
 
 ## Error Shape
 

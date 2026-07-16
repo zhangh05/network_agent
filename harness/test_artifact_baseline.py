@@ -105,6 +105,19 @@ class TestRedaction:
         assert result["password"] != "secret123"
         assert result["name"] == "R1"
 
+    def test_redact_metadata_preserves_lineage_keys(self):
+        from artifacts.redaction import redact_metadata
+
+        result = redact_metadata({
+            "evidence_key": "inspection:asset-1:h3c",
+            "command_key": "display_version",
+            "api_key": "not-a-real-key",
+        })
+
+        assert result["evidence_key"] == "inspection:asset-1:h3c"
+        assert result["command_key"] == "display_version"
+        assert "REDACTED" in result["api_key"]
+
 
 class TestArtifactStore:
     def test_save_and_get(self, temp_dirs):

@@ -18,6 +18,12 @@ Additional rules:
 - A task completion that only says "Task X completed" without a concrete reusable finding is at most score 2 and keep=false.
 - Never infer a user preference merely from the assistant's wording. A preference must be explicitly stated by the user.
 - Device state is valuable only when tied to a device identity and concrete observed value.
+- Treat device state, interface counters, reachability, and task progress as
+  time-sensitive. Without an observation time or clear recency, keep them
+  pending rather than presenting them as durable truth.
+- A relationship between identified entities is more reusable than an isolated
+  IP, MAC, interface, VLAN, or port. Do not retain identifiers without a future
+  retrieval purpose.
 - keep=true requires score >= 3. Scores 1-2 must use keep=false.
 
 Output JSON only — no explanation, no markdown wrapping:

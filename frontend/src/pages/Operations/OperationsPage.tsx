@@ -360,9 +360,9 @@ export function OperationsPage() {
       {loading ? (
         <div className="page-body"><LoadingState text="加载作业列表…" /></div>
       ) : (
-        <div className="split-shell" style={{ flex: 1 }}>
+        <div className="split-shell operations-split">
           {/* ══════ 左侧 作业列表 ══════ */}
-          <aside className="list-scroll jobs-list" style={{ padding: 12, overflow: "auto" }}>
+          <aside className="list-scroll jobs-list operations-pane-scroll" style={{ padding: 12 }}>
             {jobs.map((job) => {
               const meta = sMeta(job.status);
               const active = selectedJob?.job_id === job.job_id;
@@ -504,7 +504,7 @@ function JobDetail({
   const meta = sMeta(job.status);
 
   return (
-    <div className="split-detail" style={{ padding: "24px", overflow: "auto", animation: "surface-in var(--dur-4) var(--ease-out) both" }}>
+    <div className="split-detail operations-pane-scroll" style={{ padding: "24px", animation: "surface-in var(--dur-4) var(--ease-out) both" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
         <StatusDot status={meta.dot} />
         <h3 style={{ fontSize: "var(--fs-18)", fontWeight: 720, margin: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -753,7 +753,7 @@ function RunTraceView({ run, trace, tab, setTab, onBack }: {
   const selectedStats = useMemo(() => deriveRunTraceStats(run, trace), [run, trace]);
 
   return (
-    <div className="split-detail" style={{ padding: "24px", overflow: "auto", animation: "surface-in var(--dur-4) var(--ease-out) both" }}>
+    <div className="split-detail operations-pane-scroll" style={{ padding: "24px", animation: "surface-in var(--dur-4) var(--ease-out) both" }}>
       <button className="btn sm ghost" onClick={onBack} style={{ marginBottom: 14 }}>
         ← 返回作业
       </button>

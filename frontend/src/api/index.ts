@@ -478,7 +478,7 @@ export const memoryApi = {
     signal?: AbortSignal,
   ): Promise<{ ok: boolean }> =>
     apiRequest<{ ok: boolean }>(
-      { method: "DELETE", url: `/memory/${encodeURIComponent(memoryId)}`, params: { workspace_id: workspaceId } },
+      { method: "DELETE", url: `/memory/${encodeURIComponent(memoryId)}`, params: { workspace_id: workspaceId, confirm: "true" } },
       signal,
     ),
 
@@ -488,7 +488,7 @@ export const memoryApi = {
     signal?: AbortSignal,
   ): Promise<{ ok: boolean; deleted_count: number; requested: number }> =>
     apiRequest<{ ok: boolean; deleted_count: number; requested: number }>(
-      { method: "POST", url: "/memory/batch-delete", data: { workspace_id: workspaceId, memory_ids: memoryIds } },
+      { method: "POST", url: "/memory/batch-delete", data: { workspace_id: workspaceId, memory_ids: memoryIds, confirm: true } },
       signal,
     ),
 
@@ -543,13 +543,25 @@ export const memoryApi = {
     ),
 };
 
+export interface ArtifactGovernanceSummary {
+  policy: string;
+  evidence_streams: number;
+  authoritative: number;
+  provisional: number;
+  incomplete: number;
+  historical: number;
+  deliverables: number;
+}
+
 export const artifactsApi = {
   list: (
     workspace_id: string,
     signal?: AbortSignal,
-  ): Promise<{ artifacts: Artifact[] }> =>
-    apiRequest<{ artifacts: Artifact[] }>(
-      { method: "GET", url: `/workspaces/${workspace_id}/artifacts` },
+    evidence_view: "" | "current" | "history" | "deliverables" = "",
+    producer_id = "",
+  ): Promise<{ artifacts: Artifact[]; governance?: ArtifactGovernanceSummary }> =>
+    apiRequest<{ artifacts: Artifact[]; governance?: ArtifactGovernanceSummary }>(
+      { method: "GET", url: `/workspaces/${workspace_id}/artifacts`, params: { evidence_view: evidence_view || undefined, producer_id: producer_id || undefined } },
       signal,
     ),
   /** POST /api/workspaces/<ws>/artifacts — create artifact from JSON payload. */
@@ -1212,6 +1224,199 @@ export const inspectionApi = {
       url: `/inspection/tasks/${encodeURIComponent(task_id)}/report`,
       params: { workspace_id, format },
     }),
+};
+
+// ── Network Assurance ───────────────────────────────────────────────
+export interface AssuranceOverview {
+  workspace_id: string;
+  health: "stable" | "attention";
+  counts: Record<string, number>;
+  latest_drift?: AssuranceDrift | null;
+}
+
+export interface AssuranceBaseline {
+  baseline_id: string;
+  name: string;
+  scope: Record<string, unknown>;
+  source_task_id: string;
+  fact_count: number;
+  created_at: string;
+}
+
+export interface AssuranceDrift {
+  drift_id: string;
+  baseline_id: string;
+  status: "compliant" | "drifted" | "partial";
+  source_task_id: string;
+  summary: Record<string, number>;
+  changes: Array<Record<string, unknown>>;
+  incomplete?: boolean;
+  created_at: string;
+}
+
+export interface AssuranceCheck {
+  check_id: string;
+  baseline_id: string;
+  inspection_task_id: string;
+  status: "collecting" | "completed" | "failed" | "cancelled";
+  drift_id?: string;
+  error?: string;
+  total_assets: number;
+  completed_assets: number;
+  succeeded_assets: number;
+  failed_assets: number;
+  partial_assets: number;
+  artifact_ids?: string[];
+  created_at: string;
+  updated_at: string;
+  finished_at?: string;
+}
+
+export interface AssuranceTopology {
+  topology_id: string;
+  source_task_id: string;
+  nodes: Array<Record<string, any>>;
+  edges: Array<Record<string, any>>;
+  created_at: string;
+}
+
+export interface AssuranceOperation {
+  operation_id: string;
+  kind: "topology_refresh" | "impact" | "incident" | "change_pre" | "change_post";
+  ref_id: string;
+  inspection_task_id: string;
+  status: "collecting" | "completed" | "failed" | "cancelled";
+  phase: "collecting_evidence" | "analyzing_evidence" | "completed" | "failed";
+  result: Record<string, any>;
+  error?: string;
+  total_assets: number;
+  completed_assets: number;
+  succeeded_assets: number;
+  failed_assets: number;
+  partial_assets: number;
+  artifact_ids?: string[];
+  created_at: string;
+  updated_at: string;
+  finished_at?: string;
+}
+
+export interface AssuranceIncident {
+  incident_id: string;
+  title: string;
+  symptom: string;
+  status: string;
+  severity: string;
+  affected_assets: string[];
+  hypotheses: Array<Record<string, any>>;
+  next_actions: string[];
+  operation_id?: string;
+  inspection_task_id?: string;
+  conclusion?: string;
+  created_at: string;
+}
+
+export interface AssuranceChange {
+  change_id: string;
+  title: string;
+  summary: string;
+  status: string;
+  asset_ids: string[];
+  validation?: Record<string, any>;
+  impact?: Record<string, any>;
+  prechecks: string[];
+  postchecks: string[];
+  rollback_conditions: string[];
+  precheck_operation_id?: string;
+  postcheck_operation_id?: string;
+  pre_snapshot_id?: string;
+  post_snapshot_id?: string;
+  created_at: string;
+}
+
+export interface AssuranceSchedule {
+  schedule_id: string;
+  name: string;
+  baseline_id: string;
+  enabled: boolean;
+  state: string;
+  interval_minutes: number;
+  next_run_at: string;
+  last_task_id?: string;
+  last_drift_id?: string;
+  error?: string;
+  run_count: number;
+  consecutive_failures: number;
+  last_status?: string;
+  last_artifact_ids?: string[];
+}
+
+export interface AssuranceSnapshot {
+  workspace_id: string;
+  overview: AssuranceOverview;
+  baselines: AssuranceBaseline[];
+  checks: AssuranceCheck[];
+  drifts: AssuranceDrift[];
+  topology: AssuranceTopology;
+  incidents: AssuranceIncident[];
+  changes: AssuranceChange[];
+  schedules: AssuranceSchedule[];
+  operations: AssuranceOperation[];
+  generated_at: string;
+}
+
+export const assuranceApi = {
+  clearRecords: (workspace_id: string) =>
+    apiRequest<{ ok: boolean; deleted: number; deleted_by_kind: Record<string, number>; preserved: string[] }>({
+      method: "POST", url: "/assurance/records/clear", data: { workspace_id, confirm: true },
+    }),
+  overview: (workspace_id: string) =>
+    apiRequest<{ ok: boolean; overview: AssuranceOverview }>({ method: "GET", url: "/assurance/overview", params: { workspace_id } }),
+  snapshot: (workspace_id: string) =>
+    apiRequest<{ ok: boolean; snapshot: AssuranceSnapshot }>({ method: "GET", url: "/assurance/snapshot", params: { workspace_id } }),
+  baselines: (workspace_id: string) =>
+    apiRequest<{ ok: boolean; items: AssuranceBaseline[] }>({ method: "GET", url: "/assurance/baselines", params: { workspace_id } }),
+  createBaseline: (data: Record<string, unknown>) =>
+    apiRequest<{ ok: boolean; baseline: AssuranceBaseline }>({ method: "POST", url: "/assurance/baselines", data }),
+  check: (data: Record<string, unknown>) =>
+    apiRequest<{ ok: boolean; check: AssuranceCheck }>({ method: "POST", url: "/assurance/checks", data }),
+  checks: (workspace_id: string) =>
+    apiRequest<{ ok: boolean; items: AssuranceCheck[] }>({ method: "GET", url: "/assurance/checks", params: { workspace_id } }),
+  getCheck: (workspace_id: string, check_id: string) =>
+    apiRequest<{ ok: boolean; check: AssuranceCheck }>({ method: "GET", url: `/assurance/checks/${encodeURIComponent(check_id)}`, params: { workspace_id } }),
+  drifts: (workspace_id: string, baseline_id = "") =>
+    apiRequest<{ ok: boolean; items: AssuranceDrift[] }>({ method: "GET", url: "/assurance/drifts", params: { workspace_id, baseline_id } }),
+  topology: (workspace_id: string) =>
+    apiRequest<{ ok: boolean; topology: AssuranceTopology }>({ method: "GET", url: "/assurance/topology", params: { workspace_id } }),
+  buildTopology: (workspace_id: string) =>
+    apiRequest<{ ok: boolean; operation: AssuranceOperation }>({ method: "POST", url: "/assurance/topology/build", data: { workspace_id } }),
+  impact: (workspace_id: string, asset_ids: string[], depth = 2) =>
+    apiRequest<{ ok: boolean; operation: AssuranceOperation }>({ method: "POST", url: "/assurance/topology/impact", data: { workspace_id, asset_ids, depth } }),
+  operations: (workspace_id: string, kind = "") =>
+    apiRequest<{ ok: boolean; items: AssuranceOperation[] }>({ method: "GET", url: "/assurance/operations", params: { workspace_id, kind } }),
+  getOperation: (workspace_id: string, operation_id: string) =>
+    apiRequest<{ ok: boolean; operation: AssuranceOperation }>({ method: "GET", url: `/assurance/operations/${encodeURIComponent(operation_id)}`, params: { workspace_id } }),
+  incidents: (workspace_id: string) =>
+    apiRequest<{ ok: boolean; items: AssuranceIncident[] }>({ method: "GET", url: "/assurance/incidents", params: { workspace_id } }),
+  createIncident: (data: Record<string, unknown>) =>
+    apiRequest<{ ok: boolean; incident: AssuranceIncident }>({ method: "POST", url: "/assurance/incidents", data }),
+  updateIncident: (workspace_id: string, incident_id: string, updates: Record<string, unknown>) =>
+    apiRequest<{ ok: boolean; incident: AssuranceIncident }>({ method: "PATCH", url: `/assurance/incidents/${encodeURIComponent(incident_id)}`, data: { workspace_id, ...updates } }),
+  changes: (workspace_id: string) =>
+    apiRequest<{ ok: boolean; items: AssuranceChange[] }>({ method: "GET", url: "/assurance/changes", params: { workspace_id } }),
+  createChange: (data: Record<string, unknown>) =>
+    apiRequest<{ ok: boolean; change: AssuranceChange }>({ method: "POST", url: "/assurance/changes", data }),
+  validateChange: (workspace_id: string, change_id: string) =>
+    apiRequest<{ ok: boolean; change: AssuranceChange; operation: AssuranceOperation }>({ method: "POST", url: `/assurance/changes/${encodeURIComponent(change_id)}/validate`, data: { workspace_id } }),
+  postcheckChange: (workspace_id: string, change_id: string) =>
+    apiRequest<{ ok: boolean; change: AssuranceChange; operation: AssuranceOperation }>({ method: "POST", url: `/assurance/changes/${encodeURIComponent(change_id)}/postcheck`, data: { workspace_id } }),
+  schedules: (workspace_id: string) =>
+    apiRequest<{ ok: boolean; items: AssuranceSchedule[] }>({ method: "GET", url: "/assurance/schedules", params: { workspace_id } }),
+  createSchedule: (data: Record<string, unknown>) =>
+    apiRequest<{ ok: boolean; schedule: AssuranceSchedule }>({ method: "POST", url: "/assurance/schedules", data }),
+  updateSchedule: (workspace_id: string, schedule_id: string, updates: Record<string, unknown>) =>
+    apiRequest<{ ok: boolean; schedule: AssuranceSchedule }>({ method: "PATCH", url: `/assurance/schedules/${encodeURIComponent(schedule_id)}`, data: { workspace_id, ...updates } }),
+  runSchedule: (workspace_id: string, schedule_id: string) =>
+    apiRequest<{ ok: boolean; schedule: AssuranceSchedule }>({ method: "POST", url: `/assurance/schedules/${encodeURIComponent(schedule_id)}/run`, data: { workspace_id } }),
 };
 
 // ── Inspection Script Management ─────────────────────────────────────

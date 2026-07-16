@@ -92,6 +92,44 @@ def test_knowledge_and_translation_loops_render_real_values():
     assert "mapping needs review" in translation.text
 
 
+def test_specialist_prompts_have_distinct_operational_contracts():
+    from prompts.loader import render_prompt
+
+    context = _rich_context()
+    prompts = {
+        task: render_prompt(task, context, "分析结果").text
+        for task in (
+            "response_compose",
+            "context_qa",
+            "knowledge_answer",
+            "artifact_summary_explain",
+            "job_failure_explain",
+            "manual_review_explain",
+            "report_summary",
+            "result_summarize",
+            "memory_gating",
+        )
+    }
+
+    assert "pending, running, partial" in prompts["response_compose"]
+    assert "historical result" in prompts["context_qa"]
+    assert "supplied sources conflict" in prompts["knowledge_answer"]
+    assert "provenance, scope" in prompts["artifact_summary_explain"]
+    assert "Retry eligibility or blocker" in prompts["job_failure_explain"]
+    assert "smallest concrete check" in prompts["manual_review_explain"]
+    assert "observation time" in prompts["report_summary"]
+    assert "tool's success" in prompts["result_summarize"]
+    assert "time-sensitive" in prompts["memory_gating"]
+
+
+def test_enabled_prompt_registry_is_latest_only():
+    from prompts.loader import load_prompt_registry
+
+    for spec in load_prompt_registry():
+        assert spec.version == "v2"
+        assert not spec.prompt_id.endswith(".v1")
+
+
 def test_registry_context_limits_are_applied_before_rendering():
     from prompts.loader import render_prompt
 

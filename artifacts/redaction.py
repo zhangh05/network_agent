@@ -25,6 +25,24 @@ SECRET_PATTERNS = [
 MASK = "[REDACTED_SECRET]"
 
 
+def _is_sensitive_metadata_key(key: object) -> bool:
+    """Detect credential fields without treating every ``*key`` as secret."""
+    normalized = re.sub(r"[^a-z0-9]+", "_", str(key or "").strip().lower()).strip("_")
+    parts = set(normalized.split("_")) if normalized else set()
+    if parts & {"password", "passwd", "passphrase", "secret", "token"}:
+        return True
+    return normalized == "key" or normalized.endswith((
+        "api_key",
+        "access_key",
+        "private_key",
+        "secret_key",
+        "session_key",
+        "signing_key",
+        "encryption_key",
+        "auth_key",
+    ))
+
+
 def redact_artifact_content(content: str) -> str:
     if not content:
         return content
@@ -57,7 +75,7 @@ def redact_metadata(metadata: dict) -> dict:
         return metadata
     result = {}
     for k, v in metadata.items():
-        if any(s in str(k).lower() for s in ["password", "secret", "key", "token"]):
+        if _is_sensitive_metadata_key(k):
             result[k] = MASK
         elif isinstance(v, str) and contains_secret(v):
             result[k] = MASK

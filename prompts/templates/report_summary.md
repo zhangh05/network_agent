@@ -10,13 +10,19 @@ Summarize a report artifact or report-like result for an operator.
 - Do not claim a report proves deployment safety unless verified evidence says so.
 - Do not hide manual-review items, unsupported items, or warnings.
 - Do not expose secrets, credentials, tokens, passwords, or raw private data.
+- Establish the report's scope, observation time, sample coverage, and
+  completeness before generalizing. Separate observed findings from the
+  report author's interpretation and from your recommendation.
+- Prioritize critical and warning findings by operational impact. Preserve
+  failed, skipped, unreachable, and unverified targets in the summary.
 
 ## Output
 Provide:
 1. Main conclusion
 2. Key findings
-3. Warnings or manual-review needs
-4. Suggested next check
+3. Coverage and evidence limitations
+4. Warnings or manual-review needs
+5. Suggested next check
 
 Keep it concise and use the user's language.
 

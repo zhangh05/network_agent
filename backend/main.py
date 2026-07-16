@@ -49,6 +49,7 @@ from backend.api.remote_routes import register_remote_routes
 from backend.api.cmdb_routes import register_cmdb_routes
 from backend.api.state_routes import register_state_routes
 from backend.api.inspection_routes import register_inspection_routes
+from backend.api.assurance_routes import register_assurance_routes
 from backend.api.storage_routes import register_storage_routes
 from backend.core.settings import UNIFIED_PORT, API_MODE, BUILD_COMMIT, TRANSLATOR_ENTRY
 from backend.core.rate_limit import rate_limit_middleware
@@ -278,6 +279,7 @@ def create_app():
     register_cmdb_routes(app)      # /api/cmdb/* (Device Assets)
     register_state_routes(app)     # /api/runtime/tasks/* (Phase 2 Durable State)
     register_inspection_routes(app)  # /api/inspection/* (CMDB-driven device health)
+    register_assurance_routes(app)  # /api/assurance/* (baseline, drift, topology, incident, change)
 
     # v3.10: sweep every workspace's inspection directory and flip
     # any disk-resident task that was left in 'running' state when

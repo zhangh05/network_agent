@@ -170,7 +170,7 @@ def test_html_report_route_returns_viewable_html():
 def test_manifest_registry_matches_network_toolset_with_inspection():
     from core.tools.manifest_registry import MANIFESTS, validate_all
     errors, count = validate_all()
-    assert count == 23, f"expected 23 canonical manifests, got {count}"
+    assert count == 24, f"expected 24 canonical manifests, got {count}"
     assert not errors, f"manifest validation errors: {errors}"
     assert "inspection.manage" in MANIFESTS
     # The runner caller (inspection_runner) must be in allowed_callers
@@ -187,7 +187,7 @@ def test_namespace_data_matches_registry_with_inspection():
     from core.tools.tool_namespace_data import NS_DATA
     from core.tools.canonical_registry import CANONICAL_REGISTRY
 
-    assert len(NS_DATA) == len(TOOL_NAMESPACE) == len(CANONICAL_REGISTRY) == 23
+    assert len(NS_DATA) == len(TOOL_NAMESPACE) == len(CANONICAL_REGISTRY) == 24
     # inspection.manage must be registered in all three. NS_DATA stores
     # 9-tuples keyed by index 0 == canonical_tool_id
     ns_ids = {entry[0] for entry in NS_DATA}

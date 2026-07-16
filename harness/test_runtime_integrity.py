@@ -71,6 +71,30 @@ def test_memory_store_rejects_path_like_memory_ids(tmp_path, monkeypatch):
     assert store.delete_file("review_ws", "../../escape") is False
 
 
+def test_memory_hard_delete_removes_record_and_context_projection(tmp_path, monkeypatch):
+    _reset_context_runtime(tmp_path, monkeypatch)
+    import workspace.memory_governance as governance
+    from core.context.context_store import get_context_store
+
+    monkeypatch.setattr(governance, "WS_ROOT", tmp_path)
+    record = governance.MemoryRecord(
+        workspace_id="review_ws",
+        status="active",
+        source="user",
+        content="private routing preference",
+        summary="routing preference",
+    )
+    store = governance.MemoryStore()
+    store._save(record)
+    context_store = get_context_store("review_ws")
+    assert context_store.get(f"mh_{record.memory_id}") is not None
+
+    assert store.delete_file("review_ws", record.memory_id) is True
+    assert store.get("review_ws", record.memory_id) is None
+    assert context_store.get(f"mh_{record.memory_id}") is None
+    assert record.memory_id not in context_store._items_path.read_text(encoding="utf-8")
+
+
 def test_streaming_executor_preserves_mixed_read_write_order():
     from agent.llm.schemas import LLMToolCall
     from core.runtime_engine.models import SSOTRuntimeConfig
