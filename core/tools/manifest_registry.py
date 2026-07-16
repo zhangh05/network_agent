@@ -325,6 +325,29 @@ MANIFESTS: dict[str, CapabilityManifest] = {
         allowed_callers=["turn_runner", "rest_api", "job_runner",
                         "subagent", "inspection_runner"],
     ),
+
+    "assurance.manage": CapabilityManifest(
+        tool_id="assurance.manage", category="assurance",
+        display_name="网络保障",
+        description=(
+            "Compose CMDB identity and completed inspection evidence into "
+            "baselines, deterministic drift, evidence-backed topology, incident "
+            "investigations, read-only change plans, and continuous checks. "
+            "This tool never deploys device configuration."
+        ),
+        action_class="write",
+        risk_level="medium",
+        destructive=False,
+        requires_approval=False,
+        side_effects="write",
+        idempotency="unknown",
+        rollback_strategy="none",
+        output_sensitivity="internal",
+        reads_artifact=True,
+        writes_artifact=False,
+        timeout_seconds=120,
+        allowed_callers=["turn_runner", "rest_api", "job_runner", "subagent"],
+    ),
 }
 
 

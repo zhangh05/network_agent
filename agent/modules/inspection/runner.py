@@ -887,6 +887,10 @@ def _run_checks_on_asset(task: InspectionTask,
                 content_to_save = redact_artifact_content(rec["output"])
                 profile_label = task.profile_display_name or ("日志巡检" if is_log else "通用巡检")
                 tid_short = task.task_id.split("_", 1)[-1][:8] if "_" in (task.task_id or "") else (task.task_id or "")[:8]
+                trigger_parts = str(task.created_by or "").split(":", 2)
+                assurance_kind = trigger_parts[1] if len(trigger_parts) == 3 and trigger_parts[0] == "assurance" else ""
+                assurance_ref_id = trigger_parts[2] if assurance_kind else ""
+                script_profile_id = str(dr.script_profile_id or task.profile_id or "general")
                 art = save_artifact(
                     workspace_id=workspace_id,
                     content=content_to_save,
@@ -895,10 +899,28 @@ def _run_checks_on_asset(task: InspectionTask,
                     sensitivity="sensitive",
                     run_id=task.task_id,
                     session_id=task.session_id,
+                    module="inspection",
                     capability_id="inspection",
+                    source="inspection_runner",
+                    created_by=task.created_by,
                     metadata={
                         "inspection_task_id": task.task_id,
+                        "producer_kind": "inspection_task",
+                        "producer_id": task.task_id,
+                        "producer_trigger": task.created_by,
+                        "assurance_kind": assurance_kind,
+                        "assurance_ref_id": assurance_ref_id,
+                        "evidence_role": "raw_observation",
+                        "evidence_key": f"inspection:{asset_id}:{script_profile_id}",
+                        "evidence_quality": "complete" if rec.get("ok") else "partial",
+                        "authority_policy": "latest_complete_then_latest_partial",
                         "asset_id": asset_id,
+                        "asset_name": dr.asset_name,
+                        "profile_id": task.profile_id,
+                        "profile_name": task.profile_display_name,
+                        "script_profile_id": script_profile_id,
+                        "script_profile_name": dr.script_profile_name,
+                        "observed_at": now_iso(),
                         "command_count": len(raw_commands) if is_batch else 1,
                         "index": i,
                     },

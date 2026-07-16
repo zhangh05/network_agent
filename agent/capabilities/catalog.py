@@ -203,6 +203,23 @@ _CAPABILITIES: tuple[dict, ...] = (
         ),
         "status": "enabled",
     },
+    {
+        "capability_id": "network_assurance",
+        "display_name": "Network Assurance",
+        "description": "Baseline drift, topology impact, incident investigation, change validation, and continuous assurance.",
+        "module_ids": ("assurance", "inspection", "cmdb"),
+        "recommended_tool_ids": ("assurance.manage", "inspection.manage", "device.manage"),
+        "prompt_hints": (
+            "Use completed inspection evidence as the current-state source before creating a baseline or diagnosing drift.",
+            "Topology relationships must remain evidence-backed; label empty or inferred impact as unverified.",
+            "Change assurance creates and validates a plan only. It never means configuration was deployed.",
+        ),
+        "safety_notes": (
+            "Do not claim compliance, impact, root cause, or change success without linked evidence.",
+            "Continuous assurance reuses governed inspection tasks and CMDB credentials server-side.",
+        ),
+        "status": "enabled",
+    },
 )
 
 

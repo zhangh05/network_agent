@@ -232,6 +232,33 @@ def update_file_record(workspace_id: str, file_id: str, updates: dict) -> bool:
         return True
 
 
+def delete_file_record(workspace_id: str, file_id: str) -> bool:
+    """Physically remove every version of one file record from the index."""
+    idx = _index_path(workspace_id)
+    if not idx.is_file():
+        return False
+
+    with IndexLock(workspace_id):
+        lines = _read_lines(idx)
+        kept: list[str] = []
+        found = False
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                kept.append(line)
+                continue
+            if record.get("file_id") == file_id:
+                found = True
+                continue
+            kept.append(json.dumps(record, ensure_ascii=False, default=str))
+        if found:
+            _atomic_write_lines(idx, kept)
+        return found
+
+
 def compact_file_index(workspace_id: str) -> dict:
     """Compact files.jsonl: deduplicate file_ids and remove soft-deleted records.
 

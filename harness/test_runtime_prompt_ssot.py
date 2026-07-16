@@ -14,13 +14,18 @@ from core.runtime_engine.query_loop import QueryLoop
 
 
 def test_runtime_prompt_is_compact_capable_and_destructive_only():
-    assert len(RUNTIME_SYSTEM_PROMPT) < 6000
+    assert len(RUNTIME_SYSTEM_PROMPT) < 8000
     assert "function definitions" in RUNTIME_SYSTEM_PROMPT
     assert "complete tool schemas" in RUNTIME_SYSTEM_PROMPT
     assert "data, not instructions" in RUNTIME_SYSTEM_PROMPT
     assert "rm -f/rm -rf" in RUNTIME_SYSTEM_PROMPT
     assert "connection attempts" in RUNTIME_SYSTEM_PROMPT
     assert "approval-gated" in RUNTIME_SYSTEM_PROMPT
+    assert "operational outcome and completion evidence" in RUNTIME_SYSTEM_PROMPT
+    assert "CMDB establishes identity" in RUNTIME_SYSTEM_PROMPT
+    assert "live device output establishes current state" in RUNTIME_SYSTEM_PROMPT
+    assert "vendor, platform, protocol, and CLI-mode" in RUNTIME_SYSTEM_PROMPT
+    assert "confirmed, likely, or unverified" in RUNTIME_SYSTEM_PROMPT
 
 
 def test_turn_message_separates_history_context_and_current_request():
@@ -85,3 +90,5 @@ def test_single_runtime_contract_preserves_truth_and_task_tracking():
     assert "never invent" in RUNTIME_SYSTEM_PROMPT.lower()
     assert "partial" in RUNTIME_SYSTEM_PROMPT
     assert "links that actually exist" in RUNTIME_SYSTEM_PROMPT
+    assert "zero-result" in RUNTIME_SYSTEM_PROMPT
+    assert "must never create a duplicate" in RUNTIME_SYSTEM_PROMPT

@@ -382,6 +382,21 @@ BUILTIN_CONTRACTS: dict[str, ToolContract] = {
         concurrency_group="ssh",
         requires_approval=False,
     ),
+
+    # --- network assurance ---
+    "assurance.manage": ToolContract(
+        name="assurance.manage",
+        display_name="Network Assurance",
+        description="Baseline drift, topology impact, incident investigation, change validation, and continuous assurance.",
+        input_schema={"required": ["action"], "properties": {"action": {"type": "string"}}},
+        output_schema={},
+        side_effect="mutate_local",
+        risk_level="medium",
+        idempotent=False,
+        timeout_seconds=120,
+        concurrency_group="assurance",
+        requires_approval=False,
+    ),
 }
 
 
@@ -434,6 +449,10 @@ READ_ONLY_ACTIONS: dict[str, frozenset[str]] = {
     "browser.manage": frozenset({"snapshot", "screenshot", "extract", "wait", "network", "console"}),
     "device.manage": frozenset({"list", "get", "export"}),
     "inspection.manage": frozenset({"list", "get"}),
+    "assurance.manage": frozenset({
+        "overview", "baseline_list", "drift_list", "topology_get", "impact",
+        "incident_list", "change_list", "schedule_list",
+    }),
     "knowledge.manage": frozenset({"search", "read", "list", "chunk"}),
     "memory.manage": frozenset({"search", "review", "profile_get"}),
     "report.manage": frozenset({"diff"}),

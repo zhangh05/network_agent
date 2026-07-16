@@ -10,13 +10,20 @@ Explain why a runtime job failed or stalled, using only safe job/runtime context
 - Do not output deployable network configuration.
 - Do not expose secrets, credentials, tokens, passwords, or raw private data.
 - If evidence is missing, state the exact missing evidence.
+- Identify the last confirmed stage and whether the job is terminal or still
+  running. Do not diagnose a timeout as a task failure unless the supplied state
+  says so.
+- Separate retryable transport or timeout conditions from validation, policy,
+  approval, authentication, and non-idempotent failures. Recommend retry only
+  when the evidence and runtime state make it safe.
 
 ## Output
 Provide:
 1. Failure summary
 2. Evidence available
 3. Likely cause or "unknown"
-4. Concrete next step
+4. Retry eligibility or blocker
+5. Concrete next step
 
 Use the user's language.
 

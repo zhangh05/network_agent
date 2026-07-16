@@ -53,8 +53,8 @@ describe("ArtifactCenter — artifact card", () => {
     useSessionStore.setState({ currentWorkspaceId: "ws-1" });
   });
 
-  it("renders list item and detail with authoritative + sensitive badges", async () => {
-    enqueue("/workspaces/ws-1/artifacts", { status: 200, data: { artifacts: [sampleArtifact] } });
+  it("renders deliverables without falsely labelling them authoritative", async () => {
+    enqueue("/workspaces/ws-1/artifacts", { status: 200, data: { artifacts: [sampleArtifact], governance: { policy: "latest_complete_then_latest_partial", evidence_streams: 0, authoritative: 0, provisional: 0, incomplete: 0, historical: 0, deliverables: 1 } } });
     enqueue("/workspaces/ws-1/artifacts/art-1", { status: 200, data: { artifact: sampleArtifact } });
     enqueue("/workspaces/ws-1/artifacts/art-1/content", { status: 200, data: sampleContent });
     enqueue("/workspaces/ws-1/artifacts/art-1/summarize", {
@@ -77,16 +77,36 @@ describe("ArtifactCenter — artifact card", () => {
     fireEvent.click(item);
     expect(item.textContent).toContain("翻译配置");
     expect(item.textContent).not.toContain("translated_config");
-    // 权威 = 由某个 capability / module / skill 产出 (在 mock 中设了 capability_id)
-    expect(item.textContent).toContain("权威");
+    expect(item.textContent).toContain("交付物");
     // Detail panel renders the sensitivity badge.
     const detail = await screen.findByTestId("artifact-detail");
     expect(detail.textContent).toContain("敏感");
-    expect(detail.textContent).toContain("权威");
-    expect(detail.textContent).toContain("使用状态");
-    expect(detail.textContent).toContain("否，需要人工复核");
+    expect(detail.textContent).toContain("业务交付物");
+    expect(detail.textContent).toContain("证据地位");
     // Preview tab lazy-fetches /content and renders the actual content.
     expect(detail.textContent).toContain("router ospf 1");
+  });
+
+  it("shows inspection lineage and authoritative evidence status", async () => {
+    const evidence: Artifact = {
+      ...sampleArtifact,
+      artifact_id: "raw-1",
+      artifact_type: "inspection_raw",
+      title: "核心交换机巡检输出",
+      metadata: { asset_name: "core-1", producer_id: "ins-1", producer_trigger: "assurance:impact:op-1" },
+      governance: { authority_status: "authoritative", authority_reason: "最近一次完整成功采集", version: 2, version_count: 2 },
+    };
+    enqueue("/workspaces/ws-1/artifacts", { status: 200, data: { artifacts: [evidence] } });
+    enqueue("/workspaces/ws-1/artifacts/raw-1/content", { status: 200, data: sampleContent });
+    render(<ArtifactCenter />);
+    const item = await screen.findByTestId("artifact-raw-1");
+    expect(item).toHaveTextContent("当前权威");
+    fireEvent.click(item);
+    const detail = await screen.findByTestId("artifact-detail");
+    expect(detail).toHaveTextContent("core-1");
+    expect(detail).toHaveTextContent("ins-1");
+    expect(detail).toHaveTextContent("影响范围分析");
+    expect(detail).toHaveTextContent("第 2 / 2 版");
   });
 
   it("keeps duplicate artifact titles readable while hiding ids by default", async () => {

@@ -55,6 +55,9 @@ export const MemoryPage = lazyWithPreload(() =>
 export const CMDBPage = lazyWithPreload(() =>
   import("./pages/CMDB/CMDBPage").then((m) => ({ default: m.CMDBPage })),
 );
+export const AssurancePage = lazyWithPreload(() =>
+  import("./pages/Assurance/AssurancePage").then((m) => ({ default: m.AssurancePage })),
+);
 export const ReviewCenter = lazyWithPreload(() =>
   import("./pages/ReviewCenter/ReviewCenter").then((m) => ({ default: m.ReviewCenter })),
 );
@@ -73,6 +76,7 @@ const PRELOAD: Record<string, () => PageModule> = {
   "/artifacts": ArtifactCenter.preload,
   "/memory": MemoryPage.preload,
   "/cmdb": CMDBPage.preload,
+  "/assurance": AssurancePage.preload,
   "/capabilities": CapabilityCenter.preload,
   "/diagnostics": Diagnostics.preload,
   "/settings": Settings.preload,

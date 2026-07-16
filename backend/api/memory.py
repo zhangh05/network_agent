@@ -161,6 +161,8 @@ def handle_memory_reject():
 
 def handle_memory_delete(memory_id):
     """Hard-delete a memory record — physically remove file and ContextStore index."""
+    if request.args.get("confirm", "").lower() != "true":
+        return jsonify({"ok": False, "error": "confirm_required"}), 400
     ws_id, err = _read_ws_id(request.args.get("workspace_id", ""))
     if err:
         return jsonify({"ok": False, "error": err}), 400
@@ -178,6 +180,8 @@ def handle_memory_delete(memory_id):
 def handle_memory_batch_delete():
     """Hard-delete multiple memory records."""
     data = request.get_json(silent=True) or {}
+    if data.get("confirm") is not True:
+        return jsonify({"ok": False, "error": "confirm_required"}), 400
     ws_id, err = _read_ws_id(data.get("workspace_id", ""))
     if err:
         return jsonify({"ok": False, "error": err}), 400

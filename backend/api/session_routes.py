@@ -270,7 +270,7 @@ def handle_session_soft_delete(session_id):
     if err:
         return err
 
-    session = delete_session_permanently(session_id, ws_id)
+    session = soft_delete_session(session_id, ws_id)
     if not session:
         return jsonify({"ok": False, "error": "session_not_found"}), 404
 
@@ -280,9 +280,10 @@ def handle_session_soft_delete(session_id):
 
 
 def handle_session_delete_permanently(session_id):
-    """DELETE /api/sessions/<session_id> — Permanently delete session metadata.
+    """DELETE /api/sessions/<session_id> — Permanently delete session data.
 
-    Requires ?confirm=true. Run records are NOT deleted.
+    Requires ?confirm=true. Session metadata, messages, run records, traces,
+    and decision sidecars are physically removed. Workspace artifacts remain.
     """
     session_id, err = _validated_session_id(session_id)
     if err:

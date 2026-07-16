@@ -104,6 +104,27 @@ def _artifact_record_from_dict(data: dict) -> ArtifactRecord:
     })
 
 
+def _records_in_index_order(ws_id: str) -> list[ArtifactRecord]:
+    """Load artifact metadata once and project the current record per id."""
+    latest: dict[str, dict] = {}
+    for data in _read_artifact_record_dicts(ws_id):
+        artifact_id = str(data.get("artifact_id", "") or "")
+        if artifact_id:
+            latest[artifact_id] = data
+    ordered_ids = list(_load_index(ws_id).artifact_ids)
+    ordered_ids.extend(artifact_id for artifact_id in latest if artifact_id not in ordered_ids)
+    records: list[ArtifactRecord] = []
+    for artifact_id in ordered_ids:
+        data = latest.get(artifact_id)
+        if data is None:
+            continue
+        try:
+            records.append(_artifact_record_from_dict(data))
+        except (TypeError, ValueError):
+            _LOG.warning("artifacts.store: invalid artifact record %s", artifact_id, exc_info=True)
+    return records
+
+
 def _load_index(ws_id: str) -> ArtifactIndex:
     p = _index_path(ws_id)
     if p.is_file():
@@ -323,7 +344,7 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
                   sensitivity: str = "", run_id: str = "", session_id: str = "", module: str = "",
                   skill: str = "", capability_id: str = "", metadata: dict = None,
                   tags: list = None, source: str = "module_output",
-                  file_id: str = "") -> Optional[ArtifactRecord]:
+                  file_id: str = "", created_by: str = "") -> Optional[ArtifactRecord]:
     """Save an artifact. Returns ArtifactRecord or None if blocked by policy."""
     from workspace.manager import ensure_workspace
     ensure_workspace(workspace_id)
@@ -430,6 +451,7 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
         mime_type=cls["mime_type"], file_ext=cls["file_ext"],
         size_bytes=file_rec.size_bytes, sha256=file_rec.sha256, source=source,
         file_id=file_rec.file_id,
+        created_by=str(created_by or "")[:160],
         metadata=redact_metadata(metadata or {}),
         tags=tags or cls["tags"],
         redaction_applied=cls["contains_secret"],
@@ -502,15 +524,16 @@ def read_artifact_content(workspace_id: str, artifact_id: str,
 
 def list_artifacts(workspace_id: str, run_id: str = None, artifact_type: str = None,
                    scope: str = None, sensitivity: str = None,
-                   include_deleted: bool = False, limit: int = 100) -> list:
-    idx = _load_index(workspace_id)
+                   include_deleted: bool = False, limit: int = 100,
+                   evidence_view: str = "", producer_id: str = "",
+                   asset_id: str = "") -> list:
+    all_active_records: list[ArtifactRecord] = []
     records: list[ArtifactRecord] = []
-    for aid in idx.artifact_ids:
-        rec = get_artifact(workspace_id, aid)
-        if not rec:
-            continue
+    for rec in _records_in_index_order(workspace_id):
         if not include_deleted and rec.lifecycle == "deleted":
             continue
+        if rec.lifecycle != "deleted":
+            all_active_records.append(rec)
         # PCAP session snapshots and connection indexes are runtime state, not
         # user deliverables. Older releases persisted them as artifacts; keep
         # them queryable by an explicit type for maintenance while excluding
@@ -527,12 +550,55 @@ def list_artifacts(workspace_id: str, run_id: str = None, artifact_type: str = N
             continue
         records.append(rec)
 
+    from artifacts.governance import build_governance
+    # Authority must be computed from every active version in the workspace,
+    # even when this list request filters to one run or artifact type.
+    governance = build_governance(all_active_records)
     results = []
-    for rec in _dedupe_artifacts_for_listing(records):
-        results.append(sanitize_record(rec, include_metadata=True))
+    # Preserve the store/index presentation order after report deduplication.
+    # Authority projection is independent of display order, and callers rely
+    # on this stable ordering for report history.
+    display_records = _dedupe_artifacts_for_listing(records)
+    for rec in display_records:
+        metadata = rec.metadata if isinstance(rec.metadata, dict) else {}
+        projection = governance.get(rec.artifact_id)
+        if evidence_view == "current" and (projection or {}).get("authority_status") not in {"authoritative", "provisional"}:
+            continue
+        if evidence_view == "history" and (projection or {}).get("authority_status") not in {"historical", "incomplete"}:
+            continue
+        if evidence_view == "deliverables" and projection:
+            continue
+        if producer_id and str(metadata.get("producer_id", "")) != producer_id:
+            continue
+        if asset_id and str(metadata.get("asset_id", "")) != asset_id:
+            continue
+        item = sanitize_record(rec, include_metadata=True)
+        item["governance"] = projection or {
+            "authority_status": "not_applicable",
+            "authority_reason": "该制品是交付物或派生材料，不参与原始证据权威选择",
+        }
+        results.append(item)
         if len(results) >= limit:
             break
     return results
+
+
+def get_artifact_governance(workspace_id: str, artifact_id: str) -> dict:
+    """Return the authority projection using every active artifact version."""
+    from artifacts.governance import build_governance
+
+    records = [rec for rec in _records_in_index_order(workspace_id) if rec.lifecycle != "deleted"]
+    return build_governance(records).get(artifact_id, {
+        "authority_status": "not_applicable",
+        "authority_reason": "该制品是交付物或派生材料，不参与原始证据权威选择",
+    })
+
+
+def artifact_governance_summary(workspace_id: str) -> dict:
+    from artifacts.governance import governance_summary
+
+    records = [rec for rec in _records_in_index_order(workspace_id) if rec.lifecycle != "deleted"]
+    return governance_summary(records)
 
 
 def update_artifact_tags(workspace_id: str, artifact_id: str, tags: list) -> bool:
@@ -551,16 +617,94 @@ def delete_artifact(workspace_id: str, artifact_id: str, hard: bool = False) -> 
     rec = get_artifact(workspace_id, artifact_id)
     if not rec:
         return False
-    rec.lifecycle = "deleted"
-    rec.updated_at = now_iso()
-    _save_artifact_record(rec)
     _remove_from_knowledge_index(workspace_id, artifact_id)
-    if rec.file_id:
-        from storage.file_store import purge_file, soft_delete_file
-        (purge_file if hard else soft_delete_file)(workspace_id, rec.file_id)
+    if hard:
+        records = _records_in_index_order(workspace_id)
+        file_is_shared = bool(rec.file_id) and any(
+            item.artifact_id != artifact_id
+            and item.lifecycle != "deleted"
+            and item.file_id == rec.file_id
+            for item in records
+        )
+        if rec.file_id and not file_is_shared:
+            from storage.file_store import delete_file_permanently
+            delete_file_permanently(workspace_id, rec.file_id)
+            from storage.reference_index import list_references_for_file, remove_reference
+            for reference in list_references_for_file(workspace_id, rec.file_id):
+                remove_reference(workspace_id, reference.get("ref_id", ""))
+        elif not rec.file_id:
+            relative_path = str(rec.relative_path or "")
+            if relative_path and not any(
+                item.artifact_id != artifact_id
+                and item.lifecycle != "deleted"
+                and item.relative_path == relative_path
+                for item in records
+            ):
+                workspace_root = (_get_ws_root() / workspace_id).resolve()
+                candidate = (workspace_root / relative_path).resolve()
+                try:
+                    candidate.relative_to(workspace_root)
+                    candidate.unlink(missing_ok=True)
+                except (OSError, ValueError):
+                    _LOG.warning("artifact payload cleanup failed: %s", candidate, exc_info=True)
+        from storage.reference_index import list_references_for_owner, remove_reference
+        for reference in list_references_for_owner(workspace_id, "artifact", artifact_id):
+            remove_reference(workspace_id, reference.get("ref_id", ""))
+        _remove_artifact_record_permanently(workspace_id, artifact_id)
+        _remove_artifact_from_run_indexes(workspace_id, artifact_id)
+    else:
+        rec.lifecycle = "deleted"
+        rec.updated_at = now_iso()
+        _save_artifact_record(rec)
+        if rec.file_id:
+            from storage.file_store import soft_delete_file
+            soft_delete_file(workspace_id, rec.file_id)
     from storage.events import publish
     publish(workspace_id, "artifact", "deleted", artifact_id)
     return True
+
+
+def _remove_artifact_record_permanently(workspace_id: str, artifact_id: str) -> None:
+    """Remove artifact metadata and its lightweight index entry."""
+    ws_id = str(workspace_id)
+    path = _artifact_records_path(ws_id)
+    with _AREC_LOCKS_GUARD:
+        lock = _AREC_LOCKS.get(ws_id)
+        if lock is None:
+            lock = threading.Lock()
+            _AREC_LOCKS[ws_id] = lock
+    with lock:
+        records = [
+            record for record in _read_artifact_record_dicts(ws_id)
+            if record.get("artifact_id") != artifact_id
+        ]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = "\n".join(json.dumps(record, ensure_ascii=False, default=str) for record in records)
+        path.write_text(payload + ("\n" if payload else ""), encoding="utf-8")
+        index = _load_index(ws_id)
+        index.artifact_ids = [item for item in index.artifact_ids if item != artifact_id]
+        _save_index(index)
+
+
+def _remove_artifact_from_run_indexes(workspace_id: str, artifact_id: str) -> None:
+    runs_dir = _get_ws_root() / workspace_id / "runs"
+    if not runs_dir.is_dir():
+        return
+    fields = ("input_artifacts", "output_artifacts", "report_artifacts", "temp_artifacts")
+    for path in runs_dir.glob("*.artifacts.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        changed = False
+        for field in fields:
+            values = list(data.get(field) or [])
+            kept = [item for item in values if item.get("artifact_id") != artifact_id]
+            if len(kept) != len(values):
+                data[field] = kept
+                changed = True
+        if changed:
+            path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _remove_from_knowledge_index(workspace_id: str, artifact_id: str):
@@ -637,6 +781,7 @@ def sanitize_record(rec: ArtifactRecord, include_metadata: bool = False) -> dict
         "mime_type": rec.mime_type, "file_ext": rec.file_ext,
         "size_bytes": rec.size_bytes, "sha256_short": rec.sha256[:12] if rec.sha256 else "",
         "file_id": rec.file_id,
+        "created_by": rec.created_by,
         "source": rec.source, "created_at": rec.created_at, "updated_at": rec.updated_at,
         "tags": rec.tags, "redaction_applied": rec.redaction_applied,
     }

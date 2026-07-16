@@ -18,9 +18,9 @@ prompts:
       forbid_fake_artifact_id: true
       forbid_secret_output: true
 
-  - prompt_id: response.compose.v1
+  - prompt_id: response.compose.v2
     task: response_compose
-    version: v1
+    version: v2
     status: enabled
     template_path: prompts/templates/response_compose.md
     description: "Organize final response from agent results"
@@ -43,9 +43,9 @@ prompts:
       require_citations_for_references: true
       max_artifact_refs: 10
 
-  - prompt_id: context.qa.v1
+  - prompt_id: context.qa.v2
     task: context_qa
-    version: v1
+    version: v2
     status: enabled
     template_path: prompts/templates/context_qa.md
     description: "Answer follow-up questions about last result"
@@ -64,9 +64,9 @@ prompts:
       forbid_fake_artifact_id: true
       forbid_secret_output: true
 
-  - prompt_id: manual_review.explain.v1
+  - prompt_id: manual_review.explain.v2
     task: manual_review_explain
-    version: v1
+    version: v2
     status: enabled
     template_path: prompts/templates/manual_review_explain.md
     description: "Explain manual review items"
@@ -77,37 +77,37 @@ prompts:
       forbid_direct_deploy_claim: true
       forbid_secret_output: true
 
-  - prompt_id: result.summarize.v1
+  - prompt_id: result.summarize.v2
     task: result_summarize
-    version: v1
+    version: v2
     status: enabled
     template_path: prompts/templates/result_summarize.md
     description: "Summarize deterministic translation results"
 
-  - prompt_id: job_failure.explain.v1
+  - prompt_id: job_failure.explain.v2
     task: job_failure_explain
-    version: v1
+    version: v2
     status: enabled
     template_path: prompts/templates/job_failure_explain.md
     description: "Explain why a job failed"
 
-  - prompt_id: report.summary.v1
+  - prompt_id: report.summary.v2
     task: report_summary
-    version: v1
+    version: v2
     status: enabled
     template_path: prompts/templates/report_summary.md
     description: "Summarize a report artifact"
 
-  - prompt_id: artifact_summary.explain.v1
+  - prompt_id: artifact_summary.explain.v2
     task: artifact_summary_explain
-    version: v1
+    version: v2
     status: enabled
     template_path: prompts/templates/artifact_summary_explain.md
     description: "Explain artifact metadata"
 
-  - prompt_id: knowledge.answer.v1
+  - prompt_id: knowledge.answer.v2
     task: knowledge_answer
-    version: v1
+    version: v2
     status: enabled
     template_path: prompts/templates/knowledge_answer.md
     description: "Answer questions from knowledge index search results — safe RAG"
@@ -131,9 +131,9 @@ prompts:
       max_artifact_refs: 5
       max_knowledge_hits: 8
 
-  - prompt_id: post_translate.review.v1
+  - prompt_id: post_translate.review.v2
     task: post_translate_review
-    version: v1
+    version: v2
     status: enabled
     template_path: prompts/templates/post_translate_review.md
     description: "Post-translation analysis: read mapping log + quality summary, generate feedback in Chinese. No deployable config exposure."
@@ -155,9 +155,9 @@ prompts:
       require_safe_llm_context: true
       max_artifact_refs: 0
 
-  - prompt_id: memory.gating.v1
+  - prompt_id: memory.gating.v2
     task: memory_gating
-    version: v1
+    version: v2
     status: enabled
     template_path: prompts/templates/memory_gating.md
     description: "LLM evaluation of memory candidates — score, dedupe, and summarize"

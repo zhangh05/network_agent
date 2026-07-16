@@ -169,7 +169,7 @@ class TestPromptRenderer:
         from prompts.loader import render_prompt
         r = render_prompt("response_compose", safe_context={"intent": "translate_config"},
                           user_input="translate")
-        assert r.prompt_id == "response.compose.v1"
+        assert r.prompt_id == "response.compose.v2"
         assert "translate_config" in r.text
 
     def test_render_context_qa(self):
@@ -177,14 +177,14 @@ class TestPromptRenderer:
         r = render_prompt("context_qa", safe_context={"intent": "context_qa",
                           "last_result_summary": "3 deployable, 1 review"},
                           user_input="有什么风险？")
-        assert r.prompt_id == "context.qa.v1"
+        assert r.prompt_id == "context.qa.v2"
         assert "context_qa" in r.task or r.task == "context_qa"
 
     def test_render_job_failure(self):
         from prompts.loader import render_prompt
         r = render_prompt("job_failure_explain", safe_context={"job_summary": {"status": "failed"}},
                           user_input="为什么失败？")
-        assert r.prompt_id == "job_failure.explain.v1"
+        assert r.prompt_id == "job_failure.explain.v2"
 
     def test_rendered_has_no_secrets(self):
         from prompts.loader import render_prompt

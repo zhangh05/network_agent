@@ -440,6 +440,20 @@ def purge_file(workspace_id: str, file_id: str) -> bool:
     })
 
 
+def delete_file_permanently(workspace_id: str, file_id: str) -> bool:
+    """Delete the managed payload and remove its metadata from the file index."""
+    rec = get_file_record(workspace_id, file_id)
+    if not rec:
+        return False
+    try:
+        path = _resolve_workspace_relative_path(workspace_id, rec["path"])
+        if path.exists():
+            path.unlink()
+    except (OSError, ValueError):
+        return False
+    return index.delete_file_record(workspace_id, file_id)
+
+
 # ── Internal helpers ─────────────────────────────────────────────────
 
 def _guess_mime(name: str, binary: bool = False) -> str:

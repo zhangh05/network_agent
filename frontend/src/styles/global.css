@@ -867,6 +867,30 @@ pre code {
   animation: surface-in var(--dur-4) var(--ease-out) both;
 }
 
+/* Operations owns the vertical scroll in each pane. `height:auto` matters here:
+   the shared split shell otherwise asks for 100% height in addition to the page
+   header and can leave the detail scroller without a bounded scrollport. */
+.operations-split {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+
+.operations-pane-scroll {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  scrollbar-gutter: stable;
+}
+
+/* Expanded JSON/code blocks may scroll themselves, then hand the wheel back to
+   the containing Operations pane when their own boundary is reached. */
+.operations-pane-scroll pre,
+.operations-pane-scroll [class*="code-block"] {
+  overscroll-behavior: auto;
+}
+
 .section-head {
   display: flex;
   align-items: center;
@@ -1016,6 +1040,18 @@ pre code {
   background: var(--danger-soft);
   border-color: rgba(189, 48, 64, 0.24);
 }
+
+.artifact-governance-help {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text-3);
+  font-size: var(--fs-12);
+}
+.artifact-governance-help summary { width: fit-content; cursor: pointer; color: var(--text-2); font-weight: 650; }
+.artifact-governance-help > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 18px; padding-top: 9px; line-height: 1.55; }
+.artifact-governance-help b { color: var(--text); }
+@media (max-width: 760px) { .artifact-governance-help > div { grid-template-columns: 1fr; } }
 
 .btn.sm {
   height: 26px;
@@ -4240,8 +4276,7 @@ details.collapse[open] summary::before {
 .wb-chat-list,
 .app-nav,
 .modal,
-.sidebar-scroll,
-[style*="overflow"] {
+.sidebar-scroll {
   overscroll-behavior: contain;
 }
 

@@ -10,13 +10,18 @@ Explain artifact metadata and safe summaries so the user understands what was pr
 - Do not output deployable network configuration.
 - Do not invent artifact ids, file paths, run ids, or trace ids.
 - Do not expose secrets, credentials, tokens, passwords, or raw private data.
+- Describe provenance, scope, recorded time or freshness, sensitivity, and
+  completeness when those fields are supplied. A raw capture, translated
+  configuration, inspection transcript, and generated report have different
+  evidentiary meaning; do not describe one as another.
 
 ## Output
 Provide:
 1. What the artifact is
 2. Why it was created
 3. What it contains at a safe summary level
-4. How to verify or use it next
+4. Important limitations or missing content
+5. How to verify or use it next
 
 Use the user's language.
 

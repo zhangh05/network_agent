@@ -3,6 +3,7 @@
  */
 import { useEffect, useState, useCallback } from "react";
 import { artifactsApi, reportsApi, storageApi } from "../../api";
+import type { ArtifactGovernanceSummary } from "../../api";
 import { useAsync, AsyncView, Badge, CodeBlock, InlineCode, LoadingState, ErrorState } from "../../components/common";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
@@ -15,7 +16,7 @@ import { formatFileSize } from "../../utils/format";
 const SENS_LABEL: Record<string, string> = { public: "公开", internal: "内部", sensitive: "敏感", secret: "机密" };
 const LC_KIND: Record<string, "ok" | "warn" | "muted"> = { active: "ok", archived: "warn", deleted: "muted" };
 const LC_LABEL: Record<string, string> = { active: "活跃", archived: "归档", deleted: "已删" };
-const SRC_LABEL: Record<string, string> = { user_upload: "用户上传", module_output: "模块产出", agent_run: "Agent run" };
+const SRC_LABEL: Record<string, string> = { user_upload: "用户上传", module_output: "模块产出", agent_run: "Agent run", inspection_runner: "设备巡检" };
 
 export function ArtifactCenter() {
   const { currentWorkspaceId } = useSessionStore();
@@ -23,11 +24,13 @@ export function ArtifactCenter() {
   const [tab, setTab] = useState<"preview" | "summary" | "metadata">("preview");
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [batch, setBatch] = useState(false);
+  const [view, setView] = useState<"" | "current" | "history" | "deliverables">("");
+  const [producerId, setProducerId] = useState(() => new URLSearchParams(window.location.search).get("producer_id") || "");
   const toast = useToastStore((s) => s.show);
 
-  const list = useAsync<{ artifacts: Artifact[] }>(
-    (s) => currentWorkspaceId ? artifactsApi.list(currentWorkspaceId, s) : Promise.resolve({ artifacts: [] }),
-    [currentWorkspaceId], (d) => (d.artifacts ?? []).length === 0,
+  const list = useAsync<{ artifacts: Artifact[]; governance?: ArtifactGovernanceSummary }>(
+    (s) => currentWorkspaceId ? artifactsApi.list(currentWorkspaceId, s, view, producerId) : Promise.resolve({ artifacts: [] }),
+    [currentWorkspaceId, view, producerId], (d) => (d.artifacts ?? []).length === 0,
   );
 
   useEffect(() => {
@@ -67,18 +70,47 @@ export function ArtifactCenter() {
   };
 
   const total = list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : 0;
+  const governance = list.state.kind === "success" ? list.state.data.governance : undefined;
 
   return (
     <div className="page" data-testid="page-artifacts">
       <div className="page-header" style={{ background: "var(--surface)" }}>
         <div>
           <h1>制品中心<span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14, marginLeft: 6 }}>· Artifacts</span></h1>
-          <p className="subtitle">列出 / 预览 / 摘要 / 元数据 · 不修改原 artifact</p>
+          <p className="subtitle">统一管理巡检证据、历史版本与业务交付物</p>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
           <div className="status-pill"><span className="dot" style={{ background: "var(--accent)" }} />{total} 个</div>
         </div>
       </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderBottom: "1px solid var(--line)", background: "var(--surface)", flexWrap: "wrap" }}>
+        {producerId && <div className="status-pill">任务 <InlineCode>{producerId}</InlineCode><button className="btn icon sm" title="清除任务筛选" onClick={() => { window.history.replaceState({}, "", window.location.pathname); setProducerId(""); }}>×</button></div>}
+        {([
+          ["", "全部制品"], ["current", "当前证据"], ["history", "历史与不完整"], ["deliverables", "业务交付物"],
+        ] as const).map(([key, label]) => (
+          <button key={key || "all"} className={`btn sm ${view === key ? "primary" : ""}`} onClick={() => { setView(key); setSel(null); }}>
+            {label}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        {governance && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <Badge kind="ok">权威 {governance.authoritative}</Badge>
+          {governance.provisional > 0 && <Badge kind="warn">临时 {governance.provisional}</Badge>}
+          {governance.incomplete > 0 && <Badge kind="err">不完整 {governance.incomplete}</Badge>}
+          <Badge kind="muted">证据流 {governance.evidence_streams}</Badge>
+        </div>}
+      </div>
+
+      <details className="artifact-governance-help">
+        <summary>证据状态如何判定？</summary>
+        <div>
+          <span><b>当前权威</b>：同一设备、同一巡检脚本最近一次完整成功采集。</span>
+          <span><b>临时证据</b>：该证据流还没有完整成功采集，暂用最近一次部分采集或缺少完整性证明的记录。</span>
+          <span><b>不完整</b>：采集中断、超时、取消或未完整返回；不会覆盖已有权威证据。</span>
+          <span><b>历史版本</b>：曾完整成功，但已被同一证据流中更新的完整采集替代。</span>
+        </div>
+      </details>
 
       <div className="split-shell" style={{ flex: 1 }}>
         {/* Left list */}
@@ -138,7 +170,7 @@ export function ArtifactCenter() {
                         </div>
                         <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
                           <Badge kind="muted">{typeLabel(a)}</Badge>
-                          {isAuthoritative(a) && <Badge kind="ok">权威</Badge>}
+                          <AuthorityBadge artifact={a} />
                           {a.sensitivity === "sensitive" && <Badge kind="warn">敏感</Badge>}
                           {a.sensitivity === "secret" && <Badge kind="err">机密</Badge>}
                           {a.redaction_applied && <Badge kind="warn">脱敏</Badge>}
@@ -186,7 +218,7 @@ function Detail({ artifact: a, tab, onTab, onDel }: { artifact: Artifact; tab: s
         <h3 style={{ fontSize: "var(--fs-16)", fontWeight: 720, margin: 0 }}>{a.title || a.artifact_id}</h3>
         <Badge kind="muted">{SENS_LABEL[a.sensitivity] || a.sensitivity}</Badge>
         <Badge kind={LC_KIND[a.lifecycle]}>{LC_LABEL[a.lifecycle] || a.lifecycle}</Badge>
-        {isAuthoritative(a) && <Badge kind="ok">权威</Badge>}
+        <AuthorityBadge artifact={a} />
         {a.redaction_applied && <Badge kind="warn">脱敏</Badge>}
         <div style={{ flex: 1 }} />
         <button className="btn sm danger-ghost" onClick={onDel}>删除</button>
@@ -202,8 +234,13 @@ function Detail({ artifact: a, tab, onTab, onDel }: { artifact: Artifact; tab: s
           {a.sha256_short && <Info label="SHA-256" mono>{a.sha256_short}</Info>}
           {a.capability_id && <Info label="能力">{a.capability_id}</Info>}
           {a.run_id && <Info label="Run" mono>{a.run_id}</Info>}
-          <Info label="使用状态">否，需要人工复核</Info>
+          <Info label="证据地位">{authorityLabel(a)}</Info>
+          {typeof a.metadata?.asset_name === "string" && <Info label="设备">{a.metadata.asset_name}</Info>}
+          {typeof a.metadata?.producer_id === "string" && <Info label="巡检任务" mono>{a.metadata.producer_id}</Info>}
+          {typeof a.metadata?.producer_trigger === "string" && <Info label="触发场景">{triggerLabel(a.metadata.producer_trigger)}</Info>}
+          {a.governance?.version_count && <Info label="证据版本">第 {a.governance.version} / {a.governance.version_count} 版</Info>}
         </div>
+        {a.governance?.authority_reason && <div style={{ marginTop: 12, padding: "8px 10px", background: "var(--surface-2)", borderLeft: "3px solid var(--accent)", fontSize: "var(--fs-12)", color: "var(--text-2)" }}>{a.governance.authority_reason}</div>}
         <details className="collapse" style={{ marginTop: 8 }}>
           <summary style={{ fontSize: "var(--fs-11)", color: "var(--text-4)", cursor: "pointer" }}>技术详情</summary>
           <div style={{ marginTop: 4, fontSize: "var(--fs-11)", color: "var(--text-3)" }}>
@@ -311,12 +348,35 @@ function SummaryTab({ artifact: a }: { artifact: Artifact }) {
 /* ── Helpers ── */
 
 function typeLabel(a: Artifact): string {
-  const m: Record<string, string> = { output_config: "配置产物", translated_config: "翻译配置", knowledge_doc: "知识文档", report: "报告", manual_review: "评审材料", topology: "拓扑材料" };
+  const m: Record<string, string> = { output_config: "配置产物", translated_config: "翻译配置", knowledge_doc: "知识文档", report: "报告", manual_review: "评审材料", topology: "拓扑材料", inspection_raw: "巡检原始证据" };
   return m[a.artifact_type || ""] || (a.artifact_type || "").replace(/_/g, " ") || "制品";
 }
 
-function isAuthoritative(a: Artifact): boolean {
-  return Boolean(a.capability_id || a.module || a.skill);
+function authorityLabel(a: Artifact): string {
+  const labels: Record<string, string> = {
+    authoritative: "当前权威证据", provisional: "临时证据", historical: "历史版本",
+    incomplete: "不完整采集", not_applicable: "业务交付物",
+  };
+  return labels[a.governance?.authority_status || "not_applicable"] || "业务交付物";
+}
+
+function AuthorityBadge({ artifact: a }: { artifact: Artifact }) {
+  const status = a.governance?.authority_status || "not_applicable";
+  if (status === "authoritative") return <Badge kind="ok">当前权威</Badge>;
+  if (status === "provisional") return <Badge kind="warn">临时证据</Badge>;
+  if (status === "incomplete") return <Badge kind="err">不完整</Badge>;
+  if (status === "historical") return <Badge kind="muted">历史版本</Badge>;
+  return <Badge kind="muted">交付物</Badge>;
+}
+
+function triggerLabel(value: string): string {
+  const parts = value.split(":", 3);
+  if (parts[0] !== "assurance") return value || "直接巡检";
+  const labels: Record<string, string> = {
+    baseline_check: "状态基线检查", topology_refresh: "关系证据刷新", impact: "影响范围分析",
+    incident: "故障排查", change_pre: "变更前检查", change_post: "变更后验证", schedule: "定期检查",
+  };
+  return labels[parts[1]] || parts[1];
 }
 
 /* ── Report section ── */

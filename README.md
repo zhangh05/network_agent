@@ -1,6 +1,6 @@
 # Network Agent
 
-Network Agent 是一个面向网络运维场景的本地 AI Agent 工作台。当前架构只保留一套运行时、一套工具边界和一套业务能力目录：前端通过 Flask API 与 WebSocket/SSE 驱动对话，后端由 `AgentApp -> SSOTRuntimeEngine -> ToolRuntimeClient` 统一执行，工具统一收敛为 23 个 canonical tool。
+Network Agent 是一个面向网络运维场景的本地 AI Agent 工作台。当前架构只保留一套运行时、一套工具边界和一套业务能力目录：前端通过 Flask API 与 WebSocket/SSE 驱动对话，后端由 `AgentApp -> SSOTRuntimeEngine -> ToolRuntimeClient` 统一执行，工具统一收敛为 24 个 canonical tool。
 
 > **运行环境**：源码运行需要 Python 3.12+ / Node.js 18+。Windows 10/11 官方 Release 自带经过验证的 Python 与 Node.js 运行时；macOS 和 Linux 使用本机运行时。
 
@@ -52,9 +52,9 @@ flowchart LR
 | `frontend/` | React/Vite 工作台、会话、时间线、设置、资产、诊断 |
 | `agent/app/` | AgentApp 门面、SessionManager、AgentThread |
 | `agent/runtime/` | SSOT Runtime 适配、AgentResult 投影与持久化 |
-| `agent/modules/` | inspection（巡检）、browser（浏览器操控）、cmdb（资产）、knowledge（知识库）、remote（远程终端） |
-| `core/tools/` | 23 个 canonical tool、manifest、policy、executor、redaction |
-| `agent/capabilities/` | 12 个业务能力目录，只描述能力，不注册工具 |
+| `agent/modules/` | assurance（网络保障）、inspection（巡检）、browser（浏览器操控）、cmdb（资产）、knowledge（知识库）、remote（远程终端） |
+| `core/tools/` | 24 个 canonical tool、manifest、policy、executor、redaction |
+| `agent/capabilities/` | 13 个业务能力目录，只描述能力，不注册工具 |
 | `workspace/` | session/run/message/memory/workspace 数据边界 |
 | `artifacts/` | 制品生命周期与内容存储 |
 | `jobs/` | 作业系统（store/schemas/manager/worker/redaction） |
@@ -74,7 +74,7 @@ flowchart LR
 - `NETWORK_AGENT_AUTH_ENABLED=true` 时 WebSocket 也需携带 `auth_token`
 
 ### 安全
-- 后端默认绑定 `127.0.0.1`（v3.11，从 `0.0.0.0` 改为 localhost-only）
+- 启动脚本默认绑定 `0.0.0.0` 以支持局域网访问；如只允许本机访问，可设置 `BACKEND_HOST=127.0.0.1` 和 `FRONTEND_HOST=127.0.0.1`
 - SSH/Telnet 密码通过 HMAC + XOR stream cipher with HMAC 加密存储，不会明文落盘
 - Web Content Fetch 有 DNS rebinding 二次校验 + 5MB 响应上限
 - 所有 SSH/Telnet 巡检命令强制只读校验
@@ -83,9 +83,9 @@ flowchart LR
 - JSONL append-only + RLock 并发控制，软删除（tombstone 标记）
 - 密码损坏检测（`password_corrupted` 标记）在列表和单资产查询中生效
 
-## 23 个 Network Agent Tools
+## 24 个 Network Agent Tools
 
-`agent.manage`, `browser.manage`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `inspection.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `spawn_config_translate_agent`, `spawn_network_diag_agent`, `spawn_security_agent`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
+`agent.manage`, `assurance.manage`, `browser.manage`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `inspection.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `spawn_config_translate_agent`, `spawn_network_diag_agent`, `spawn_security_agent`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
 
 工具名、manifest 和 registry 必须三方一致。不要添加别名，不要恢复旧工具名，不要让 handler 绕过 `ToolRuntimeClient`。
 
