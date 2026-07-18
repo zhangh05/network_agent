@@ -131,6 +131,11 @@ body,
   --sh-3: var(--shadow-menu);
   --sh-inset: inset 0 1px 0 rgba(255, 255, 255, 0.65);
 
+  --region-purple: #7e22ce;
+  --region-purple-soft: #f3e8ff;
+  --region-amber: #a16207;
+  --region-amber-soft: #fef3c7;
+
   /* Legacy aliases used by downstream components; keep until refactor. */
   --brand: var(--accent);
   --brand-soft: var(--accent-soft);
@@ -171,6 +176,10 @@ body,
   --danger-soft: #3b1b23;
   --info: #80badc;
   --info-soft: #183044;
+  --region-purple: #c084fc;
+  --region-purple-soft: #3b1f52;
+  --region-amber: #e2ad4d;
+  --region-amber-soft: #372913;
 }
 
 body {
@@ -1377,6 +1386,7 @@ select.input {
   height: 42px;
   margin-bottom: 12px;
   place-items: center;
+  font-size: 18px;
   color: var(--text-4);
   background: var(--surface);
   border: 1px solid var(--line);
@@ -1394,6 +1404,30 @@ select.input {
   max-width: 520px;
   color: var(--text-3);
   font-size: var(--fs-12);
+}
+
+.error-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 8px;
+  place-items: center;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: var(--r-8);
+}
+
+.error-text {
+  margin-bottom: 4px;
+  color: var(--danger);
+  font-size: var(--fs-14);
+  font-weight: 500;
+}
+
+.error-hint {
+  color: var(--text-3);
+  font-size: var(--fs-12);
+  margin-bottom: 12px;
 }
 
 .hero {
@@ -4251,6 +4285,15 @@ details.collapse[open] summary::before {
   .route-view { animation: none; }
   .spinner { animation-duration: 1.4s; }
 }
+
+/* ── Utility helpers for inline-style cleanup ── */
+.cursor-default { cursor: default; }
+.cursor-pointer { cursor: pointer; }
+.text-danger { color: var(--danger); }
+.input-xs { height: 22px; font-size: var(--fs-12); width: 100%; }
+.btn-xs { height: 22px; padding: 0 6px; font-size: var(--fs-10); }
+.btn-xs-compact { height: 22px; padding: 0 4px; font-size: var(--fs-10); }
+.row-flex-xs { display: flex; gap: 2px; padding: 4px 2px; }
 
 /* ── Smoothness & UX polish (2026-07-08) ── */
 

@@ -277,7 +277,7 @@ export function Sidebar() {
           <span>工作区</span>
         </div>
         <div className="list" data-testid="ws-list">
-          <div className="list-item active" style={{ cursor: "default" }}>
+          <div className="list-item active cursor-default">
             <span className="status-dot ok" />
             <span className="title">默认工作区</span>
             <span className="meta">default</span>
@@ -328,8 +328,7 @@ export function Sidebar() {
                   >
                     {editingSessId === sess.session_id ? (
                       <input
-                        className="input"
-                        style={{ height: 22, fontSize: 12, width: "100%" }}
+                        className="input input-xs"
                         value={editingSessName}
                         onChange={(e) => setEditingSessName(e.target.value)}
                         onKeyDown={(e) => {
@@ -350,9 +349,9 @@ export function Sidebar() {
                     )}
                   </button>
                   {editingSessId === sess.session_id ? (
-                    <div style={{ display: "flex", gap: 2, padding: "4px 2px" }}>
-                      <button className="btn sm" style={{ height: 22, padding: "0 6px", fontSize: 10 }} onClick={(e) => { e.stopPropagation(); void onRenameSession(sess.session_id); }} type="button">保存</button>
-                      <button className="btn sm ghost" style={{ height: 22, padding: "0 4px", fontSize: 10 }} onClick={(e) => { e.stopPropagation(); cancelEditSession(); }} type="button">×</button>
+                    <div className="row-flex-xs">
+                      <button className="btn sm btn-xs" onClick={(e) => { e.stopPropagation(); void onRenameSession(sess.session_id); }} type="button">保存</button>
+                      <button className="btn sm ghost btn-xs-compact" onClick={(e) => { e.stopPropagation(); cancelEditSession(); }} type="button">×</button>
                     </div>
                   ) : (
                     <div className="row-actions">
@@ -365,9 +364,8 @@ export function Sidebar() {
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); void onDeleteSession(sess); }}
-                        className="btn ghost sm icon-only"
+                        className="btn ghost sm icon-only text-danger"
                         type="button" title="删除"
-                        style={{ color: "var(--danger)" }}
                       >
                         <IconTrash size={12} />
                       </button>
@@ -424,11 +422,10 @@ export function Sidebar() {
                 ) : null;
                 return (
                   <div
-                    className="list-item run-item"
+                    className="list-item run-item cursor-pointer"
                     key={runId}
                     title={`${summary || runId}\nstatus: ${r.status || "?"}\ntime: ${r.created_at || "?"}`}
                     onClick={() => inspectRun(r)}
-                    style={{ cursor: "pointer" }}
                   >
                     <div className="run-title-row">
                       <span

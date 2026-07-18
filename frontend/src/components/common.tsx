@@ -47,6 +47,8 @@ export function AsyncView<T>({
   return <div className="empty"><div className="empty-text">未初始化</div></div>;
 }
 
+import { IconAlert } from "./Icon";
+
 /* ── Error state ── */
 
 export function ErrorState({
@@ -57,17 +59,17 @@ export function ErrorState({
   onRetry?: () => void;
 }) {
   return (
-    <div className="empty" style={{ padding: "24px" }} data-testid="error-state">
-      <div className="empty-icon" style={{ background: "var(--danger-bg, rgba(185,28,28,.08))", borderRadius: 8, width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span style={{ fontSize: 20, color: "var(--danger)" }}>⚠</span>
+    <div className="empty" data-testid="error-state">
+      <div className="error-icon">
+        <IconAlert size={20} />
       </div>
-      <div className="empty-text" style={{ color: "var(--danger)", fontWeight: 600, marginTop: 8 }}>{error.message}</div>
-      <div className="empty-hint" style={{ fontSize: 11, marginTop: 4 }}>
+      <div className="error-text">{error.message}</div>
+      <div className="error-hint">
         {error.code} · {error.status > 0 ? `HTTP ${error.status}` : "无响应"}
         {error.request_id ? ` · ${error.request_id}` : ""}
       </div>
       {onRetry && (
-        <button className="btn sm" onClick={onRetry} type="button" style={{ marginTop: 12 }}>
+        <button className="btn sm" onClick={onRetry} type="button">
           重新加载
         </button>
       )}
@@ -89,7 +91,7 @@ export function EmptyState({
   return (
     <div className="empty" data-testid="empty-state">
       <div className="empty-icon">
-        <span style={{ fontSize: 18, color: "var(--ink-faint)" }}>∅</span>
+        <span>∅</span>
       </div>
       <div className="empty-text">{text}</div>
       {hint && <div className="empty-hint">{hint}</div>}

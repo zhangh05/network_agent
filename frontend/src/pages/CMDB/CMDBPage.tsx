@@ -18,20 +18,20 @@ const TYPE_LABEL: Record<string, string> = {
   load_balancer: "负载均衡", wireless: "无线", other: "其他",
 };
 const VENDOR_STRIP: Record<string, string> = {
-  H3C: "var(--info)", HuaWei: "#cf0a2c", Cisco: "#049fd9", Hillstone: "#0077be",
-  Ruijie: "#0077be", Dipu: "#7e22ce",
+  H3C: "var(--info)", HuaWei: "var(--danger)", Cisco: "var(--ok)", Hillstone: "var(--accent)",
+  Ruijie: "var(--accent)", Dipu: "var(--region-purple)",
 };
 const REGION_PRESETS = ["华东", "华南", "华北", "华西", "华东-核心", "华东-汇聚", "华东-接入",
                           "华南-核心", "华北-核心", "海外"];
 const REGION_TINT: Record<string, string> = {
-  "华东": "var(--info-soft)", "华南": "var(--ok-soft)", "华北": "#dbeafe",
-  "华西": "#f3e8ff", "华东-核心": "#e0f2fe", "华东-汇聚": "#dbeafe", "华东-接入": "var(--surface-3)",
-  "华南-核心": "#dcfce7", "华北-核心": "#dbeafe", "海外": "#fef3c7",
+  "华东": "var(--info-soft)", "华南": "var(--ok-soft)", "华北": "var(--info-soft)",
+  "华西": "var(--region-purple-soft)", "华东-核心": "var(--info-soft)", "华东-汇聚": "var(--info-soft)", "华东-接入": "var(--surface-3)",
+  "华南-核心": "var(--ok-soft)", "华北-核心": "var(--info-soft)", "海外": "var(--region-amber-soft)",
 };
 const REGION_TEXT: Record<string, string> = {
-  "华东": "var(--info)", "华南": "var(--ok)", "华北": "#1e40af",
-  "华西": "#7e22ce", "华东-核心": "#075985", "华东-汇聚": "#0369a1", "华东-接入": "var(--text-3)",
-  "华南-核心": "#15803d", "华北-核心": "#1e40af", "海外": "#92400e",
+  "华东": "var(--info)", "华南": "var(--ok)", "华北": "var(--info)",
+  "华西": "var(--region-purple)", "华东-核心": "var(--info)", "华东-汇聚": "var(--info)", "华东-接入": "var(--text-3)",
+  "华南-核心": "var(--ok)", "华北-核心": "var(--info)", "海外": "var(--region-amber)",
 };
 
 // v3.9.13: vendor / region are user-typed strings. The combobox

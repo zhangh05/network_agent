@@ -45,6 +45,34 @@ export function IconBook(props: IconProps) {
   );
 }
 
+export function IconBrain(props: IconProps) {
+  // Brain-style icon for memory / knowledge retention.
+  return (
+    <svg {...base(props.size, props)}>
+      <path d="M8 2c-3.5 0-5.5 2.5-5.5 6 0 3 2 5.5 5.5 5.5s5.5-2.5 5.5-5.5C13.5 4.5 11.5 2 8 2Z" />
+      <path d="M8 2v11.5" />
+      <path d="M4 6c1-.5 3-.5 4 0" />
+      <path d="M4 10c1 .5 3 .5 4 0" />
+      <path d="M10 6c1-.5 2.5 0 3 1" />
+      <path d="M10 10c1 .5 2.5 0 3-1" />
+    </svg>
+  );
+}
+
+export function IconServer(props: IconProps) {
+  // Server rack icon for the CMDB / device asset page.
+  return (
+    <svg {...base(props.size, props)}>
+      <rect x="3" y="2.5" width="10" height="11" rx="1.5" />
+      <path d="M3 6h10" />
+      <path d="M3 10h10" />
+      <circle cx="5" cy="4" r="0.6" fill="currentColor" />
+      <circle cx="7.5" cy="4" r="0.6" fill="currentColor" opacity="0.5" />
+      <circle cx="10" cy="4" r="0.6" fill="currentColor" opacity="0.3" />
+    </svg>
+  );
+}
+
 export function IconBox(props: IconProps) {
   return (
     <svg {...base(props.size, props)}>
