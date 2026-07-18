@@ -87,26 +87,69 @@ describe("ArtifactCenter — artifact card", () => {
     expect(detail.textContent).toContain("router ospf 1");
   });
 
-  it("shows inspection lineage and authoritative evidence status", async () => {
+  it("shows impact collection as contextual evidence instead of current authority", async () => {
     const evidence: Artifact = {
       ...sampleArtifact,
       artifact_id: "raw-1",
       artifact_type: "inspection_raw",
       title: "核心交换机巡检输出",
-      metadata: { asset_name: "core-1", producer_id: "ins-1", producer_trigger: "assurance:impact:op-1" },
-      governance: { authority_status: "authoritative", authority_reason: "最近一次完整成功采集", version: 2, version_count: 2 },
+      metadata: { asset_name: "core-1", producer_id: "ins-1", producer_trigger: "assurance:fault_propagation:op-1" },
+      governance: { authority_domain: "contextual", authority_status: "contextual", authority_reason: "专项任务证据不参与当前状态权威选择", version: 1, version_count: 1 },
     };
     enqueue("/workspaces/ws-1/artifacts", { status: 200, data: { artifacts: [evidence] } });
     enqueue("/workspaces/ws-1/artifacts/raw-1/content", { status: 200, data: sampleContent });
     render(<ArtifactCenter />);
     const item = await screen.findByTestId("artifact-raw-1");
-    expect(item).toHaveTextContent("当前权威");
+    expect(item).toHaveTextContent("专项证据");
     fireEvent.click(item);
     const detail = await screen.findByTestId("artifact-detail");
     expect(detail).toHaveTextContent("core-1");
     expect(detail).toHaveTextContent("ins-1");
-    expect(detail).toHaveTextContent("影响范围分析");
-    expect(detail).toHaveTextContent("第 2 / 2 版");
+    expect(detail).toHaveTextContent("故障传播分析");
+    expect(detail).toHaveTextContent("第 1 / 1 版");
+  });
+
+  it("labels baseline captures as current-state authority", async () => {
+    const evidence: Artifact = {
+      ...sampleArtifact,
+      artifact_id: "baseline-raw-1",
+      artifact_type: "inspection_raw",
+      title: "状态基线巡检输出",
+      metadata: { asset_name: "core-1", producer_id: "ins-2", producer_trigger: "assurance:baseline_capture:op-1" },
+      governance: { authority_domain: "current_state", authority_status: "authoritative", authority_reason: "最近一次完整权威基线采集", version: 1, version_count: 1 },
+    };
+    enqueue("/workspaces/ws-1/artifacts", { status: 200, data: { artifacts: [evidence] } });
+    render(<ArtifactCenter />);
+    expect(await screen.findByTestId("artifact-baseline-raw-1")).toHaveTextContent("当前状态权威");
+  });
+
+  it("groups artifacts produced by the same task id", async () => {
+    const first = {
+      ...sampleArtifact,
+      artifact_id: "task-1-a",
+      artifact_type: "inspection_raw",
+      metadata: { asset_name: "core-1", producer_id: "ins-100", producer_trigger: "assurance:fault_propagation:op-1" },
+    };
+    const second = {
+      ...first,
+      artifact_id: "task-1-b",
+      metadata: { asset_name: "core-2", producer_id: "ins-100", producer_trigger: "assurance:fault_propagation:op-1" },
+    };
+    const third = {
+      ...first,
+      artifact_id: "task-2-a",
+      metadata: { asset_name: "core-3", producer_id: "ins-200", producer_trigger: "assurance:baseline_capture:op-1" },
+    };
+    enqueue("/workspaces/ws-1/artifacts", { status: 200, data: { artifacts: [first, second, third] } });
+
+    render(<ArtifactCenter />);
+
+    const impactGroup = await screen.findByTestId("artifact-group-ins-100");
+    expect(impactGroup).toHaveTextContent("故障传播分析");
+    expect(impactGroup).toHaveTextContent("ins-100");
+    expect(impactGroup).toHaveTextContent("2 个");
+    expect(impactGroup.querySelectorAll('[data-testid^="artifact-task-1-"]')).toHaveLength(2);
+    expect(screen.getByTestId("artifact-group-ins-200")).toHaveTextContent("权威基线采集");
   });
 
   it("keeps duplicate artifact titles readable while hiding ids by default", async () => {

@@ -16,7 +16,7 @@ from workspace.ids import validate_workspace_id
 _LOCK = threading.RLock()
 _KINDS = {
     "baselines", "checks", "snapshots", "drifts", "topologies", "incidents",
-    "changes", "schedules", "operations",
+    "changes", "schedules", "operations", "alarms",
 }
 
 

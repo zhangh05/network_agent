@@ -95,7 +95,9 @@ export function ArtifactCenter() {
         ))}
         <div style={{ flex: 1 }} />
         {governance && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <Badge kind="ok">权威 {governance.authoritative}</Badge>
+          <Badge kind="ok">状态权威 {governance.current_state_authoritative || 0}</Badge>
+          {governance.inspection_current > 0 && <Badge kind="info">最新资产巡检 {governance.inspection_current}</Badge>}
+          {governance.contextual > 0 && <Badge kind="muted">专项证据 {governance.contextual}</Badge>}
           {governance.provisional > 0 && <Badge kind="warn">临时 {governance.provisional}</Badge>}
           {governance.incomplete > 0 && <Badge kind="err">不完整 {governance.incomplete}</Badge>}
           <Badge kind="muted">证据流 {governance.evidence_streams}</Badge>
@@ -105,7 +107,9 @@ export function ArtifactCenter() {
       <details className="artifact-governance-help">
         <summary>证据状态如何判定？</summary>
         <div>
-          <span><b>当前权威</b>：同一设备、同一巡检脚本最近一次完整成功采集。</span>
+          <span><b>当前状态权威</b>：同一设备、同一巡检脚本最近一次完整的权威基线采集。只有基线采集可以建立或更新该权威。</span>
+          <span><b>最新资产巡检</b>：普通资产巡检的最新完整结果；与状态权威相互独立。</span>
+          <span><b>专项任务证据</b>：故障传播、故障排查、依赖刷新与变更验证采集；只服务于对应任务，不参与状态权威选择。</span>
           <span><b>临时证据</b>：该证据流还没有完整成功采集，暂用最近一次部分采集或缺少完整性证明的记录。</span>
           <span><b>不完整</b>：采集中断、超时、取消或未完整返回；不会覆盖已有权威证据。</span>
           <span><b>历史版本</b>：曾完整成功，但已被同一证据流中更新的完整采集替代。</span>
@@ -146,42 +150,57 @@ export function ArtifactCenter() {
             </div>
           )}
           <AsyncView state={list.state} onRetry={list.reload} emptyText="暂无制品" emptyHint="后端返回为空">
-            {(d) => (
-              <div data-testid="artifact-list">
-                {(d.artifacts ?? []).map((a) => {
-                  const active = sel?.artifact_id === a.artifact_id;
-                  return (
-                    <div key={a.artifact_id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
-                      {batch && (
-                        <input type="checkbox" checked={checked.has(a.artifact_id)} onChange={(e) => { const n = new Set(checked); e.target.checked ? n.add(a.artifact_id) : n.delete(a.artifact_id); setChecked(n); }}
-                          style={{ width: 14, height: 14, cursor: "pointer", flexShrink: 0, accentColor: "var(--accent)" }} />
-                      )}
-                      <button type="button"
-                        className={`card`}
-                        onClick={() => { setSel(a); setTab("preview"); }}
-                        data-testid={`artifact-${a.artifact_id}`}
-                        style={{
-                          flex: 1, textAlign: "left", padding: "10px 12px", cursor: "pointer",
-                          borderColor: active ? "var(--accent)" : "var(--line)",
-                          background: active ? "var(--accent-soft)" : "var(--surface)",
-                        }}>
-                        <div style={{ fontSize: "var(--fs-13)", fontWeight: 680, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 3 }}>
-                          {a.title || a.artifact_id}
-                        </div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
-                          <Badge kind="muted">{typeLabel(a)}</Badge>
-                          <AuthorityBadge artifact={a} />
-                          {a.sensitivity === "sensitive" && <Badge kind="warn">敏感</Badge>}
-                          {a.sensitivity === "secret" && <Badge kind="err">机密</Badge>}
-                          {a.redaction_applied && <Badge kind="warn">脱敏</Badge>}
-                          {a.created_at && <span style={{ fontSize: "var(--fs-10)", color: "var(--text-4)" }}>{formatCompactDate(a.created_at)}</span>}
-                        </div>
-                      </button>
+            {(d) => {
+              const groups = groupArtifactsByTask(d.artifacts ?? []);
+              return <div data-testid="artifact-list" style={{ display: "grid", gap: 8 }}>
+                {groups.map((group, index) => (
+                  <ArtifactTaskGroup key={group.key} groupKey={group.key} initialOpen={Boolean(producerId) || index === 0}>
+                    <summary style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 10px", cursor: "pointer", background: "var(--surface-2)", borderBottom: "1px solid var(--line)", listStyle: "none" }}>
+                      <span aria-hidden="true" style={{ color: "var(--text-4)", fontSize: 10 }}>▶</span>
+                      <span style={{ minWidth: 0, flex: 1 }}>
+                        <b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "var(--fs-12)" }}>{group.label}</b>
+                        <code style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-4)", fontSize: "var(--fs-10)" }}>{group.taskId || "无任务 ID"}</code>
+                      </span>
+                      <Badge kind={group.taskId ? "info" : "muted"}>{group.artifacts.length} 个</Badge>
+                    </summary>
+                    <div style={{ padding: "7px 7px 3px" }}>
+                      {group.artifacts.map((a) => {
+                        const active = sel?.artifact_id === a.artifact_id;
+                        return (
+                          <div key={a.artifact_id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
+                            {batch && (
+                              <input type="checkbox" checked={checked.has(a.artifact_id)} onChange={(e) => { const n = new Set(checked); e.target.checked ? n.add(a.artifact_id) : n.delete(a.artifact_id); setChecked(n); }}
+                                style={{ width: 14, height: 14, cursor: "pointer", flexShrink: 0, accentColor: "var(--accent)" }} />
+                            )}
+                            <button type="button"
+                              className="card"
+                              onClick={() => { setSel(a); setTab("preview"); }}
+                              data-testid={`artifact-${a.artifact_id}`}
+                              style={{
+                                flex: 1, textAlign: "left", padding: "9px 10px", cursor: "pointer",
+                                borderColor: active ? "var(--accent)" : "var(--line)",
+                                background: active ? "var(--accent-soft)" : "var(--surface)",
+                              }}>
+                              <div style={{ fontSize: "var(--fs-13)", fontWeight: 680, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 3 }}>
+                                {a.title || a.artifact_id}
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                                <Badge kind="muted">{typeLabel(a)}</Badge>
+                                <AuthorityBadge artifact={a} />
+                                {a.sensitivity === "sensitive" && <Badge kind="warn">敏感</Badge>}
+                                {a.sensitivity === "secret" && <Badge kind="err">机密</Badge>}
+                                {a.redaction_applied && <Badge kind="warn">脱敏</Badge>}
+                                {a.created_at && <span style={{ fontSize: "var(--fs-10)", color: "var(--text-4)" }}>{formatCompactDate(a.created_at)}</span>}
+                              </div>
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  </ArtifactTaskGroup>
+                ))}
+              </div>;
+            }}
           </AsyncView>
         </aside>
 
@@ -352,7 +371,50 @@ function typeLabel(a: Artifact): string {
   return m[a.artifact_type || ""] || (a.artifact_type || "").replace(/_/g, " ") || "制品";
 }
 
+function artifactTaskId(a: Artifact): string {
+  for (const value of [a.metadata?.producer_id, a.metadata?.task_id, a.metadata?.inspection_task_id]) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function ArtifactTaskGroup({ groupKey, initialOpen, children }: { groupKey: string; initialOpen: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(initialOpen);
+  return <details
+    data-testid={`artifact-group-${groupKey}`}
+    open={open}
+    onToggle={(event) => setOpen(event.currentTarget.open)}
+    className="card"
+    style={{ padding: 0, overflow: "hidden", background: "var(--surface)" }}
+  >{children}</details>;
+}
+
+function groupArtifactsByTask(artifacts: Artifact[]) {
+  const groups = new Map<string, { key: string; taskId: string; label: string; artifacts: Artifact[] }>();
+  for (const artifact of artifacts) {
+    const taskId = artifactTaskId(artifact);
+    const key = taskId || "other";
+    const trigger = typeof artifact.metadata?.producer_trigger === "string" ? triggerLabel(artifact.metadata.producer_trigger) : "";
+    const group = groups.get(key) || {
+      key,
+      taskId,
+      label: taskId ? (trigger || "任务制品") : "非任务制品",
+      artifacts: [],
+    };
+    group.artifacts.push(artifact);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
 function authorityLabel(a: Artifact): string {
+  const domain = a.governance?.authority_domain || "";
+  const status = a.governance?.authority_status || "not_applicable";
+  if (status === "contextual") return "专项任务证据";
+  if (status === "authoritative" && domain === "current_state") return "当前状态权威";
+  if (status === "authoritative" && domain === "inspection") return "最新资产巡检";
+  if (status === "historical" && domain === "current_state") return "权威基线历史";
+  if (status === "historical" && domain === "inspection") return "资产巡检历史";
   const labels: Record<string, string> = {
     authoritative: "当前权威证据", provisional: "临时证据", historical: "历史版本",
     incomplete: "不完整采集", not_applicable: "业务交付物",
@@ -362,9 +424,15 @@ function authorityLabel(a: Artifact): string {
 
 function AuthorityBadge({ artifact: a }: { artifact: Artifact }) {
   const status = a.governance?.authority_status || "not_applicable";
+  const domain = a.governance?.authority_domain || "";
+  if (status === "contextual") return <Badge kind="muted">专项证据</Badge>;
+  if (status === "authoritative" && domain === "current_state") return <Badge kind="ok">当前状态权威</Badge>;
+  if (status === "authoritative" && domain === "inspection") return <Badge kind="info">最新资产巡检</Badge>;
   if (status === "authoritative") return <Badge kind="ok">当前权威</Badge>;
   if (status === "provisional") return <Badge kind="warn">临时证据</Badge>;
   if (status === "incomplete") return <Badge kind="err">不完整</Badge>;
+  if (status === "historical" && domain === "current_state") return <Badge kind="muted">权威基线历史</Badge>;
+  if (status === "historical" && domain === "inspection") return <Badge kind="muted">资产巡检历史</Badge>;
   if (status === "historical") return <Badge kind="muted">历史版本</Badge>;
   return <Badge kind="muted">交付物</Badge>;
 }
@@ -373,7 +441,7 @@ function triggerLabel(value: string): string {
   const parts = value.split(":", 3);
   if (parts[0] !== "assurance") return value || "直接巡检";
   const labels: Record<string, string> = {
-    baseline_check: "状态基线检查", topology_refresh: "关系证据刷新", impact: "影响范围分析",
+    baseline_capture: "权威基线采集", topology_refresh: "关系证据刷新", fault_propagation: "故障传播分析",
     incident: "故障排查", change_pre: "变更前检查", change_post: "变更后验证", schedule: "定期检查",
   };
   return labels[parts[1]] || parts[1];

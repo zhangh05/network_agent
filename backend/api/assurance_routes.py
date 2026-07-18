@@ -95,35 +95,12 @@ def register_assurance_routes(app):
         ws, err = _workspace(data.get("workspace_id", ""))
         if err: return err
         try:
-            item = service.create_baseline(ws, data.get("name", ""), data.get("scope"), data.get("inspection_task_id", ""))
+            operation = service.start_assurance_operation(
+                ws, "baseline_capture", scope=data.get("scope"),
+                baseline_name=str(data.get("name", "")),
+            )
         except Exception as exc: return _failure(exc)
-        return jsonify({"ok": True, "baseline": item}), 201
-
-    @app.post("/api/assurance/checks")
-    def assurance_check():
-        data, err = _data()
-        if err: return err
-        ws, err = _workspace(data.get("workspace_id", ""))
-        if err: return err
-        try:
-            check = service.start_baseline_check(ws, str(data.get("baseline_id", "")))
-        except Exception as exc: return _failure(exc)
-        return jsonify({"ok": True, "check": check}), 202
-
-    @app.get("/api/assurance/checks")
-    def assurance_checks_list():
-        ws, err = _workspace(request.args.get("workspace_id", ""))
-        if err: return err
-        return _read(lambda: service.list_baseline_checks(ws), "items")
-
-    @app.get("/api/assurance/checks/<check_id>")
-    def assurance_check_get(check_id: str):
-        ws, err = _workspace(request.args.get("workspace_id", ""))
-        if err: return err
-        try:
-            check = service.get_baseline_check(ws, check_id)
-        except Exception as exc: return _failure(exc)
-        return jsonify({"ok": True, "check": check})
+        return jsonify({"ok": True, "operation": operation}), 202
 
     @app.get("/api/assurance/drifts")
     def assurance_drifts():
@@ -147,16 +124,18 @@ def register_assurance_routes(app):
         except Exception as exc: return _failure(exc)
         return jsonify({"ok": True, "operation": operation}), 202
 
-    @app.post("/api/assurance/topology/impact")
-    def assurance_impact():
+    @app.post("/api/assurance/fault-propagation")
+    def assurance_fault_propagation():
         data, err = _data()
         if err: return err
         ws, err = _workspace(data.get("workspace_id", ""))
         if err: return err
         try: operation = service.start_assurance_operation(
-            ws, "impact", asset_ids=_string_list(data.get("asset_ids"), "asset_ids"),
+            ws, "fault_propagation", ref_id=str(data.get("drift_id", "")),
+            asset_ids=_string_list(data.get("asset_ids", []), "asset_ids"),
             scope={"limit": int(data.get("limit", 200))},
             depth=int(data.get("depth", 2)),
+            source_mode=str(data.get("source_mode", "hypothetical")),
         )
         except Exception as exc: return _failure(exc)
         return jsonify({"ok": True, "operation": operation}), 202
@@ -211,7 +190,11 @@ def register_assurance_routes(app):
         if err: return err
         ws, err = _workspace(data.get("workspace_id", ""))
         if err: return err
-        try: item = service.create_change_plan(ws, data.get("title", ""), data.get("summary", ""), _string_list(data.get("asset_ids"), "asset_ids"))
+        try: item = service.create_change_plan(
+            ws, data.get("title", ""), data.get("summary", ""),
+            _string_list(data.get("asset_ids"), "asset_ids"),
+            expected_changes=data.get("expected_changes"), invariants=data.get("invariants"),
+        )
         except Exception as exc: return _failure(exc)
         return jsonify({"ok": True, "change": item}), 201
 
@@ -251,13 +234,23 @@ def register_assurance_routes(app):
         if err: return err
         return _read(lambda: service.list_schedules(ws), "items")
 
+    @app.get("/api/assurance/alarms")
+    def assurance_alarms_list():
+        ws, err = _workspace(request.args.get("workspace_id", ""))
+        if err: return err
+        return _read(lambda: service.list_alarms(ws, request.args.get("state", "")), "items")
+
     @app.post("/api/assurance/schedules")
     def assurance_schedules_create():
         data, err = _data()
         if err: return err
         ws, err = _workspace(data.get("workspace_id", ""))
         if err: return err
-        try: item = service.create_schedule(ws, data.get("name", ""), data.get("baseline_id", ""), int(data.get("interval_minutes", 60)), data.get("scope"))
+        try: item = service.create_schedule(
+            ws, data.get("name", ""), data.get("baseline_id", ""),
+            int(data.get("interval_minutes", 60)), data.get("scope"),
+            int(data.get("confirm_after", 2)), int(data.get("recover_after", 2)),
+        )
         except Exception as exc: return _failure(exc)
         return jsonify({"ok": True, "schedule": item}), 201
 

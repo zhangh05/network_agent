@@ -891,6 +891,11 @@ def _run_checks_on_asset(task: InspectionTask,
                 assurance_kind = trigger_parts[1] if len(trigger_parts) == 3 and trigger_parts[0] == "assurance" else ""
                 assurance_ref_id = trigger_parts[2] if assurance_kind else ""
                 script_profile_id = str(dr.script_profile_id or task.profile_id or "general")
+                authority_domain = (
+                    "current_state" if assurance_kind == "baseline_capture"
+                    else "contextual" if assurance_kind
+                    else "inspection"
+                )
                 art = save_artifact(
                     workspace_id=workspace_id,
                     content=content_to_save,
@@ -910,10 +915,11 @@ def _run_checks_on_asset(task: InspectionTask,
                         "producer_trigger": task.created_by,
                         "assurance_kind": assurance_kind,
                         "assurance_ref_id": assurance_ref_id,
+                        "authority_domain": authority_domain,
                         "evidence_role": "raw_observation",
-                        "evidence_key": f"inspection:{asset_id}:{script_profile_id}",
+                        "evidence_key": f"{authority_domain}:{asset_id}:{script_profile_id}",
                         "evidence_quality": "complete" if rec.get("ok") else "partial",
-                        "authority_policy": "latest_complete_then_latest_partial",
+                        "authority_policy": "domain_scoped_latest_complete",
                         "asset_id": asset_id,
                         "asset_name": dr.asset_name,
                         "profile_id": task.profile_id,
@@ -933,6 +939,20 @@ def _run_checks_on_asset(task: InspectionTask,
                 dr.errors.append(f"artifact_save_failed: {type(exc).__name__}: {str(exc)[:120]}")
                 logger.warning("inspection: artifact save failed for %s: %s", asset_id, exc)
         dr.command_results.append(cr)
+
+    # Assurance consumes typed facts, never prose or output hashes.  Parsing is
+    # deterministic and the raw artifact above remains the source of evidence.
+    if all_outputs:
+        try:
+            from agent.modules.inspection.structured import parse_device_output
+            transcript = "\n".join(str(item.get("output", "") or "") for item in all_outputs)
+            dr.parsed_metrics = parse_device_output(dr.vendor, transcript)
+        except Exception as exc:
+            logger.warning("inspection: structured extraction failed for %s: %s", asset_id, exc)
+            dr.parsed_metrics = {
+                "schema_version": 1, "parser": "error", "facts": [],
+                "coverage": {}, "quality": "unparsed", "error": type(exc).__name__,
+            }
 
     # Status
     dr.finished_at = now_iso()

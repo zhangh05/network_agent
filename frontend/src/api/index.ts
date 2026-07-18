@@ -547,6 +547,9 @@ export interface ArtifactGovernanceSummary {
   policy: string;
   evidence_streams: number;
   authoritative: number;
+  current_state_authoritative: number;
+  inspection_current: number;
+  contextual: number;
   provisional: number;
   incomplete: number;
   historical: number;
@@ -1240,13 +1243,14 @@ export interface AssuranceBaseline {
   scope: Record<string, unknown>;
   source_task_id: string;
   fact_count: number;
+  quality?: { level: string; typed_fact_count: number; categories: string[]; missing_categories: string[]; evidence_complete?: boolean; complete_assets?: number; fallback_assets?: number };
   created_at: string;
 }
 
 export interface AssuranceDrift {
   drift_id: string;
   baseline_id: string;
-  status: "compliant" | "drifted" | "partial";
+  status: "compliant" | "drifted" | "partial" | "unverified";
   source_task_id: string;
   summary: Record<string, number>;
   changes: Array<Record<string, unknown>>;
@@ -1254,35 +1258,20 @@ export interface AssuranceDrift {
   created_at: string;
 }
 
-export interface AssuranceCheck {
-  check_id: string;
-  baseline_id: string;
-  inspection_task_id: string;
-  status: "collecting" | "completed" | "failed" | "cancelled";
-  drift_id?: string;
-  error?: string;
-  total_assets: number;
-  completed_assets: number;
-  succeeded_assets: number;
-  failed_assets: number;
-  partial_assets: number;
-  artifact_ids?: string[];
-  created_at: string;
-  updated_at: string;
-  finished_at?: string;
-}
-
 export interface AssuranceTopology {
   topology_id: string;
   source_task_id: string;
   nodes: Array<Record<string, any>>;
   edges: Array<Record<string, any>>;
+  evidence_claims?: Array<Record<string, any>>;
+  resources?: Array<Record<string, any>>;
+  dependencies?: Array<Record<string, any>>;
   created_at: string;
 }
 
 export interface AssuranceOperation {
   operation_id: string;
-  kind: "topology_refresh" | "impact" | "incident" | "change_pre" | "change_post";
+  kind: "baseline_capture" | "topology_refresh" | "fault_propagation" | "incident" | "change_pre" | "change_post";
   ref_id: string;
   inspection_task_id: string;
   status: "collecting" | "completed" | "failed" | "cancelled";
@@ -1309,6 +1298,19 @@ export interface AssuranceIncident {
   affected_assets: string[];
   hypotheses: Array<Record<string, any>>;
   next_actions: string[];
+  evidence_refs?: string[];
+  analysis?: {
+    baseline_id?: string;
+    current_snapshot_id?: string;
+    changes?: Array<Record<string, any>>;
+    llm?: {
+      status?: "completed" | "skipped" | "unavailable" | "invalid" | string;
+      summary?: string;
+      ranked_hypotheses?: Array<{ statement: string; confidence: string; evidence_refs?: string[] }>;
+      next_actions?: string[];
+      error?: string;
+    };
+  };
   operation_id?: string;
   inspection_task_id?: string;
   conclusion?: string;
@@ -1326,6 +1328,8 @@ export interface AssuranceChange {
   prechecks: string[];
   postchecks: string[];
   rollback_conditions: string[];
+  expected_changes?: Array<{ key_pattern: string; description?: string; required?: boolean }>;
+  invariants?: Array<{ key_pattern: string; description?: string; required?: boolean }>;
   precheck_operation_id?: string;
   postcheck_operation_id?: string;
   pre_snapshot_id?: string;
@@ -1348,18 +1352,35 @@ export interface AssuranceSchedule {
   consecutive_failures: number;
   last_status?: string;
   last_artifact_ids?: string[];
+  last_analysis?: Record<string, any>;
+  confirm_after?: number;
+  recover_after?: number;
+  open_alarm_count?: number;
+}
+
+export interface AssuranceAlarm {
+  alarm_id: string;
+  schedule_id: string;
+  asset_id: string;
+  fact_key: string;
+  severity: string;
+  state: "pending" | "open" | "resolved";
+  consecutive_hits: number;
+  consecutive_clears: number;
+  latest_change: Record<string, any>;
+  last_seen_at: string;
 }
 
 export interface AssuranceSnapshot {
   workspace_id: string;
   overview: AssuranceOverview;
   baselines: AssuranceBaseline[];
-  checks: AssuranceCheck[];
   drifts: AssuranceDrift[];
   topology: AssuranceTopology;
   incidents: AssuranceIncident[];
   changes: AssuranceChange[];
   schedules: AssuranceSchedule[];
+  alarms: AssuranceAlarm[];
   operations: AssuranceOperation[];
   generated_at: string;
 }
@@ -1376,21 +1397,15 @@ export const assuranceApi = {
   baselines: (workspace_id: string) =>
     apiRequest<{ ok: boolean; items: AssuranceBaseline[] }>({ method: "GET", url: "/assurance/baselines", params: { workspace_id } }),
   createBaseline: (data: Record<string, unknown>) =>
-    apiRequest<{ ok: boolean; baseline: AssuranceBaseline }>({ method: "POST", url: "/assurance/baselines", data }),
-  check: (data: Record<string, unknown>) =>
-    apiRequest<{ ok: boolean; check: AssuranceCheck }>({ method: "POST", url: "/assurance/checks", data }),
-  checks: (workspace_id: string) =>
-    apiRequest<{ ok: boolean; items: AssuranceCheck[] }>({ method: "GET", url: "/assurance/checks", params: { workspace_id } }),
-  getCheck: (workspace_id: string, check_id: string) =>
-    apiRequest<{ ok: boolean; check: AssuranceCheck }>({ method: "GET", url: `/assurance/checks/${encodeURIComponent(check_id)}`, params: { workspace_id } }),
+    apiRequest<{ ok: boolean; operation: AssuranceOperation }>({ method: "POST", url: "/assurance/baselines", data }),
   drifts: (workspace_id: string, baseline_id = "") =>
     apiRequest<{ ok: boolean; items: AssuranceDrift[] }>({ method: "GET", url: "/assurance/drifts", params: { workspace_id, baseline_id } }),
   topology: (workspace_id: string) =>
     apiRequest<{ ok: boolean; topology: AssuranceTopology }>({ method: "GET", url: "/assurance/topology", params: { workspace_id } }),
   buildTopology: (workspace_id: string) =>
     apiRequest<{ ok: boolean; operation: AssuranceOperation }>({ method: "POST", url: "/assurance/topology/build", data: { workspace_id } }),
-  impact: (workspace_id: string, asset_ids: string[], depth = 2) =>
-    apiRequest<{ ok: boolean; operation: AssuranceOperation }>({ method: "POST", url: "/assurance/topology/impact", data: { workspace_id, asset_ids, depth } }),
+  analyzeFaultPropagation: (workspace_id: string, asset_ids: string[], depth = 2, drift_id = "", source_mode = "hypothetical") =>
+    apiRequest<{ ok: boolean; operation: AssuranceOperation }>({ method: "POST", url: "/assurance/fault-propagation", data: { workspace_id, asset_ids, depth, drift_id, source_mode } }),
   operations: (workspace_id: string, kind = "") =>
     apiRequest<{ ok: boolean; items: AssuranceOperation[] }>({ method: "GET", url: "/assurance/operations", params: { workspace_id, kind } }),
   getOperation: (workspace_id: string, operation_id: string) =>
@@ -1411,6 +1426,8 @@ export const assuranceApi = {
     apiRequest<{ ok: boolean; change: AssuranceChange; operation: AssuranceOperation }>({ method: "POST", url: `/assurance/changes/${encodeURIComponent(change_id)}/postcheck`, data: { workspace_id } }),
   schedules: (workspace_id: string) =>
     apiRequest<{ ok: boolean; items: AssuranceSchedule[] }>({ method: "GET", url: "/assurance/schedules", params: { workspace_id } }),
+  alarms: (workspace_id: string, state = "") =>
+    apiRequest<{ ok: boolean; items: AssuranceAlarm[] }>({ method: "GET", url: "/assurance/alarms", params: { workspace_id, state } }),
   createSchedule: (data: Record<string, unknown>) =>
     apiRequest<{ ok: boolean; schedule: AssuranceSchedule }>({ method: "POST", url: "/assurance/schedules", data }),
   updateSchedule: (workspace_id: string, schedule_id: string, updates: Record<string, unknown>) =>

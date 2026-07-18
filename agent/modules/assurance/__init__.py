@@ -12,7 +12,7 @@ from .service import (  # noqa: F401
     get_assurance_operation,
     get_overview,
     get_topology,
-    impact_analysis,
+    fault_propagation_analysis,
     list_baselines,
     list_baseline_checks,
     list_assurance_operations,

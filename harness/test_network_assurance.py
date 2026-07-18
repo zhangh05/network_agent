@@ -9,7 +9,7 @@ from agent.modules.inspection.models import CommandResult, DeviceResult, Inspect
 
 @pytest.fixture()
 def assurance_env(tmp_path, monkeypatch):
-    from agent.modules.assurance import service, store
+    from agent.modules.assurance import llm_analysis, service, store
 
     monkeypatch.setattr(store, "workspace_root", lambda workspace_id: tmp_path / workspace_id)
     tasks: dict[str, InspectionTask] = {}
@@ -46,6 +46,14 @@ def assurance_env(tmp_path, monkeypatch):
         return task
 
     monkeypatch.setattr(service.inspection_service, "start_background_task", start_background_task)
+    monkeypatch.setattr(service, "_task_extraction_quality", lambda task: {
+        "total_assets": len(task.devices), "complete_assets": len(task.devices),
+        "fallback_assets": 0, "evidence_complete": bool(task.devices),
+    })
+    monkeypatch.setattr(llm_analysis, "explain", lambda purpose, evidence, question: {
+        "status": "completed", "summary": f"{purpose}:{len(evidence)}",
+        "ranked_hypotheses": [], "next_actions": [],
+    })
 
     return SimpleNamespace(service=service, store=store, add_task=add_task, tasks=tasks)
 
@@ -64,39 +72,24 @@ def test_baseline_and_drift_are_derived_from_completed_inspection(assurance_env)
     assert all(change["evidence_ref"] for change in drift["changes"])
 
 
-def test_manual_check_starts_fresh_inspection_and_finishes_after_collection(assurance_env):
+def test_baseline_capture_starts_fresh_inspection_and_only_then_establishes_authority(assurance_env):
     env = assurance_env
-    env.add_task("ins_base", output="interface up")
-    baseline = env.service.create_baseline("default", "east stable", inspection_task_id="ins_base")
-
-    check = env.service.start_baseline_check("default", baseline["baseline_id"])
-    assert check["status"] == "collecting"
-    assert check["inspection_task_id"] != "ins_base"
-    assert env.tasks[check["inspection_task_id"]].created_by == f"assurance:baseline_check:{check['check_id']}"
-    assert env.service.list_drifts("default") == []
-
-    fresh = env.tasks[check["inspection_task_id"]]
-    result = CommandResult(
-        check_id="health", category="health", command_key="display status",
-        ok=True, output_snippet="interface down", artifact_id="art_fresh",
+    operation = env.service.start_assurance_operation(
+        "default", "baseline_capture", baseline_name="east authority", scope={"region": "east"},
     )
-    fresh.devices = {
-        "a1": DeviceResult(
-            task_id=fresh.task_id, asset_id="a1", asset_name="core-1",
-            host="10.0.0.1", region="east", vendor="H3C", type="router",
-            protocol="ssh", status="succeeded", command_results=[result],
-        ),
-    }
-    fresh.status = "succeeded"
-    fresh.succeeded = 1
-    fresh.finished_at = "2026-07-15T08:05:00+00:00"
+    assert operation["status"] == "collecting"
+    assert env.service.list_baselines("default") == []
+    task = env.tasks[operation["inspection_task_id"]]
+    assert task.created_by == f"assurance:baseline_capture:{operation['operation_id']}"
 
-    completed = env.service.get_baseline_check("default", check["check_id"])
+    _finish_mock_task(env, task.task_id, output="interface up")
+    completed = env.service.get_assurance_operation("default", operation["operation_id"])
     assert completed["status"] == "completed"
-    assert completed["drift_id"]
-    drift = env.store.get("default", "drifts", completed["drift_id"])
-    assert drift and drift["source_task_id"] == fresh.task_id
-    assert drift["status"] == "compliant"
+    baseline = completed["result"]["baseline"]
+    assert baseline["name"] == "east authority"
+    assert baseline["source_task_id"] == task.task_id
+    assert len(env.service.list_baselines("default")) == 1
+    assert env.service.list_drifts("default") == []
 
 
 def _finish_mock_task(env, task_id: str, *, ok: bool = True, output: str = "state up"):
@@ -120,9 +113,9 @@ def _finish_mock_task(env, task_id: str, *, ok: bool = True, output: str = "stat
     return task
 
 
-def test_impact_operation_collects_fresh_evidence_before_result(assurance_env):
+def test_fault_propagation_collects_fresh_evidence_before_result(assurance_env):
     operation = assurance_env.service.start_assurance_operation(
-        "default", "impact", asset_ids=["a1"], depth=3,
+        "default", "fault_propagation", asset_ids=["a1"], depth=3,
     )
     assert operation["status"] == "collecting"
     assert operation["result"]["depth"] == 3
@@ -133,20 +126,21 @@ def test_impact_operation_collects_fresh_evidence_before_result(assurance_env):
     assert completed["artifact_ids"] == [f"art_{operation['inspection_task_id']}"]
     assert [item["asset_id"] for item in completed["result"]["affected_assets"]] == ["a2"]
     assert completed["result"]["topology_id"]
+    assert completed["result"]["llm"]["status"] == "completed"
 
 
-def test_impact_operation_only_reuses_an_identical_active_request(assurance_env):
+def test_fault_propagation_only_reuses_an_identical_active_request(assurance_env):
     first = assurance_env.service.start_assurance_operation(
-        "default", "impact", asset_ids=["a1"], depth=2,
+        "default", "fault_propagation", asset_ids=["a1"], depth=2,
     )
     same = assurance_env.service.start_assurance_operation(
-        "default", "impact", asset_ids=["a1"], depth=2,
+        "default", "fault_propagation", asset_ids=["a1"], depth=2,
     )
     deeper = assurance_env.service.start_assurance_operation(
-        "default", "impact", asset_ids=["a1"], depth=3,
+        "default", "fault_propagation", asset_ids=["a1"], depth=3,
     )
     other_asset = assurance_env.service.start_assurance_operation(
-        "default", "impact", asset_ids=["a2"], depth=2,
+        "default", "fault_propagation", asset_ids=["a2"], depth=2,
     )
     assert same["operation_id"] == first["operation_id"]
     assert deeper["operation_id"] != first["operation_id"]
@@ -166,6 +160,8 @@ def test_incident_operation_replaces_placeholder_with_collected_evidence(assuran
 
 
 def test_change_pre_and_post_checks_use_two_real_inspections(assurance_env):
+    assurance_env.add_task("ins_base", output="neighbor up")
+    assurance_env.service.create_baseline("default", "approved state", inspection_task_id="ins_base")
     change = assurance_env.service.create_change_plan("default", "routing change", "adjust preference", ["a1"])
     pre = assurance_env.service.start_change_precheck("default", change["change_id"])["operation"]
     _finish_mock_task(assurance_env, pre["inspection_task_id"], output="neighbor up")
@@ -183,13 +179,146 @@ def test_change_pre_and_post_checks_use_two_real_inspections(assurance_env):
     assert post["inspection_task_id"] != pre["inspection_task_id"]
 
 
-def test_topology_and_impact_use_evidence_links(assurance_env):
+def test_topology_and_fault_propagation_use_evidence_links(assurance_env):
     topology = assurance_env.service.build_topology("default")
     assert len(topology["nodes"]) == 2
     assert topology["edges"][0]["confidence"] == "confirmed"
-    impact = assurance_env.service.impact_analysis("default", ["a1"])
+    impact = assurance_env.service.fault_propagation_analysis("default", ["a1"])
     assert [item["asset_id"] for item in impact["affected_assets"]] == ["a2"]
     assert impact["confidence"] == "evidence_based"
+    assert impact["source_validation"]["status"] == "hypothetical"
+    assert impact["propagation"][0]["redundancy"]["status"] == "single_dependency_observed"
+    assert impact["business_impact"]["status"] == "unavailable"
+
+
+def test_fault_propagation_stops_when_fresh_evidence_does_not_confirm_source(assurance_env):
+    result = assurance_env.service.fault_propagation_analysis(
+        "default", ["a1"], source_validation={
+            "mode": "confirmed", "status": "not_confirmed", "changes": [],
+            "message": "本次巡检未复现可确认的结构化异常，停止传播计算。",
+        },
+    )
+
+    assert result["confidence"] == "blocked"
+    assert result["affected_assets"] == []
+    assert result["propagation"] == []
+    assert "未复现" in result["conclusion"]
+
+
+def test_confirmed_fault_source_is_derived_from_fresh_state_against_authority(assurance_env, monkeypatch):
+    reference_fact = {
+        "key": "asset.a1.interface.ge0_1.protocol", "value": "up", "asset_id": "a1",
+        "policy": "must_equal", "severity": "critical", "resource_type": "interface",
+        "resource_id": "GE0/1", "evidence_ref": "artifact:baseline",
+    }
+    assurance_env.store.save("default", "snapshots", "snap_authority", {
+        "snapshot_id": "snap_authority", "source_status": "succeeded",
+        "quality": {"level": "complete", "evidence_complete": True}, "facts": [reference_fact],
+    })
+    assurance_env.store.save("default", "baselines", "base_authority", {
+        "baseline_id": "base_authority", "snapshot_id": "snap_authority",
+        "source_task_id": "ins_authority", "quality": {"typed_fact_count": 1, "evidence_complete": True},
+        "parser_schema_version": 2, "created_at": "2099-01-01T00:00:00+00:00",
+    })
+    monkeypatch.setattr(assurance_env.service, "capture_snapshot", lambda *_args, **_kwargs: {
+        "snapshot_id": "snap_fresh", "source_status": "succeeded",
+        "quality": {"level": "complete", "evidence_complete": True},
+        "facts": [{**reference_fact, "value": "down", "evidence_ref": "artifact:fresh"}],
+    })
+
+    validation = assurance_env.service._source_validation(
+        "default", "ins_fresh", ["a1"], "confirmed", "drift_1",
+    )
+
+    assert validation["status"] == "confirmed"
+    assert validation["baseline_id"] == "base_authority"
+    assert validation["current_snapshot_id"] == "snap_fresh"
+    assert validation["changes"][0]["evidence_ref"] == "artifact:fresh"
+
+
+def test_fault_propagation_reports_resources_services_and_observed_alternate(assurance_env):
+    assurance_env.store.save("default", "topologies", "topo_rich", {
+        "topology_id": "topo_rich", "workspace_id": "default",
+        "nodes": [
+            {"asset_id": "a1", "name": "failed"},
+            {"asset_id": "a2", "name": "consumer", "tags": ["service:payment"]},
+            {"asset_id": "a3", "name": "alternate"},
+        ],
+        "edges": [{"edge_id": "a1|a2", "source": "a1", "target": "a2"}],
+        "evidence_claims": [{"source": "a1", "target": "a2", "type": "route_next_hop"}],
+        "dependencies": [
+            {"type": "route_next_hop", "propagates_from": "a1", "propagates_to": "a2", "evidence_refs": ["art_primary"]},
+            {"type": "route_next_hop", "propagates_from": "a3", "propagates_to": "a2", "evidence_refs": ["art_backup"]},
+        ],
+        "resources": [{
+            "asset_id": "a2", "resource_type": "route", "resource_id": "10.0.0.0/24",
+            "category": "routing", "evidence_ref": "art_route",
+        }],
+        "created_at": "2099-01-01T00:00:00+00:00",
+    })
+
+    result = assurance_env.service.fault_propagation_analysis("default", ["a1"])
+
+    assert result["propagation"][0]["redundancy"] == {
+        "status": "alternate_dependency_observed", "alternate_sources": ["a3"],
+        "scope": "observed_dependencies_only", "failover_verified": False,
+    }
+    assert result["affected_resources"][0]["resource_id"] == "10.0.0.0/24"
+    assert result["business_services"] == [{"asset_id": "a2", "service": "payment", "source": "cmdb_tag"}]
+    assert result["business_impact"] == {"status": "mapped", "service_count": 1}
+
+
+def test_llm_evidence_uses_device_names_and_removes_internal_ids(assurance_env):
+    rows = assurance_env.service._llm_named_evidence("default", [{
+        "asset_id": "a1", "key": "asset.a1.interface.ge0_1.protocol",
+        "before": "a1 up", "after": "a1 down", "rationale": "a1 接口异常",
+    }])
+
+    assert rows == [{
+        "asset_name": "core-1", "key": "asset.core-1.interface.ge0_1.protocol",
+        "before": "core-1 up", "after": "core-1 down", "rationale": "core-1 接口异常",
+    }]
+
+
+def test_topology_collapses_multiple_claims_into_one_device_relationship(assurance_env):
+    claims = [
+        {"source": "a1", "target": "a2", "type": "bgp_peer", "evidence_ref": "art_bgp", "confidence": "observed"},
+        {"source": "a2", "target": "a1", "type": "route_next_hop", "evidence_ref": "art_route", "confidence": "observed"},
+        {"source": "a1", "target": "a2", "type": "connected_subnet", "evidence_ref": "art_if", "confidence": "observed"},
+    ]
+
+    relationships = assurance_env.service._aggregate_topology_edges(claims)
+
+    assert len(relationships) == 1
+    assert relationships[0]["claim_count"] == 3
+    assert relationships[0]["relationship_types"] == ["bgp_peer", "connected_subnet", "route_next_hop"]
+    assert relationships[0]["evidence_refs"] == ["art_bgp", "art_if", "art_route"]
+
+
+def test_fault_propagation_follows_reverse_dependency_not_undirected_link(assurance_env):
+    assurance_env.store.save("default", "topologies", "topo_directed", {
+        "topology_id": "topo_directed",
+        "workspace_id": "default",
+        "nodes": [
+            {"asset_id": "a1", "name": "consumer"},
+            {"asset_id": "a2", "name": "next-hop"},
+        ],
+        "edges": [{"edge_id": "a1|a2", "source": "a1", "target": "a2"}],
+        "evidence_claims": [{"source": "a1", "target": "a2", "type": "route_next_hop"}],
+        "dependencies": [{
+            "source_asset": "a1", "target_asset": "a2", "type": "route_next_hop",
+            "propagates_from": "a2", "propagates_to": "a1", "evidence_refs": ["art_route"],
+        }],
+        "created_at": "2099-01-01T00:00:00+00:00",
+    })
+
+    provider_failure = assurance_env.service.fault_propagation_analysis("default", ["a2"])
+    consumer_failure = assurance_env.service.fault_propagation_analysis("default", ["a1"])
+
+    assert [item["asset_id"] for item in provider_failure["affected_assets"]] == ["a1"]
+    assert provider_failure["propagation"][0]["path"] == ["a2", "a1"]
+    assert provider_failure["propagation"][0]["evidence_refs"] == ["art_route"]
+    assert consumer_failure["affected_assets"] == []
 
 
 def test_change_assurance_validates_without_executing(assurance_env):
@@ -267,7 +396,7 @@ def test_partial_check_does_not_invent_removed_facts(assurance_env):
 
 def test_impact_rejects_unknown_asset_and_change_deduplicates_targets(assurance_env):
     with pytest.raises(ValueError, match="impact_asset_not_found"):
-        assurance_env.service.impact_analysis("default", ["missing"])
+        assurance_env.service.fault_propagation_analysis("default", ["missing"])
     plan = assurance_env.service.create_change_plan("default", "x", "y", ["a1", "a1"])
     assert plan["asset_ids"] == ["a1"]
 
@@ -332,7 +461,7 @@ def test_scheduler_skips_non_workspace_directories(assurance_env, tmp_path, monk
 
 def test_service_rejects_string_asset_list_and_non_boolean_schedule_state(assurance_env):
     with pytest.raises(TypeError, match="asset_ids_must_be_array"):
-        assurance_env.service.impact_analysis("default", "a1")
+        assurance_env.service.fault_propagation_analysis("default", "a1")
     assurance_env.add_task("ins_base")
     baseline = assurance_env.service.create_baseline("default", "east", inspection_task_id="ins_base")
     schedule = assurance_env.service.create_schedule("default", "hourly", baseline["baseline_id"], 60)
@@ -348,9 +477,10 @@ def test_http_rejects_malformed_json_and_string_asset_ids(assurance_env, monkeyp
     app = Flask(__name__)
     register_assurance_routes(app)
     client = app.test_client()
-    malformed = client.post("/api/assurance/checks", data="{", content_type="application/json")
+    malformed = client.post("/api/assurance/baselines", data="{", content_type="application/json")
     assert malformed.status_code == 400
-    response = client.post("/api/assurance/topology/impact", json={"workspace_id": "default", "asset_ids": "a1"})
+    assert client.post("/api/assurance/checks", json={"workspace_id": "default"}).status_code == 404
+    response = client.post("/api/assurance/fault-propagation", json={"workspace_id": "default", "asset_ids": "a1"})
     assert response.status_code == 400
     assert response.get_json()["error"] == "asset_ids_must_be_string_array"
     unconfirmed = client.post("/api/assurance/records/clear", json={"workspace_id": "default"})

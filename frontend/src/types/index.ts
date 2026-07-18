@@ -392,7 +392,8 @@ export interface Artifact {
     evidence_key?: string;
     evidence_role?: string;
     evidence_quality?: "complete" | "partial" | "unknown" | string;
-    authority_status: "authoritative" | "provisional" | "historical" | "incomplete" | "not_applicable" | string;
+    authority_domain?: "current_state" | "inspection" | "contextual" | string;
+    authority_status: "authoritative" | "provisional" | "historical" | "incomplete" | "contextual" | "not_applicable" | string;
     authority_reason?: string;
     authority_policy?: string;
     authoritative_artifact_id?: string;

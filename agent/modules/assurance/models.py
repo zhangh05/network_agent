@@ -16,6 +16,15 @@ class NormalizedFact:
     category: str = "state"
     evidence_ref: str = ""
     observed_at: str = ""
+    resource_type: str = "device"
+    resource_id: str = ""
+    policy: str = "must_equal"
+    severity: str = "warning"
+    unit: str = ""
+    warning: float | None = None
+    critical: float | None = None
+    direction: str = "max"
+    command: str = ""
 
 
 @dataclass
@@ -27,6 +36,8 @@ class StateSnapshot:
     source_status: str
     facts: list[dict[str, Any]] = field(default_factory=list)
     asset_count: int = 0
+    quality: dict[str, Any] = field(default_factory=dict)
+    parser_schema_version: int = 0
     created_at: str = field(default_factory=now_iso)
 
 
@@ -40,6 +51,8 @@ class AssuranceBaseline:
     source_task_id: str
     status: str = "active"
     fact_count: int = 0
+    quality: dict[str, Any] = field(default_factory=dict)
+    parser_schema_version: int = 0
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
 
@@ -54,6 +67,7 @@ class BaselineCheck:
     status: str = "collecting"
     drift_id: str = ""
     error: str = ""
+    error_details: list[dict[str, str]] = field(default_factory=list)
     total_assets: int = 0
     completed_assets: int = 0
     succeeded_assets: int = 0
@@ -108,6 +122,9 @@ class TopologySnapshot:
     workspace_id: str
     nodes: list[dict[str, Any]] = field(default_factory=list)
     edges: list[dict[str, Any]] = field(default_factory=list)
+    evidence_claims: list[dict[str, Any]] = field(default_factory=list)
+    resources: list[dict[str, Any]] = field(default_factory=list)
+    dependencies: list[dict[str, Any]] = field(default_factory=list)
     source_task_id: str = ""
     created_at: str = field(default_factory=now_iso)
 
@@ -127,6 +144,7 @@ class IncidentRecord:
     affected_assets: list[str] = field(default_factory=list)
     conclusion: str = ""
     next_actions: list[str] = field(default_factory=list)
+    analysis: dict[str, Any] = field(default_factory=dict)
     operation_id: str = ""
     inspection_task_id: str = ""
     created_at: str = field(default_factory=now_iso)
@@ -145,6 +163,8 @@ class ChangePlan:
     prechecks: list[str] = field(default_factory=list)
     postchecks: list[str] = field(default_factory=list)
     rollback_conditions: list[str] = field(default_factory=list)
+    expected_changes: list[dict[str, Any]] = field(default_factory=list)
+    invariants: list[dict[str, Any]] = field(default_factory=list)
     impact: dict[str, Any] = field(default_factory=dict)
     validation: dict[str, Any] = field(default_factory=dict)
     precheck_operation_id: str = ""
@@ -174,5 +194,29 @@ class AssuranceSchedule:
     consecutive_failures: int = 0
     last_status: str = ""
     last_artifact_ids: list[str] = field(default_factory=list)
+    last_analysis: dict[str, Any] = field(default_factory=dict)
+    confirm_after: int = 2
+    recover_after: int = 2
+    open_alarm_count: int = 0
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
+
+
+@dataclass
+class AssuranceAlarm:
+    alarm_id: str
+    workspace_id: str
+    schedule_id: str
+    baseline_id: str
+    fingerprint: str
+    asset_id: str
+    fact_key: str
+    severity: str
+    state: str = "pending"
+    consecutive_hits: int = 0
+    consecutive_clears: int = 0
+    first_seen_at: str = field(default_factory=now_iso)
+    last_seen_at: str = field(default_factory=now_iso)
+    resolved_at: str = ""
+    evidence_refs: list[str] = field(default_factory=list)
+    latest_change: dict[str, Any] = field(default_factory=dict)

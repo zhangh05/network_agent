@@ -2,7 +2,15 @@ from artifacts.governance import AUTHORITY_POLICY, build_governance, governance_
 from artifacts.schemas import ArtifactRecord
 
 
-def _record(artifact_id: str, created_at: str, quality: str, *, asset_id: str = "a1") -> ArtifactRecord:
+def _record(
+    artifact_id: str,
+    created_at: str,
+    quality: str,
+    *,
+    asset_id: str = "a1",
+    assurance_kind: str = "",
+    assurance_ref_id: str = "",
+) -> ArtifactRecord:
     return ArtifactRecord(
         artifact_id=artifact_id,
         workspace_id="default",
@@ -16,6 +24,8 @@ def _record(artifact_id: str, created_at: str, quality: str, *, asset_id: str = 
             "evidence_quality": quality,
             "producer_kind": "inspection_task",
             "producer_id": f"ins_{artifact_id}",
+            "assurance_kind": assurance_kind,
+            "assurance_ref_id": assurance_ref_id,
         },
     )
 
@@ -66,6 +76,54 @@ def test_legacy_redacted_evidence_keys_fall_back_to_asset_streams():
     assert projection["a2"]["authority_status"] == "authoritative"
     assert projection["a1"]["evidence_key"] == "inspection:a1:h3c_general"
     assert projection["a2"]["evidence_key"] == "inspection:a2:h3c_general"
+
+
+def test_impact_evidence_never_replaces_current_state_authority():
+    baseline = _record(
+        "baseline", "2026-07-16T01:00:00+00:00", "complete",
+        assurance_kind="baseline_capture", assurance_ref_id="op_1",
+    )
+    impact = _record(
+        "fault_propagation", "2026-07-16T02:00:00+00:00", "complete",
+        assurance_kind="fault_propagation", assurance_ref_id="op_1",
+    )
+
+    projection = build_governance([baseline, impact])
+
+    assert projection["baseline"]["authority_domain"] == "current_state"
+    assert projection["baseline"]["authority_status"] == "authoritative"
+    assert projection["fault_propagation"]["authority_domain"] == "contextual"
+    assert projection["fault_propagation"]["authority_status"] == "contextual"
+
+
+def test_newer_baseline_capture_replaces_only_the_same_current_state_stream():
+    old = _record(
+        "old-baseline", "2026-07-16T01:00:00+00:00", "complete",
+        assurance_kind="baseline_capture", assurance_ref_id="op_1",
+    )
+    current = _record(
+        "current-baseline", "2026-07-16T03:00:00+00:00", "complete",
+        assurance_kind="baseline_capture", assurance_ref_id="op_2",
+    )
+
+    projection = build_governance([old, current])
+
+    assert projection["old-baseline"]["authority_status"] == "historical"
+    assert projection["current-baseline"]["authority_status"] == "authoritative"
+    assert projection["current-baseline"]["authority_domain"] == "current_state"
+
+
+def test_schedule_evidence_cannot_become_current_state_authority_even_with_stale_metadata():
+    schedule = _record(
+        "schedule", "2026-07-16T04:00:00+00:00", "complete",
+        assurance_kind="schedule", assurance_ref_id="sched_1",
+    )
+    schedule.metadata["authority_domain"] = "current_state"
+
+    projection = build_governance([schedule])
+
+    assert projection["schedule"]["authority_domain"] == "contextual"
+    assert projection["schedule"]["authority_status"] == "contextual"
 
 
 def test_hard_delete_removes_payload_metadata_and_run_reference(tmp_path, monkeypatch):
