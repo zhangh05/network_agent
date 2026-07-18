@@ -186,21 +186,17 @@ class MemoryStore:
 
     def default_projection_upsert(self, record: MemoryRecord) -> None:
         """Persist a storage-owned projection for environments without hooks."""
-        item = self.projection_item(record)
+        from storage.records import append_jsonl
+
+        item_id = f"mh_{record.memory_id}"
         if record.is_retrievable():
-            atomic_write_json(
-                _ws_root() / record.workspace_id / "context" / f"mh_{record.memory_id}.json",
-                item,
-            )
+            append_jsonl(record.workspace_id, ("context", "items.jsonl"), self.projection_item(record))
             return
-        path = _ws_root() / record.workspace_id / "context" / f"mh_{record.memory_id}.json"
-        if path.exists():
-            try:
-                path.unlink()
-            except OSError:
-                logging.getLogger("memory_governance._save").warning(
-                    "memory projection delete failed for %s", record.memory_id, exc_info=True,
-                )
+        append_jsonl(record.workspace_id, ("context", "items.jsonl"), {
+            "item_id": item_id,
+            "deleted": True,
+            "deleted_at": _now(),
+        })
 
     def delete_projection(self, ws_id: str, memory_id: str) -> None:
         if _delete_hook is not None:

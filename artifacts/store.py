@@ -311,12 +311,8 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
         if sensitivity == "secret":
             content = redact_artifact_content(content)
         else:
-            # v3.10: surface the rejection — earlier versions
-            # silently returned None which left the operator
-            # wondering where the artifact went. We still reject
-            # (saving a secret to a non-secret slot would be a
-            # data leak) but log the event so the caller can
-            # fix the call.
+            # Surface the rejection while keeping secret content out of
+            # non-secret artifact slots.
             _LOG.warning(
                 "artifacts.store: content contains a secret but "
                 "sensitivity=%r — refusing to save without explicit "
@@ -467,8 +463,7 @@ def list_artifacts(workspace_id: str, run_id: str = None, artifact_type: str = N
         if rec.lifecycle != "deleted":
             all_active_records.append(rec)
         # PCAP session snapshots and connection indexes are runtime state, not
-        # user deliverables. Older releases persisted them as artifacts; keep
-        # them queryable by an explicit type for maintenance while excluding
+        # user deliverables. Keep them queryable by explicit type while hiding
         # them from the normal Artifact Center projection.
         if not artifact_type and rec.artifact_type in {"pcap_session", "pcap_connections"}:
             continue
