@@ -5,6 +5,7 @@ import { useEffect, useState, useCallback } from "react";
 import { artifactsApi, reportsApi, storageApi } from "../../api";
 import type { ArtifactGovernanceSummary } from "../../api";
 import { useAsync, AsyncView, Badge, CodeBlock, InlineCode, LoadingState, ErrorState } from "../../components/common";
+import { PageHeader, FilterBar } from "../../components/ui";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
@@ -74,17 +75,18 @@ export function ArtifactCenter() {
 
   return (
     <div className="page" data-testid="page-artifacts">
-      <div className="page-header" style={{ background: "var(--surface)" }}>
-        <div>
-          <h1>制品中心<span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14, marginLeft: 6 }}>· Artifacts</span></h1>
-          <p className="subtitle">统一管理巡检证据、历史版本与业务交付物</p>
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-          <div className="status-pill"><span className="dot" style={{ background: "var(--accent)" }} />{total} 个</div>
-        </div>
-      </div>
+      <PageHeader
+        title={
+          <>
+            制品中心 <span>· Artifacts</span>
+          </>
+        }
+        subtitle="统一管理巡检证据、历史版本与业务交付物"
+      >
+        <div className="status-pill"><span className="dot" style={{ background: "var(--accent)" }} />{total} 个</div>
+      </PageHeader>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", borderBottom: "1px solid var(--line)", background: "var(--surface)", flexWrap: "wrap" }}>
+      <FilterBar>
         {producerId && <div className="status-pill">任务 <InlineCode>{producerId}</InlineCode><button className="btn icon sm" title="清除任务筛选" onClick={() => { window.history.replaceState({}, "", window.location.pathname); setProducerId(""); }}>×</button></div>}
         {([
           ["", "全部制品"], ["current", "当前证据"], ["history", "历史与不完整"], ["deliverables", "业务交付物"],
@@ -93,7 +95,7 @@ export function ArtifactCenter() {
             {label}
           </button>
         ))}
-        <div style={{ flex: 1 }} />
+        <div className="spacer" />
         {governance && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <Badge kind="ok">状态权威 {governance.current_state_authoritative || 0}</Badge>
           {governance.inspection_current > 0 && <Badge kind="info">最新资产巡检 {governance.inspection_current}</Badge>}
@@ -102,7 +104,7 @@ export function ArtifactCenter() {
           {governance.incomplete > 0 && <Badge kind="err">不完整 {governance.incomplete}</Badge>}
           <Badge kind="muted">证据流 {governance.evidence_streams}</Badge>
         </div>}
-      </div>
+      </FilterBar>
 
       <details className="artifact-governance-help">
         <summary>证据状态如何判定？</summary>
