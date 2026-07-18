@@ -3,22 +3,17 @@
 
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
-import os
-import secrets
 import csv
 import io
 import time
 import uuid
 from agent.runtime.utils import now_iso
-from storage.records import (
-    append_jsonl,
-    jsonl_transaction,
-    read_jsonl,
-    rewrite_jsonl,
-    workspace_record_file,
+from storage.cmdb_store import append_asset, assets_transaction, read_assets, replace_assets
+from storage.credential_store import (
+    CREDENTIAL_DECRYPT_FAILED,
+    open_credential,
+    open_credential_strict,
+    seal_credential,
 )
 
 
@@ -53,7 +48,7 @@ def save_asset(workspace_id: str, asset: dict) -> dict:
     # 冲突检测：IP + 端口一致则拒绝添加
     incoming_asset_id = str(asset.get("asset_id") or "")
 
-    with jsonl_transaction(workspace_id, ("cmdb", "assets.jsonl")):
+    with assets_transaction(workspace_id):
         # TOCTOU fix: hold lock during conflict detection AND write
         # so two concurrent saves can't both pass the check.
         for existing in _load_all(workspace_id):
@@ -89,11 +84,11 @@ def save_asset(workspace_id: str, asset: dict) -> dict:
         }
         raw_password = str(asset.get("password") or "")
         if raw_password:
-            record["password_secret"] = _seal_secret(workspace_id, raw_password)
+            record["password_secret"] = seal_credential(workspace_id, raw_password)
         elif existing_asset and existing_asset.get("password"):
-            record["password_secret"] = _seal_secret(workspace_id, str(existing_asset["password"]))
+            record["password_secret"] = seal_credential(workspace_id, str(existing_asset["password"]))
 
-        append_jsonl(workspace_id, ("cmdb", "assets.jsonl"), record)
+        append_asset(workspace_id, record)
     return {"ok": True, "asset_id": record["asset_id"], "name": record["name"]}
 
 
@@ -149,7 +144,7 @@ def get_asset(workspace_id: str, asset_id: str, *, safe: bool = True) -> dict | 
     runner, frontend asset editor) can surface the issue instead of
     silently using an empty password.
     """
-    for row in reversed(read_jsonl(workspace_id, ("cmdb", "assets.jsonl"))):
+    for row in reversed(read_assets(workspace_id)):
         d = dict(row)
         if d.get("asset_id") != asset_id:
             continue
@@ -160,7 +155,7 @@ def get_asset(workspace_id: str, asset_id: str, *, safe: bool = True) -> dict | 
         password_corrupted = (
             has_secret
             and not password
-            and _open_secret_strict(workspace_id, d.get("password_secret", "")) == _OPEN_SECRET_FAIL
+            and open_credential_strict(workspace_id, d.get("password_secret", "")) == CREDENTIAL_DECRYPT_FAILED
         )
         d.pop("password_secret", None)
         d.pop("password", None)
@@ -177,17 +172,17 @@ def delete_asset(workspace_id: str, asset_id: str) -> dict:
     existing = get_asset(workspace_id, asset_id, safe=False)
     if not existing:
         return {"ok": False, "error": f"asset '{asset_id}' not found"}
-    with jsonl_transaction(workspace_id, ("cmdb", "assets.jsonl")):
+    with assets_transaction(workspace_id):
         # Read all, filter out the target asset and its tombstones
         name = existing.get("name", "")
         kept = []
-        for rec in read_jsonl(workspace_id, ("cmdb", "assets.jsonl")):
+        for rec in read_assets(workspace_id):
             if rec.get("asset_id") == asset_id:
                 continue  # remove this asset record
             if rec.get("deleted") and rec.get("asset_id") == asset_id:
                 continue  # remove tombstone
             kept.append(rec)
-        rewrite_jsonl(workspace_id, ("cmdb", "assets.jsonl"), kept)
+        replace_assets(workspace_id, kept)
     return {"ok": True, "name": name}
 
 
@@ -237,7 +232,7 @@ def _load_all(workspace_id: str) -> list[dict]:
 
     v3.10: also surface ``password_corrupted`` per asset so the UI
     can flag a corrupted stored password. The check uses
-    ``_open_secret_strict`` (which distinguishes a real decrypt
+    ``open_credential_strict`` (which distinguishes a real decrypt
     failure from a missing secret) and runs lazily per asset.
 
     v3.11: acquires the CMDB lock during read to prevent a
@@ -246,7 +241,7 @@ def _load_all(workspace_id: str) -> list[dict]:
     """
     assets = {}
     deleted = set()
-    for row in read_jsonl(workspace_id, ("cmdb", "assets.jsonl")):
+    for row in read_assets(workspace_id):
         d = dict(row)
         aid = d.get("asset_id", "")
         if not aid:
@@ -265,7 +260,7 @@ def _load_all(workspace_id: str) -> list[dict]:
             # secret. We do the open check *only* if a secret
             # existed on the latest revision of the row.
             if secret:
-                if _open_secret_strict(workspace_id, secret) == _OPEN_SECRET_FAIL:
+                if open_credential_strict(workspace_id, secret) == CREDENTIAL_DECRYPT_FAILED:
                     d["password_corrupted"] = True
             assets[aid] = d
     return list(assets.values())
@@ -330,114 +325,5 @@ def _sort_assets(assets: list[dict], sort_by: str) -> list[dict]:
 def _record_password(workspace_id: str, record: dict) -> str:
     secret = str(record.get("password_secret") or "")
     if secret:
-        return _open_secret(workspace_id, secret)
+        return open_credential(workspace_id, secret)
     return ""
-
-
-def _seal_secret(workspace_id: str, value: str) -> str:
-    """Seal a value using XOR stream cipher with HMAC. Not AES-CTR — P1-25."""
-    if not value:
-        return ""
-    nonce = secrets.token_bytes(16)
-    plaintext = value.encode("utf-8")
-    stream = _secret_stream(workspace_id, nonce, len(plaintext))
-    cipher = bytes(a ^ b for a, b in zip(plaintext, stream))
-    body = nonce + cipher
-    tag = hmac.new(_auth_key(workspace_id), b"cmdb:v2:" + body, hashlib.sha256).digest()
-    return "cmdb:v2:" + base64.urlsafe_b64encode(body + tag).decode("ascii")
-
-
-def _open_secret(workspace_id: str, sealed: str) -> str:
-    """Decrypt the current authenticated ``cmdb:v2:`` blob.
-
-    Returns ``""`` on any failure for read paths that treat
-    corrupted credentials as "do not expose/use a password".
-
-    v3.9.15: distinguishes *legitimate* empty (sealed = "") from
-    *corrupted* failure. A corrupted ciphertext usually means the
-    workspace's `.cmdb_secret_key` was lost (e.g. tarball restore
-    without the key file). Returning ``""`` silently in that case
-    loses the device password without trace.
-
-    Callers that want the failure path should use
-    ``_open_secret_strict`` instead.
-    """
-    opened = _open_secret_strict(workspace_id, sealed)
-    return "" if opened == _OPEN_SECRET_FAIL else opened
-
-
-# Marker characters sentinel for "we tried to decrypt but authentication
-# failed / the ciphertext was tampered with". Distinct from "" which
-# legitimately maps to "no password stored".
-_OPEN_SECRET_FAIL = "\x00\x00CMDB_DECRYPT_FAIL\x00\x00"
-
-
-def _open_secret_strict(workspace_id: str, sealed: str) -> str:
-    """Like ``_open_secret`` but reports decrypt failures explicitly.
-
-    Returns
-      * ``""``  — sealed was empty (no password stored), or the
-                    workspace has not encrypted anything yet.
-      * ``_OPEN_SECRET_FAIL`` — authentication/decryption failed. The
-                                  caller can surface this to the UI as
-                                  "stored password corrupted" so the
-                                  operator re-enters it instead of
-                                  silently losing access.
-      * plaintext — successful round-trip.
-
-    v3.10: catch ``UnicodeDecodeError`` explicitly so non-utf8
-    ciphertext (a key mismatch produces a non-text byte stream) is
-    flagged as a corruption rather than propagated up.
-    """
-    if not sealed:
-        return ""
-    try:
-        if sealed.startswith("cmdb:v2:"):
-            payload = base64.urlsafe_b64decode(sealed.split(":", 2)[2].encode("ascii"))
-            if len(payload) < 16 + 32:
-                return _OPEN_SECRET_FAIL
-            body, tag = payload[:-32], payload[-32:]
-            expected = hmac.new(_auth_key(workspace_id), b"cmdb:v2:" + body, hashlib.sha256).digest()
-            if not hmac.compare_digest(tag, expected):
-                return _OPEN_SECRET_FAIL
-            nonce, cipher = body[:16], body[16:]
-            stream = _secret_stream(workspace_id, nonce, len(cipher))
-            plain_bytes = bytes(a ^ b for a, b in zip(cipher, stream))
-            try:
-                return plain_bytes.decode("utf-8")
-            except UnicodeDecodeError:
-                # Wrong key / tampered ciphertext: the byte stream
-                # doesn't decode as utf-8. Surface as a corruption
-                # so the operator can re-enter the password.
-                return _OPEN_SECRET_FAIL
-    except Exception:
-        return _OPEN_SECRET_FAIL
-    return _OPEN_SECRET_FAIL
-
-
-def _secret_stream(workspace_id: str, nonce: bytes, length: int) -> bytes:
-    key = _workspace_secret_key(workspace_id)
-    chunks: list[bytes] = []
-    counter = 0
-    while sum(len(c) for c in chunks) < length:
-        chunks.append(hashlib.sha256(key + nonce + counter.to_bytes(4, "big")).digest())
-        counter += 1
-    return b"".join(chunks)[:length]
-
-
-def _auth_key(workspace_id: str) -> bytes:
-    return hashlib.sha256(b"cmdb-auth-v2:" + _workspace_secret_key(workspace_id)).digest()
-
-
-def _workspace_secret_key(workspace_id: str) -> bytes:
-    path = workspace_record_file(workspace_id, "cmdb", ".cmdb_secret_key")
-    if not path.exists():
-        key_data = secrets.token_urlsafe(48)
-        path.write_text(key_data, encoding="utf-8")
-        try:
-            with path.open("r+") as _f:
-                os.fsync(_f.fileno())  # fsync with explicit handle to avoid GC race
-            os.chmod(path, 0o600)
-        except OSError:
-            pass
-    return hashlib.sha256(path.read_text(encoding="utf-8").encode("utf-8")).digest()

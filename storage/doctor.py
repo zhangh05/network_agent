@@ -47,7 +47,7 @@ def run_doctor(workspace_id: str) -> dict[str, Any]:
                 if not path.exists():
                     orphan += 1
             except json.JSONDecodeError:
-                pass
+                errors.append("files.jsonl contains malformed JSON")
         checks.append({"name": "file_orphans", "ok": orphan == 0, "count": orphan})
         if orphan > 0:
             warnings.append(f"{orphan} orphan file records")
@@ -65,7 +65,7 @@ def run_doctor(workspace_id: str) -> dict[str, Any]:
                 try:
                     file_ids.add(json.loads(line).get("file_id", ""))
                 except json.JSONDecodeError:
-                    pass
+                    errors.append("files.jsonl contains malformed JSON")
 
         for line in artifacts_idx.read_text(encoding="utf-8").strip().split("\n"):
             if not line.strip():
@@ -78,7 +78,7 @@ def run_doctor(workspace_id: str) -> dict[str, Any]:
                 elif fid not in file_ids:
                     broken_link += 1
             except json.JSONDecodeError:
-                pass
+                errors.append("artifacts.jsonl contains malformed JSON")
 
         checks.append({"name": "artifact_file_id_missing", "ok": missing_file_id == 0, "count": missing_file_id})
         checks.append({"name": "artifact_file_id_broken", "ok": broken_link == 0, "count": broken_link})
@@ -99,11 +99,11 @@ def run_doctor(workspace_id: str) -> dict[str, Any]:
                 if ref.get("file_id", "") not in file_ids:
                     broken_refs += 1
             except json.JSONDecodeError:
-                pass
+                errors.append("references.jsonl contains malformed JSON")
         checks.append({"name": "reference_broken_links", "ok": broken_refs == 0, "count": broken_refs})
         if broken_refs > 0:
             warnings.append(f"{broken_refs} broken reference links")
 
-    ok = len(errors) == 0
+    ok = len(errors) == 0 and len(warnings) == 0 and all(check.get("ok", False) for check in checks)
     return {"workspace_id": workspace_id, "ok": ok, "checks": checks,
             "warnings": warnings, "errors": errors}

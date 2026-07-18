@@ -9,7 +9,7 @@ detail page said "failed".
 
 These tests verify:
   1. _safe_status now reads state.result_ok / state.result_errors
-  2. Direct dict callers with legacy `result={"ok": False}` still work
+  2. _safe_status ignores caller result status and uses current state projection
   3. _safe_status falls through to "ok" only when there's no error signal
   4. _merge_result_projection reconciles `status` with the real `ok` field
 """
@@ -56,10 +56,10 @@ def test_safe_status_ok_when_all_clear():
     assert _safe_status(s, {}) == "ok"
 
 
-def test_safe_status_legacy_dict_with_ok_false_still_works():
+def test_safe_status_ignores_dict_ok_without_state_projection():
     from storage.run_record_store import _safe_status
     s = _state()  # no result_ok / result_errors
-    assert _safe_status(s, {"ok": False}) == "error"
+    assert _safe_status(s, {"ok": False}) == "ok"
 
 
 def test_safe_status_planned_overrides_ok():

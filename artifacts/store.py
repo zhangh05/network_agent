@@ -13,7 +13,7 @@ Current runtime storage model:
   read model carrying ssot_event_id
 """
 
-import json, hashlib, os, re, time, shutil, uuid, threading
+import json, hashlib, os, re, time, shutil, uuid
 from pathlib import Path
 from typing import Optional
 
@@ -21,14 +21,11 @@ from artifacts.schemas import ArtifactRecord, ArtifactIndex, RunArtifactIndex
 from artifacts.redaction import redact_artifact_content, contains_secret, redact_metadata
 from artifacts.classifier import classify_file
 from storage.schemas import FileRecord
-from storage.atomic_io import atomic_write_json, atomic_write_text
 import logging
 from storage.time_utils import now_iso
 from storage.paths import runtime_root
+from storage.artifact_metadata_store import list_artifact_records, read_artifact_index
 
-# Per-workspace locks for artifact record writes (read-modify-write protection)
-_AREC_LOCKS: dict[str, threading.Lock] = {}
-_AREC_LOCKS_GUARD = threading.Lock()
 _LOG = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -69,31 +66,8 @@ def _new_artifact_id() -> str:
     return f"art_{uuid.uuid4().hex[:16]}"
 
 
-def _index_path(ws_id: str) -> Path:
-    from storage.ids import validate_workspace_id
-    ws_id = validate_workspace_id(ws_id)
-    return _get_ws_root() / ws_id / "sys" / "artifacts.index.json"
-
-
-def _artifact_records_path(ws_id: str) -> Path:
-    from storage.ids import validate_workspace_id
-    ws_id = validate_workspace_id(ws_id)
-    return _get_ws_root() / ws_id / "index" / "artifacts.jsonl"
-
-
 def _read_artifact_record_dicts(ws_id: str) -> list[dict]:
-    p = _artifact_records_path(ws_id)
-    if not p.is_file():
-        return []
-    records: list[dict] = []
-    for line in p.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            records.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return records
+    return list_artifact_records(ws_id)
 
 
 def _artifact_record_from_dict(data: dict) -> ArtifactRecord:
@@ -124,15 +98,14 @@ def _records_in_index_order(ws_id: str) -> list[ArtifactRecord]:
 
 
 def _load_index(ws_id: str) -> ArtifactIndex:
-    p = _index_path(ws_id)
-    if p.is_file():
-        try:
-            d = json.loads(p.read_text(encoding="utf-8"))
+    try:
+        d = read_artifact_index(ws_id)
+        if d.get("artifact_ids"):
             return ArtifactIndex(workspace_id=ws_id, artifact_ids=d.get("artifact_ids", []),
-                                artifact_count=d.get("artifact_count", 0),
-                                updated_at=d.get("updated_at", ""))
-        except Exception:
-            _LOG.warning("artifacts.store: silent exception", exc_info=True)
+                                 artifact_count=d.get("artifact_count", 0),
+                                 updated_at=d.get("updated_at", ""))
+    except (OSError, ValueError):
+        _LOG.warning("artifacts.store: invalid artifact index", exc_info=True)
 
     # Fallback to the metadata JSONL if the lightweight sys index is absent.
     records = _read_artifact_record_dicts(ws_id)
@@ -141,13 +114,6 @@ def _load_index(ws_id: str) -> ArtifactIndex:
         return ArtifactIndex(workspace_id=ws_id, artifact_ids=ids,
                              artifact_count=len(ids), updated_at="")
     return ArtifactIndex(workspace_id=ws_id)
-
-
-def _save_index(idx: ArtifactIndex):
-    p = _index_path(idx.workspace_id)
-    idx.updated_at = now_iso()
-    idx.artifact_count = len(idx.artifact_ids)
-    atomic_write_json(p, idx.as_dict())
 
 
 def _record_meta_dict(rec: ArtifactRecord) -> dict:
@@ -171,30 +137,11 @@ def _record_meta_dict(rec: ArtifactRecord) -> dict:
     return data
 
 
-def _save_artifact_record(rec: ArtifactRecord) -> None:
+def _save_artifact_record(rec: ArtifactRecord, *, add_to_index: bool = False) -> None:
     """Upsert one ArtifactRecord into index/artifacts.jsonl."""
-    from storage.ids import validate_workspace_id
+    from storage.artifact_metadata_store import upsert_artifact_record
 
-    ws_id = validate_workspace_id(rec.workspace_id)
-    p = _artifact_records_path(ws_id)
-    p.parent.mkdir(parents=True, exist_ok=True)
-
-    with _AREC_LOCKS_GUARD:
-        lock = _AREC_LOCKS.get(ws_id)
-        if lock is None:
-            lock = threading.Lock()
-            _AREC_LOCKS[ws_id] = lock
-
-    with lock:
-        records = [
-            r for r in _read_artifact_record_dicts(ws_id)
-            if r.get("artifact_id") != rec.artifact_id
-        ]
-        records.append(_record_meta_dict(rec))
-        atomic_write_text(
-            p,
-            "\n".join(json.dumps(r, ensure_ascii=False, default=str) for r in records) + "\n",
-        )
+    upsert_artifact_record(rec.workspace_id, _record_meta_dict(rec), add_to_index=add_to_index)
 
 
 def _logical_type_for_artifact(artifact_type: str) -> str:
@@ -447,12 +394,7 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
         redaction_applied=cls["contains_secret"],
     )
 
-    _save_artifact_record(rec)
-
-    idx = _load_index(workspace_id)
-    if art_id not in idx.artifact_ids:
-        idx.artifact_ids.append(art_id)
-    _save_index(idx)
+    _save_artifact_record(rec, add_to_index=True)
 
     if run_id:
         _update_run_index(workspace_id, run_id, art_id, artifact_type, title)
@@ -656,45 +598,15 @@ def delete_artifact(workspace_id: str, artifact_id: str, hard: bool = False) -> 
 
 def _remove_artifact_record_permanently(workspace_id: str, artifact_id: str) -> None:
     """Remove artifact metadata and its lightweight index entry."""
-    ws_id = str(workspace_id)
-    path = _artifact_records_path(ws_id)
-    with _AREC_LOCKS_GUARD:
-        lock = _AREC_LOCKS.get(ws_id)
-        if lock is None:
-            lock = threading.Lock()
-            _AREC_LOCKS[ws_id] = lock
-    with lock:
-        records = [
-            record for record in _read_artifact_record_dicts(ws_id)
-            if record.get("artifact_id") != artifact_id
-        ]
-        path.parent.mkdir(parents=True, exist_ok=True)
-        payload = "\n".join(json.dumps(record, ensure_ascii=False, default=str) for record in records)
-        atomic_write_text(path, payload + ("\n" if payload else ""))
-        index = _load_index(ws_id)
-        index.artifact_ids = [item for item in index.artifact_ids if item != artifact_id]
-        _save_index(index)
+    from storage.artifact_metadata_store import remove_artifact_record
+
+    remove_artifact_record(workspace_id, artifact_id)
 
 
 def _remove_artifact_from_run_indexes(workspace_id: str, artifact_id: str) -> None:
-    runs_dir = _get_ws_root() / workspace_id / "runs"
-    if not runs_dir.is_dir():
-        return
-    fields = ("input_artifacts", "output_artifacts", "report_artifacts", "temp_artifacts")
-    for path in runs_dir.glob("*.artifacts.json"):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        changed = False
-        for field in fields:
-            values = list(data.get(field) or [])
-            kept = [item for item in values if item.get("artifact_id") != artifact_id]
-            if len(kept) != len(values):
-                data[field] = kept
-                changed = True
-        if changed:
-            atomic_write_json(path, data)
+    from storage.run_artifact_store import remove_artifact_from_all_runs
+
+    remove_artifact_from_all_runs(workspace_id, artifact_id)
 
 
 def _remove_from_knowledge_index(workspace_id: str, artifact_id: str):
@@ -746,14 +658,9 @@ def summarize_artifact_content(workspace_id: str, artifact_id: str) -> dict:
 
 def get_run_artifacts(workspace_id: str, run_id: str) -> dict:
     from storage.ids import validate_workspace_id
+    from storage.run_artifact_store import read_run_artifacts
     workspace_id = validate_workspace_id(workspace_id)
-    p = _get_ws_root() / workspace_id / "runs" / f"{run_id}.artifacts.json"
-    if p.is_file():
-        try:
-            return json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            _LOG.warning("artifacts.store: silent exception", exc_info=True)
-    return {"workspace_id": workspace_id, "run_id": run_id,
+    return read_run_artifacts(workspace_id, run_id) or {"workspace_id": workspace_id, "run_id": run_id,
             "input_artifacts": [], "output_artifacts": [], "report_artifacts": [], "temp_artifacts": []}
 
 
@@ -784,20 +691,19 @@ def sanitize_record(rec: ArtifactRecord, include_metadata: bool = False) -> dict
 
 def _update_run_index(ws_id, run_id, art_id, artifact_type, title):
     from storage.ids import validate_workspace_id
+    from storage.run_artifact_store import mutate_run_artifacts
     ws_id = validate_workspace_id(ws_id)
-    idx = get_run_artifacts(ws_id, run_id)
-    info = {"artifact_id": art_id, "artifact_type": artifact_type, "title": title}
-    if artifact_type in ("input_config", "template", "sample"):
-        idx.setdefault("input_artifacts", []).append(info)
-    elif artifact_type in ("output_config",):
-        idx.setdefault("output_artifacts", []).append(info)
-    elif artifact_type in ("report", "inspection_result", "topology_json", "topology_image"):
-        idx.setdefault("report_artifacts", []).append(info)
-    else:
-        idx.setdefault("temp_artifacts", []).append(info)
-    run_dir = _get_ws_root() / ws_id / "runs"
-    run_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(run_dir / f"{run_id}.artifacts.json", idx)
+    def _append(idx):
+        info = {"artifact_id": art_id, "artifact_type": artifact_type, "title": title}
+        if artifact_type in ("input_config", "template", "sample"):
+            idx.setdefault("input_artifacts", []).append(info)
+        elif artifact_type in ("output_config",):
+            idx.setdefault("output_artifacts", []).append(info)
+        elif artifact_type in ("report", "inspection_result", "topology_json", "topology_image"):
+            idx.setdefault("report_artifacts", []).append(info)
+        else:
+            idx.setdefault("temp_artifacts", []).append(info)
+    mutate_run_artifacts(ws_id, run_id, _append)
 
 
 def _type_dir(artifact_type: str) -> str:

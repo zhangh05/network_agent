@@ -7,9 +7,38 @@ import pytest
 from agent.modules.inspection.models import CommandResult, DeviceResult, InspectionScope, InspectionTask
 
 
+H3C_BASE_OUTPUT = """dis cpu-usage
+Unit CPU usage:
+  20% in last 5 seconds
+  18% in last 1 minute
+  17% in last 5 minutes
+<R1>dis memory
+Mem:  1000 500 500 0 0 0 50.0%
+<R1>dis environment
+Slot Sensor Temperature LowerLimit WarningLimit AlarmLimit
+0/0 Hotspot 1 40 -5 66 76
+<R1>dis ip int brief
+Interface Physical Protocol IP address/Mask VPN Description
+GE0/1 up up 10.0.0.1/24 -- --
+<R1>dis ip routing-table
+Destinations : 1 Routes : 1
+Destination/Mask Proto Pre Cost NextHop Interface
+20.0.0.0/24 BGP 255 0 10.0.0.2 GE0/1
+<R1>dis bgp peer ipv4
+BGP local router ID: 10.0.0.1
+Local AS number: 65001
+10.0.0.2 65002 10 10 0 1 01h00m Established
+<R1>dis lldp nei
+LLDP is not configured.
+"""
+
+H3C_CHANGED_OUTPUT = H3C_BASE_OUTPUT.replace("GE0/1 up up", "GE0/1 down down")
+
+
 @pytest.fixture()
 def assurance_env(tmp_path, monkeypatch):
-    from agent.modules.assurance import llm_analysis, service, store
+    from agent.modules.assurance import llm_analysis, service
+    from storage import assurance_store as store
     import storage.paths as spaths
 
     monkeypatch.setattr(spaths, "workspace_root", lambda workspace_id: tmp_path / workspace_id)
@@ -28,7 +57,7 @@ def assurance_env(tmp_path, monkeypatch):
         {"asset_id": "a2", "name": "core-2", "host": "10.0.0.2", "type": "router", "vendor": "H3C", "region": "east"},
     ])
 
-    def add_task(task_id: str, ok: bool = True, output: str = "state up"):
+    def add_task(task_id: str, ok: bool = True, output: str = H3C_BASE_OUTPUT):
         result = CommandResult(check_id="health", category="health", command_key="display status", ok=ok, output_snippet=output, artifact_id=f"art_{task_id}")
         device = DeviceResult(task_id=task_id, asset_id="a1", asset_name="core-1", host="10.0.0.1", region="east", vendor="H3C", type="router", protocol="ssh", status="succeeded" if ok else "partial", command_results=[result])
         task = InspectionTask(task_id=task_id, workspace_id="default", scope=InspectionScope(region="east"), profile_id="general", status="succeeded" if ok else "partial", finished_at="2026-07-15T08:00:00+00:00", devices={"a1": device})
@@ -61,15 +90,15 @@ def assurance_env(tmp_path, monkeypatch):
 
 def test_baseline_and_drift_are_derived_from_completed_inspection(assurance_env):
     env = assurance_env
-    env.add_task("ins_base", output="interface up")
+    env.add_task("ins_base", output=H3C_BASE_OUTPUT)
     baseline = env.service.create_baseline("default", "east stable", inspection_task_id="ins_base")
     assert baseline["fact_count"] > 0
     assert baseline["source_task_id"] == "ins_base"
 
-    env.add_task("ins_new", output="interface down")
+    env.add_task("ins_new", output=H3C_CHANGED_OUTPUT)
     drift = env.service.check_baseline("default", baseline["baseline_id"], "ins_new")
-    assert drift["status"] == "compliant"
-    assert any(change["key"].endswith(".digest") for change in drift["changes"])
+    assert drift["status"] == "drifted"
+    assert any(change["key"].endswith(".physical") or change["key"].endswith(".protocol") for change in drift["changes"])
     assert all(change["evidence_ref"] for change in drift["changes"])
 
 
@@ -93,7 +122,7 @@ def test_baseline_capture_starts_fresh_inspection_and_only_then_establishes_auth
     assert env.service.list_drifts("default") == []
 
 
-def _finish_mock_task(env, task_id: str, *, ok: bool = True, output: str = "state up"):
+def _finish_mock_task(env, task_id: str, *, ok: bool = True, output: str = H3C_BASE_OUTPUT):
     task = env.tasks[task_id]
     result = CommandResult(
         check_id="health", category="health", command_key="display status",

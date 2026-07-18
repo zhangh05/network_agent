@@ -6,11 +6,19 @@ Storage: workspaces/<ws>/durable/tasks/<id>.json, events/<id>.events.json, check
 from __future__ import annotations
 import json
 import logging
-import time as _time
 from typing import Optional
-from storage.records import append_jsonl, atomic_save_json, list_json_records, read_json_record, workspace_record_dir
 from .models import TaskState, RuntimeEvent, RuntimeCheckpoint
 from agent.runtime.utils import now_iso
+from storage.ids import validate_checkpoint_id, validate_task_id
+from storage.durable_task_store import (
+    append_task_event,
+    list_checkpoint_records,
+    list_task_events,
+    list_task_records,
+    read_task_record,
+    save_checkpoint_record,
+    save_task_record,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,17 +30,13 @@ def _redact(obj, max_len=256):
     if isinstance(obj, str) and len(obj) > max_len: return obj[:max_len] + "..."
     return obj
 
-def _task_parts(task_id): return ("durable", "tasks", f"{task_id}.json")
-def _events_parts(tid): return ("durable", "events", f"{tid}.events.json")
-def _checkpoint_parts(tid): return ("durable", "checkpoints", tid)
-
 # ── Task CRUD ──
 def save_task(task: TaskState):
     task.updated_at = now_iso()
-    atomic_save_json(task.workspace_id, _task_parts(task.task_id), task.to_dict())
+    save_task_record(task.workspace_id, task.task_id, task.to_dict())
 
 def get_task(ws_id: str, task_id: str) -> Optional[TaskState]:
-    data = read_json_record(ws_id, _task_parts(task_id))
+    data = read_task_record(ws_id, task_id)
     if not data: return None
     try: return TaskState.from_dict(data)
     except Exception: return None
@@ -41,7 +45,8 @@ def list_tasks(ws_id: str, session_id="", limit=50) -> list[TaskState]:
     """List tasks. P1-22: full dir scan + sort, no cache — pagination at app level."""
     if limit <= 0: return []
     tasks = []
-    for data in list_json_records(ws_id, ("durable", "tasks"), limit=limit):
+    scan_limit = 5000 if session_id else limit
+    for data in list_task_records(ws_id, scan_limit):
         try:
             t = TaskState.from_dict(data)
             if session_id and t.session_id != session_id: continue
@@ -55,10 +60,11 @@ def list_tasks(ws_id: str, session_id="", limit=50) -> list[TaskState]:
 
 # ── Events ──
 def append_event(evt: RuntimeEvent):
+    validate_task_id(evt.task_id)
     evt.created_at = now_iso()
     evt.payload_redacted = _redact(evt.payload_redacted)
     try:
-        append_jsonl(evt.workspace_id, _events_parts(evt.task_id), evt.__dict__)
+        append_task_event(evt.workspace_id, evt.task_id, evt.__dict__)
     except OSError:
         # v3.9.9: was bare ``except Exception: pass`` — losing the
         # entire event log silently hides every tool error, every
@@ -68,35 +74,17 @@ def append_event(evt: RuntimeEvent):
                        evt.task_id, exc_info=True)
 
 def get_events(ws_id, task_id, limit=100) -> list[dict]:
-    path = workspace_record_dir(ws_id, "durable", "events") / f"{task_id}.events.json"
-    if not path.exists(): return []
-    evts = []
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if line.strip(): evts.append(json.loads(line))
-        return evts[-limit:]
-    except (OSError, json.JSONDecodeError):
-        # v3.9.9: best-effort read — return what we already
-        # collected before the error.
-        logger.debug("durable: get_events read failed for %s", path,
-                     exc_info=True)
-        return evts
+    task_id = validate_task_id(task_id)
+    return list_task_events(ws_id, task_id, limit)
 
 # ── Checkpoints ──
 def save_checkpoint(cp: RuntimeCheckpoint):
+    validate_task_id(cp.task_id)
+    validate_checkpoint_id(cp.checkpoint_id)
     cp.created_at = now_iso()
     cp.state_snapshot = _redact(cp.state_snapshot)
     if cp.pending_action: cp.pending_action = _redact(cp.pending_action)
-    atomic_save_json(cp.workspace_id, (*_checkpoint_parts(cp.task_id), f"{cp.checkpoint_id}.json"), cp.__dict__)
+    save_checkpoint_record(cp.workspace_id, cp.task_id, cp.checkpoint_id, cp.__dict__)
 
 def get_checkpoints(ws_id, task_id) -> list[dict]:
-    d = workspace_record_dir(ws_id, *_checkpoint_parts(task_id))
-    if not d.exists(): return []
-    cps = []
-    for f in sorted(d.glob("*.json"), key=lambda x: x.stat().st_mtime):
-        try:
-            cps.append(json.loads(f.read_text(encoding="utf-8")))
-        except (OSError, json.JSONDecodeError):
-            # v3.9.9: skip + log corrupt checkpoint files.
-            logger.debug("durable: skip corrupt checkpoint %s", f, exc_info=True)
-    return cps
+    return list_checkpoint_records(ws_id, task_id)

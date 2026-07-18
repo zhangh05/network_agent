@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 
 from agent.runtime.utils import now_iso
@@ -11,7 +12,9 @@ from agent.modules.remote.core import (
     resize_session, disconnect, get_session,
 )
 from agent.modules.remote.vendors import list_vendors, get_profile
-from storage.records import append_jsonl, read_jsonl, rewrite_jsonl, workspace_record_dir
+from storage.remote_store import append_device, delete_device as delete_saved_device, read_devices, save_terminal_log
+
+_LOG = logging.getLogger(__name__)
 
 
 def connect_device(workspace_id: str, host: str, port: int, protocol: str,
@@ -64,8 +67,6 @@ def connect_device(workspace_id: str, host: str, port: int, protocol: str,
         banner = session.log[0][:200] if session.log else ""
 
         # Save connection log directory
-        _ensure_log_dir(workspace_id)
-
         return {
             "ok": True,
             "session_id": sid,
@@ -128,10 +129,6 @@ def _require_session_workspace(session_id: str, workspace_id: str) -> dict | Non
 # Device connection persistence
 # ═══════════════════════════════════════════════════════════════════════
 
-def _ensure_log_dir(workspace_id: str):
-    return workspace_record_dir(workspace_id, "remote", "logs")
-
-
 def save_device(workspace_id: str, device: dict) -> dict:
     """Save a device connection profile."""
     record = {
@@ -146,9 +143,9 @@ def save_device(workspace_id: str, device: dict) -> dict:
     }
     password = str(device.get("password") or "")
     if password:
-        from agent.modules.cmdb.service import _seal_secret
-        record["password_secret"] = _seal_secret(workspace_id, password)
-    append_jsonl(workspace_id, ("remote", "connections.jsonl"), record)
+        from storage.credential_store import seal_credential
+        record["password_secret"] = seal_credential(workspace_id, password)
+    append_device(workspace_id, record)
     return {"ok": True, "device_id": record["device_id"]}
 
 
@@ -156,12 +153,11 @@ def list_devices(workspace_id: str) -> list[dict]:
     """List saved device connections."""
     devices = []
     seen = set()
-    for row in reversed(read_jsonl(workspace_id, ("remote", "connections.jsonl"))):
+    for row in reversed(read_devices(workspace_id)):
         d = dict(row)
         did = d.get("device_id", "")
         if did and did not in seen:
             seen.add(did)
-            d.pop("password", None)
             d.pop("password_secret", None)
             devices.append(d)
     return list(reversed(devices))
@@ -169,21 +165,13 @@ def list_devices(workspace_id: str) -> list[dict]:
 
 def delete_device(workspace_id: str, device_id: str) -> dict:
     """Physically delete a saved device from JSONL."""
-    rows = read_jsonl(workspace_id, ("remote", "connections.jsonl"))
-    if not rows:
-        return {"ok": False, "error": "not_found"}
-    kept = []
-    for rec in rows:
-        if rec.get("device_id") == device_id:
-            continue
-        kept.append(rec)
-    rewrite_jsonl(workspace_id, ("remote", "connections.jsonl"), kept)
-    return {"ok": True}
+    found = delete_saved_device(workspace_id, device_id)
+    return {"ok": True} if found else {"ok": False, "error": "not_found"}
 
 
 def get_device_password(workspace_id: str, device_id: str) -> str:
     """Retrieve the actual password for a saved device (internal use)."""
-    for d in read_jsonl(workspace_id, ("remote", "connections.jsonl")):
+    for d in read_devices(workspace_id):
         if d.get("device_id") == device_id:
             return _extract_saved_password(workspace_id, d)
     return ""
@@ -275,29 +263,13 @@ def _find_cmdb_asset_for_connection(
 def _extract_saved_password(workspace_id: str, record: dict) -> str:
     secret = str(record.get("password_secret") or "")
     if secret:
-        from agent.modules.cmdb.service import _open_secret
-        return _open_secret(workspace_id, secret)
-    return _deobfuscate(str(record.get("password") or ""))
+        from storage.credential_store import open_credential
+        return open_credential(workspace_id, secret)
+    return ""
 
 
 def _save_session_log(workspace_id: str, session_id: str, log_lines: list[str]):
     try:
-        log_dir = _ensure_log_dir(workspace_id)
-        path = log_dir / f"{session_id}.log"
-        path.write_text("\n".join(log_lines), encoding="utf-8")
+        save_terminal_log(workspace_id, session_id, log_lines)
     except Exception:
-        pass
-
-
-# Simple obfuscation (not real encryption — user should be warned)
-def _obfuscate(s: str) -> str:
-    import base64
-    return base64.b64encode(s.encode()).decode()
-
-
-def _deobfuscate(s: str) -> str:
-    import base64
-    try:
-        return base64.b64decode(s).decode()
-    except Exception:
-        return ""
+        _LOG.warning("remote terminal log persistence failed", exc_info=True)

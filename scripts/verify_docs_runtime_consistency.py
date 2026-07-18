@@ -84,6 +84,23 @@ def main() -> int:
     for reference in required_current_refs:
         check(reference in combined_docs, f"documents current surface: {reference}")
 
+    structure = read("STRUCTURE.md")
+    forbidden_current_tree_rows = (
+        "\n├── data/",
+        "\n├── runtime/",
+        "\n├── workspace/",
+        "`workspaces/`, `data/`",
+    )
+    for marker in forbidden_current_tree_rows:
+        check(marker not in structure, f"STRUCTURE omits removed root: {marker}")
+
+    for removed_root in ("data", "runtime", "workspace"):
+        check(not (ROOT / removed_root).exists(), f"removed root absent: {removed_root}/")
+
+    removed_cipher = "HMAC" + " + " + "XOR"
+    check(removed_cipher not in combined_docs, "documents omit removed credential cipher")
+    check("AES-GCM" in combined_docs, "documents current credential encryption")
+
     print(
         f"\n{len(failures)} failure(s)"
         if failures

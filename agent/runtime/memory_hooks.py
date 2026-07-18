@@ -67,6 +67,11 @@ def _llm_gate_record(record: MemoryRecord) -> tuple[bool | None, list[dict]]:
 
 
 def _emit_memory_event(ws_id: str, record: MemoryRecord, event_type: str) -> None:
+    if not record.task_id:
+        from storage.events import publish
+
+        publish(ws_id, "memory", event_type, record.memory_id)
+        return
     from agent.runtime.durable import RuntimeEvent
     from agent.runtime.durable.store import append_event
 

@@ -294,8 +294,28 @@ def create_app():
     # shutdown won't hang on a slow sweep. Failures are logged
     # loudly (warning, not debug) so the operator sees them.
     import threading as _threading
+    from storage.time_utils import now_iso as _startup_now_iso
+
+    _backend_started_at = _startup_now_iso()
 
     def _inspection_reconcile_async() -> None:
+        try:
+            from jobs.store import reconcile_running_jobs
+            reconciled_jobs = reconcile_running_jobs(
+                finished_at=_startup_now_iso(),
+                started_before=_backend_started_at,
+            )
+            if reconciled_jobs:
+                import logging as _job_log
+                _job_log.getLogger(__name__).warning(
+                    "[job startup] marked interrupted jobs failed: %s",
+                    reconciled_jobs,
+                )
+        except Exception as exc:
+            import logging as _job_log
+            _job_log.getLogger(__name__).warning(
+                "[job startup] reconcile failed: %s", exc, exc_info=True,
+            )
         try:
             from agent.modules.inspection.runner import reconcile_all_workspaces
             flipped = reconcile_all_workspaces()

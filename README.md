@@ -55,7 +55,7 @@ flowchart LR
 | `agent/modules/` | assurance（网络保障）、inspection（巡检）、browser（浏览器操控）、cmdb（资产）、knowledge（知识库）、remote（远程终端） |
 | `core/tools/` | 24 个 canonical tool、manifest、policy、executor、redaction |
 | `agent/capabilities/` | 13 个业务能力目录，只描述能力，不注册工具 |
-| `workspace/` | session/run/message/memory/workspace 数据边界 |
+| `storage/` | 工作区、会话、运行记录、制品文件、凭据和运行状态的数据边界 |
 | `artifacts/` | 制品生命周期与内容存储 |
 | `jobs/` | 作业系统（store/schemas/manager/worker/redaction） |
 | `observability/` | trace/event 记录 |
@@ -75,19 +75,19 @@ flowchart LR
 
 ### 安全
 - 启动脚本默认绑定 `0.0.0.0` 以支持局域网访问；如只允许本机访问，可设置 `BACKEND_HOST=127.0.0.1` 和 `FRONTEND_HOST=127.0.0.1`
-- SSH/Telnet 密码通过 HMAC + XOR stream cipher with HMAC 加密存储，不会明文落盘
+- SSH/Telnet 密码通过 AES-GCM 认证加密存储，工作区密钥以仅当前用户可读权限原子创建
 - Web Content Fetch 有 DNS rebinding 二次校验 + 5MB 响应上限
 - 所有 SSH/Telnet 巡检命令强制只读校验
 
 ### CMDB
-- JSONL append-only + RLock 并发控制，软删除（tombstone 标记）
+- JSONL append-only + 跨线程/跨进程文件锁并发控制，软删除（tombstone 标记）
 - 密码损坏检测（`password_corrupted` 标记）在列表和单资产查询中生效
 
 ## 24 个 Network Agent Tools
 
 `agent.manage`, `assurance.manage`, `browser.manage`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `inspection.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `spawn_config_translate_agent`, `spawn_network_diag_agent`, `spawn_security_agent`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
 
-工具名、manifest 和 registry 必须三方一致。不要添加别名，不要恢复旧工具名，不要让 handler 绕过 `ToolRuntimeClient`。
+工具名、manifest 和 registry 必须三方一致。不要添加别名，不要恢复已移除的工具名，不要让 handler 绕过 `ToolRuntimeClient`。
 
 ## Workspace 与数据
 

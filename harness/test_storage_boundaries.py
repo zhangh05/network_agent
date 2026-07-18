@@ -3,6 +3,10 @@
 from pathlib import Path
 import io
 import ast
+import subprocess
+import sys
+import time
+import threading
 
 
 def test_new_workspace_creates_current_storage_dirs(monkeypatch, tmp_path):
@@ -170,3 +174,149 @@ def test_consolidated_modules_do_not_reintroduce_ad_hoc_jsonl_io():
                 violations.append(f"{rel}: {marker}")
 
     assert violations == []
+
+
+def test_record_reads_do_not_create_workspace_directories(monkeypatch, tmp_path):
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
+    from storage.records import list_json_records, read_json_record, read_jsonl
+
+    assert read_jsonl("ghost", ("context", "items.jsonl")) == []
+    assert read_json_record("ghost", ("runs", "missing.json")) is None
+    assert list_json_records("ghost", ("durable", "tasks")) == []
+    assert not (tmp_path / "workspaces" / "ghost").exists()
+
+
+def test_file_lock_timeout_fails_closed_across_processes(tmp_path):
+    lock_path = tmp_path / "cross_process.lock"
+    code = (
+        "import sys,time; from pathlib import Path; "
+        "from storage.locking import FileLock; "
+        "c=FileLock(Path(sys.argv[1]),timeout=2); c.__enter__(); "
+        "print('locked',flush=True); time.sleep(3); c.__exit__(None,None,None)"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", code, str(lock_path)],
+        cwd=str(Path(__file__).resolve().parents[1]),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert proc.stdout.readline().strip() == "locked"
+        from storage.locking import FileLock
+        started = time.monotonic()
+        try:
+            with FileLock(lock_path, timeout=0.15, retry_interval=0.01):
+                raise AssertionError("contender entered a locked critical section")
+        except TimeoutError:
+            pass
+        assert time.monotonic() - started >= 0.1
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
+def test_storage_services_use_domain_repositories():
+    project_root = Path(__file__).resolve().parents[1]
+    targets = [
+        "agent/modules/cmdb/service.py",
+        "agent/modules/remote/service.py",
+        "agent/runtime/token_tracker.py",
+        "agent/runtime/durable/delivery.py",
+        "agent/runtime/durable/trajectory.py",
+        "agent/runtime/durable/subagent.py",
+        "core/tools/python_exec.py",
+    ]
+    forbidden = {"storage.paths", "storage.records", "storage.atomic_io"}
+    violations = []
+    for rel in targets:
+        tree = ast.parse((project_root / rel).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (node.module or "") in forbidden:
+                violations.append(f"{rel}: {node.module}")
+    assert violations == []
+
+
+def test_agent_and_backend_do_not_import_low_level_storage_adapters():
+    project_root = Path(__file__).resolve().parents[1]
+    forbidden = {"storage.paths", "storage.records", "storage.atomic_io"}
+    violations = []
+    for root_name in ("agent", "backend"):
+        for path in (project_root / root_name).rglob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and (node.module or "") in forbidden:
+                    violations.append(f"{path.relative_to(project_root)}: {node.module}")
+    assert violations == []
+
+
+def test_jsonl_mutation_serializes_concurrent_append(monkeypatch, tmp_path):
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
+    from storage.records import append_jsonl, mutate_jsonl, read_jsonl
+
+    parts = ("index", "references.jsonl")
+    append_jsonl("ws", parts, {"ref_id": "first"})
+    entered = threading.Event()
+    release = threading.Event()
+
+    def mutate():
+        def callback(rows):
+            entered.set()
+            assert release.wait(timeout=2)
+            return rows, None
+        mutate_jsonl("ws", parts, callback)
+
+    writer_done = threading.Event()
+    t1 = threading.Thread(target=mutate)
+    t1.start()
+    assert entered.wait(timeout=2)
+    t2 = threading.Thread(target=lambda: (
+        append_jsonl("ws", parts, {"ref_id": "second"}), writer_done.set()
+    ))
+    t2.start()
+    time.sleep(0.05)
+    assert not writer_done.is_set()
+    release.set()
+    t1.join(timeout=2)
+    t2.join(timeout=2)
+
+    assert [row["ref_id"] for row in read_jsonl("ws", parts)] == ["first", "second"]
+
+
+def test_jsonl_mutation_refuses_to_erase_malformed_records(monkeypatch, tmp_path):
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
+    from storage.records import mutate_jsonl, workspace_record_file
+
+    parts = ("index", "references.jsonl")
+    path = workspace_record_file("ws", *parts)
+    original = '{"ref_id":"valid"}\nnot-json\n'
+    path.write_text(original, encoding="utf-8")
+
+    try:
+        mutate_jsonl("ws", parts, lambda rows: (rows, None))
+        raise AssertionError("malformed JSONL mutation unexpectedly succeeded")
+    except ValueError as exc:
+        assert "malformed_jsonl_record" in str(exc)
+    assert path.read_text(encoding="utf-8") == original
+
+
+def test_workspace_credential_key_is_atomic_under_threads(monkeypatch, tmp_path):
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
+    from storage.credential_store import open_credential_strict, seal_credential
+
+    sealed: list[str] = []
+    threads = [
+        threading.Thread(target=lambda value=f"secret-{i}": sealed.append(seal_credential("ws", value)))
+        for i in range(12)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3)
+
+    assert len(sealed) == 12
+    assert {open_credential_strict("ws", value) for value in sealed} == {
+        f"secret-{i}" for i in range(12)
+    }
+    key = tmp_path / "workspaces" / "ws" / "cmdb" / ".credential_key"
+    assert key.stat().st_size == 32

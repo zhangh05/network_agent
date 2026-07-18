@@ -24,7 +24,7 @@ def _resolve_repo_dir(ws_id: str) -> str:
         return str(workspaces_dir.resolve())
     return os.getcwd()
 from typing import Optional, Literal
-from storage.records import atomic_save_json, read_json_record
+from storage.delivery_store import read_rollback_plan, save_rollback_plan as persist_rollback_plan
 from agent.runtime.utils import now_iso
 
 DeliveryMode = Literal["code","network_change","diagnosis","report","config_translation","artifact_generation"]
@@ -98,10 +98,10 @@ def requires_rollback(mode: DeliveryMode) -> bool:
 # ── Rollback Plan Persistence ──
 
 def save_rollback_plan(plan: RollbackPlan):
-    atomic_save_json(plan.workspace_id, ("delivery", "rollback", f"{plan.rollback_id}.json"), plan.to_dict())
+    persist_rollback_plan(plan.workspace_id, plan.rollback_id, plan.to_dict())
 
 def get_rollback_plan(ws_id: str, rb_id: str) -> Optional[dict]:
-    return read_json_record(ws_id, ("delivery", "rollback", f"{rb_id}.json"))
+    return read_rollback_plan(ws_id, rb_id)
 
 
 # ── Audit Report ──
@@ -186,22 +186,8 @@ def git_status_check(ws_id: str) -> dict:
         result["changed_files"] = [l[3:] for l in lines if l[:2].strip()]
         result["untracked"] = [l[3:] for l in lines if l.startswith("??")]
 
-        # Event
-        try:
-            import uuid
-            from agent.runtime.durable import RuntimeEvent
-            from agent.runtime.durable.store import append_event
-            append_event(RuntimeEvent(
-                event_id=f"evt-git-{uuid.uuid4().hex[:8]}",
-                task_id="", workspace_id=ws_id, session_id="", run_id="",
-                type="git_status_checked", status="ok",
-                title=f"Git status: {result['branch']}, dirty={result['dirty']}",
-            ))
-        except OSError:
-            # v3.9.9: git_status_checked event log is best-effort;
-            # git itself succeeded, so surface disk failure at debug.
-            logger.debug("delivery: git_status_checked event log failed",
-                         exc_info=True)
+        from storage.events import publish
+        publish(ws_id, "git", "status_checked", result["branch"])
     except FileNotFoundError:
         result["status"] = "git_not_available"
     except Exception as e:
@@ -229,18 +215,8 @@ def git_commit(ws_id: str, message: str = "", confirm: bool = False) -> dict:
         )
         if r2.returncode != 0:
             return {"ok": False, "error": r2.stderr.strip()[:500] or "commit failed"}
-        try:
-            from agent.runtime.durable import RuntimeEvent
-            from agent.runtime.durable.store import append_event
-            append_event(RuntimeEvent(
-                event_id=f"evt-git-{uuid.uuid4().hex[:8]}",
-                task_id="", workspace_id=ws_id, session_id="", run_id="",
-                type="git_committed", status="ok",
-                title=f"Git commit: {message[:80]}",
-            ))
-        except OSError:
-            logger.debug("delivery: git_committed event log failed",
-                         exc_info=True)
+        from storage.events import publish
+        publish(ws_id, "git", "committed", message[:80])
         return {"ok": True, "message": "committed", "commit_message": message[:200],
                 "output": r2.stdout.strip()[:500]}
     except FileNotFoundError:
@@ -269,18 +245,8 @@ def git_push(ws_id: str, remote: str = "origin", confirm: bool = False) -> dict:
         )
         if r2.returncode != 0:
             return {"ok": False, "error": r2.stderr.strip()[:500] or "push failed"}
-        try:
-            from agent.runtime.durable import RuntimeEvent
-            from agent.runtime.durable.store import append_event
-            append_event(RuntimeEvent(
-                event_id=f"evt-git-{uuid.uuid4().hex[:8]}",
-                task_id="", workspace_id=ws_id, session_id="", run_id="",
-                type="git_pushed", status="ok",
-                title=f"Git push {remote}/{branch}",
-            ))
-        except OSError:
-            logger.debug("delivery: git_pushed event log failed",
-                         exc_info=True)
+        from storage.events import publish
+        publish(ws_id, "git", "pushed", f"{remote}/{branch}")
         return {"ok": True, "remote": remote, "branch": branch,
                 "message": "pushed", "output": r2.stdout.strip()[:500]}
     except FileNotFoundError:

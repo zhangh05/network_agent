@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from storage.records import append_jsonl, read_jsonl, rewrite_jsonl
+from storage.records import append_jsonl, mutate_jsonl, read_jsonl
 from storage.schemas import FileReference
 
 _REF_INDEX_PARTS = ("index", "references.jsonl")
@@ -55,14 +55,11 @@ def list_references_for_owner(workspace_id: str, owner_type: str, owner_id: str)
 
 def remove_reference(workspace_id: str, ref_id: str) -> bool:
     """Remove a reference by ref_id through the storage record adapter."""
-    rows = read_jsonl(workspace_id, _REF_INDEX_PARTS)
-    if not rows:
-        return False
-    kept = [row for row in rows if row.get("ref_id") != ref_id]
-    found = len(kept) != len(rows)
-    if found:
-        rewrite_jsonl(workspace_id, _REF_INDEX_PARTS, kept)
-    return found
+    def _remove(rows):
+        kept = [row for row in rows if row.get("ref_id") != ref_id]
+        return kept, len(kept) != len(rows)
+
+    return bool(mutate_jsonl(workspace_id, _REF_INDEX_PARTS, _remove))
 
 
 def _query_refs(workspace_id: str, key: str, value: str) -> list[dict]:

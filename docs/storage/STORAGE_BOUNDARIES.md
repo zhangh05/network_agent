@@ -17,9 +17,14 @@
 - Store functions should not invent a workspace for caller mistakes.
 - Deletion must be scoped and explicit.
 - Redacted summaries may be returned in list APIs; raw secret-bearing payloads must not.
-- Business modules call storage repositories or record helpers for workspace
-  persistence. They must not assemble `workspace_root()/module/*.json(l)` paths
+- Business modules call domain repositories for persistence. Low-level path,
+  atomic-I/O, and generic-record helpers remain inside data-plane adapters;
+  business services must not assemble `workspace_root()/module/*.json(l)` paths
   or perform ad hoc JSON/JSONL file writes.
+- Every read-modify-write sequence is one locked repository transaction.
+- Lock acquisition is fail-closed: timeout raises an error and the protected
+  write is not attempted.
+- Reads are side-effect free and do not initialize absent workspaces.
 
 ## Runtime State
 

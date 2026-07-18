@@ -10,8 +10,6 @@ import json
 import shutil
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional
 
 from core.runtime.lifecycle_base import (
     workspace_dir, is_safe_path, get_active_refs, scan_directory, write_audit,
@@ -27,10 +25,6 @@ class ArchivePolicy:
     jobs_older_than_days: int = 30
     jobs_statuses: tuple = ("succeeded", "failed", "cancelled")
     temp_older_than_days: int = 7
-    archive_temp_artifacts: bool = True
-    archive_quarantine_artifacts: bool = True
-    archive_active_refs: bool = False
-    archive_reports: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -40,10 +34,6 @@ class ArchivePolicy:
             "traces_keep_latest": self.traces_keep_latest,
             "jobs_older_than_days": self.jobs_older_than_days,
             "temp_older_than_days": self.temp_older_than_days,
-            "archive_temp_artifacts": self.archive_temp_artifacts,
-            "archive_quarantine_artifacts": self.archive_quarantine_artifacts,
-            "archive_active_refs": self.archive_active_refs,
-            "archive_reports": self.archive_reports,
         }
 
 
@@ -97,21 +87,24 @@ def preview_archive_candidates(workspace_id: str = "default",
     active_refs = get_active_refs(ws_dir)
     candidates = []
     blocked = []
+    from storage.run_record_store import is_run_record_file
 
     # ═══ Runs (shared utility) ═══
     runs_result = scan_directory(ws_dir, "runs",
                                  max_age_days=policy.runs_older_than_days,
                                  max_count=policy.runs_keep_latest,
-                                 active_refs=active_refs)
+                                 active_refs=active_refs,
+                                 name_filter=is_run_record_file)
     for name in runs_result["candidates"]:
         candidates.append({"type": "run", "name": name})
     blocked.extend(runs_result["blocked"])
 
     # ═══ Traces (shared utility) ═══
-    traces_result = scan_directory(ws_dir, "traces",
+    traces_result = scan_directory(ws_dir, "runs",
                                    max_age_days=policy.traces_older_than_days,
                                    max_count=policy.traces_keep_latest,
-                                   active_refs=active_refs)
+                                   active_refs=active_refs,
+                                   name_filter=lambda path: path.name.endswith(".trace.json"))
     for name in traces_result["candidates"]:
         candidates.append({"type": "trace", "name": name})
     blocked.extend(traces_result["blocked"])
@@ -120,14 +113,15 @@ def preview_archive_candidates(workspace_id: str = "default",
     jobs_dir = ws_dir / "jobs"
     if jobs_dir.is_dir():
         now = time.time()
-        for jf in jobs_dir.iterdir():
-            if not jf.is_file():
+        for job_dir in jobs_dir.iterdir():
+            if not job_dir.is_dir() or job_dir.name.startswith("."):
                 continue
-            if not is_safe_path(jf, ws_dir):
-                blocked.append({"path": jf.name, "reason": "path_outside_workspace"})
+            jf = job_dir / f"{job_dir.name}.json"
+            if not jf.is_file() or not is_safe_path(job_dir, ws_dir):
+                blocked.append({"path": job_dir.name, "reason": "invalid_job_record"})
                 continue
-            if jf.stem in active_refs:
-                blocked.append({"path": jf.name, "reason": "active_ref"})
+            if job_dir.name in active_refs:
+                blocked.append({"path": job_dir.name, "reason": "active_ref"})
                 continue
             try:
                 record = json.loads(jf.read_text()) if jf.suffix == ".json" else {}
@@ -139,45 +133,16 @@ def preview_archive_candidates(workspace_id: str = "default",
                 continue
             age_days = (now - jf.stat().st_mtime) / 86400
             if age_days > policy.jobs_older_than_days:
-                candidates.append({"type": "job", "name": jf.name})
+                candidates.append({"type": "job", "name": job_dir.name})
 
     # ═══ Temp (shared utility) ═══
-    temp_result = scan_directory(ws_dir, "sys/tmp",
+    temp_result = scan_directory(ws_dir, "files/tmp",
                                  max_age_days=policy.temp_older_than_days,
-                                 active_refs=active_refs)
+                                 active_refs=active_refs,
+                                 check_is_file=False)
     for name in temp_result["candidates"]:
         candidates.append({"type": "temp", "name": name})
     blocked.extend(temp_result["blocked"])
-
-    # ═══ Artifacts (temp/quarantine — scan source subdirs) ═══
-    now = time.time()
-    art_dir = ws_dir / "files"
-    if art_dir.is_dir() and (policy.archive_temp_artifacts or policy.archive_quarantine_artifacts):
-        for src_name in ("upload", "agent"):
-            sd = art_dir / src_name
-            if not sd.is_dir():
-                continue
-            for af in sd.iterdir():
-                if not af.is_file():
-                    continue
-                if not is_safe_path(af, ws_dir):
-                    blocked.append({"path": af.name, "reason": "path_outside_workspace"})
-                    continue
-                try:
-                    record = json.loads(af.read_text()) if af.suffix == ".json" else {}
-                    lifecycle = record.get("lifecycle", record.get("scope", ""))
-                    art_id = record.get("artifact_id", af.stem)
-                except Exception:
-                    continue
-                if art_id in active_refs:
-                    blocked.append({"path": af.name, "reason": "active_ref"})
-                    continue
-                if lifecycle == "temp" and policy.archive_temp_artifacts:
-                    age_days = (now - af.stat().st_mtime) / 86400
-                    if age_days > policy.temp_older_than_days:
-                        candidates.append({"type": "artifact", "name": af.name, "src": src_name})
-                elif lifecycle == "quarantine" and policy.archive_quarantine_artifacts:
-                    candidates.append({"type": "artifact", "name": af.name, "src": src_name})
 
     counts = {}
     for c in candidates:
@@ -234,18 +199,14 @@ def apply_archive(workspace_id: str = "default",
             src = ws_dir / "runs" / name
             dst = archive_root / "runs" / name
         elif ctype == "trace":
-            src = ws_dir / "traces" / name
+            src = ws_dir / "runs" / name
             dst = archive_root / "traces" / name
         elif ctype == "job":
             src = ws_dir / "jobs" / name
             dst = archive_root / "jobs" / name
         elif ctype == "temp":
-            src = ws_dir / "sys" / "tmp" / name
+            src = ws_dir / "files" / "tmp" / name
             dst = archive_root / "tmp" / name
-        elif ctype == "artifact":
-            src_name = candidate.get("src", "agent")
-            src = ws_dir / "files" / src_name / name
-            dst = archive_root / "files" / src_name / name
         if src and src.exists() and is_safe_path(src, ws_dir):
             try:
                 dst.parent.mkdir(parents=True, exist_ok=True)

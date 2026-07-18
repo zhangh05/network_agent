@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from storage.atomic_io import atomic_write_json, atomic_write_text, safe_read_json, safe_read_text
+from storage.locking import FileLock
 
 
 def ensure_provider_dir(providers_dir: Path) -> Path:
@@ -30,7 +31,8 @@ def read_provider_config(providers_dir: Path, provider_id: str) -> dict[str, Any
 
 def write_provider_config(providers_dir: Path, provider_id: str, data: dict[str, Any]) -> None:
     path = provider_config_path(providers_dir, provider_id)
-    atomic_write_json(path, data)
+    with FileLock(path.with_name(path.name + ".lock")):
+        atomic_write_json(path, data)
     try:
         os.chmod(str(path), stat.S_IRUSR | stat.S_IWUSR)
     except OSError:
@@ -42,12 +44,17 @@ def read_active_provider(providers_dir: Path) -> str:
 
 
 def write_active_provider(providers_dir: Path, provider_id: str) -> None:
-    atomic_write_text(active_provider_path(providers_dir), provider_id)
+    path = active_provider_path(providers_dir)
+    with FileLock(path.with_name(path.name + ".lock")):
+        atomic_write_text(path, provider_id)
 
 
 def delete_provider_config(providers_dir: Path, provider_id: str) -> bool:
     path = provider_config_path(providers_dir, provider_id)
     if not path.is_file():
         return False
-    path.unlink()
+    with FileLock(path.with_name(path.name + ".lock")):
+        if not path.is_file():
+            return False
+        path.unlink()
     return True

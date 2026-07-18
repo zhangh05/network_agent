@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from typing import Optional, Iterator
 
 from storage.ids import validate_workspace_id
-from storage.records import append_jsonl, read_jsonl, rewrite_jsonl, workspace_record_file
+from storage.records import append_jsonl, mutate_jsonl, read_jsonl, workspace_record_file
 
 
 def _now_iso() -> str:
@@ -189,42 +189,36 @@ class ContextStore:
         without the given item_ids. Returns count of removed items."""
         if not item_ids:
             return 0
-        removed = 0
         with self._lock:
-            kept: list[dict] = []
-            for item in self._iter_raw():
-                if item.get("item_id") in item_ids or item.get("deleted"):
-                    removed += 1
-                    continue
-                kept.append(item)
+            def _purge(rows):
+                kept = [
+                    item for item in rows
+                    if item.get("item_id") not in item_ids and not item.get("deleted")
+                ]
+                return kept, len(rows) - len(kept)
 
-            rewrite_jsonl(self.workspace_id, ("context", "items.jsonl"), kept)
-        return removed
+            return int(mutate_jsonl(self.workspace_id, ("context", "items.jsonl"), _purge))
 
     def compact(self) -> dict:
         """Rewrite items.jsonl, removing tombstones and superseded versions."""
         with self._lock:
-            live: dict[str, dict] = {}
-            raw_count = 0
-            for item in self._iter_raw():
-                raw_count += 1
-                iid = item.get("item_id", "")
-                if item.get("deleted"):
-                    live.pop(iid, None)
-                else:
-                    # Append-only storage is strict last-write-wins. A later
-                    # put with the same item_id intentionally revives a prior
-                    # tombstone (for example, a rebuilt knowledge chunk).
-                    live[iid] = item
+            def _compact(rows):
+                live: dict[str, dict] = {}
+                for item in rows:
+                    iid = item.get("item_id", "")
+                    if item.get("deleted"):
+                        live.pop(iid, None)
+                    else:
+                        live[iid] = item
+                result = {
+                    "before": len(rows),
+                    "after": len(live),
+                    "removed": max(0, len(rows) - len(live)),
+                    "backup": "",
+                }
+                return live.values(), result
 
-            rewrite_jsonl(self.workspace_id, ("context", "items.jsonl"), live.values())
-
-        return {
-            "before": raw_count,
-            "after": len(live),
-            "removed": max(0, raw_count - len(live)),
-            "backup": "",
-        }
+            return mutate_jsonl(self.workspace_id, ("context", "items.jsonl"), _compact)
 
     def cleanup_expired(self, dry_run: bool = False) -> dict:
         """Remove items past their expires_at."""

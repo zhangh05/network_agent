@@ -17,7 +17,6 @@ network_agent/
 │   ├── core/                   # Auth, limits, settings, response helpers
 │   └── ws/                     # WebSocket gateways
 ├── config/                     # Local provider/runtime config; secrets ignored
-├── data/                       # Local runtime JSON/JSONL stores
 ├── docs/                       # Current architecture and API docs
 ├── frontend/                   # React 18 + TypeScript + Vite app
 ├── harness/                    # Backend contract/architecture tests
@@ -25,7 +24,6 @@ network_agent/
 ├── observability/              # Trace/event persistence
 ├── prompts/                    # Top-level prompt templates and registry
 ├── reports/                    # Generated reports; audits are ignored unless tracked
-├── runtime/                    # Diagnostics/selfcheck utilities
 ├── storage/                    # File store abstractions
 ├── core/                       # SSOT Runtime engine, canonical tools, core utilities
 │   ├── context/
@@ -36,7 +34,6 @@ network_agent/
 │   ├── time/
 │   ├── tools/                  # 24 network-agent tools, manifest, policy, executor
 │   └── workspaces/             # Workspace abstractions
-├── workspace/                  # Workspace/session/run/message/memory stores
 ├── workspaces/                 # Local workspace data; not committed
 ├── start.sh
 └── stop.sh
@@ -48,7 +45,8 @@ network_agent/
 - Business capability descriptions belong to `agent/capabilities/catalog.py`.
 - Durable runtime state belongs to `agent/runtime/durable/`.
 - User-visible workbench state belongs to `frontend/src/stores/`.
-- Persistent local user data belongs under `workspaces/`, `data/`, `config/providers/`, or `logs/` and must stay out of Git.
+- Persistent local user data belongs under `workspaces/`, `config/providers/`, or `logs/` and must stay out of Git.
+- `workspaces/_runtime/` contains application-level runtime records not owned by one workspace.
 
 ## Removed Concepts
 

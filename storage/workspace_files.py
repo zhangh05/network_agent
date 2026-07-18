@@ -5,13 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from storage.atomic_io import atomic_write_text
+from storage.ids import validate_run_id
 from storage.paths import workspace_root
 
 _WRITE_DIRS = (
     "files/data",
-    "files/user_upload",
-    "files/agent_output",
-    "files/knowledge",
+    "files/tmp",
     "inbox",
 )
 
@@ -43,6 +42,14 @@ def is_current_workspace_write_path(workspace_id: str, target: Path) -> bool:
 
 def write_text_atomic(path: Path, content: str) -> None:
     atomic_write_text(path, content)
+
+
+def write_python_temp_script(workspace_id: str, run_id: str, content: str) -> tuple[Path, Path]:
+    safe_run_id = validate_run_id(run_id)
+    temp_dir = resolve_workspace_path(workspace_id, f"files/tmp/python_exec/{safe_run_id}")
+    script_path = temp_dir / "script.py"
+    atomic_write_text(script_path, content)
+    return temp_dir, script_path
 
 
 def resolve_importable_workspace_path(workspace_id: str, filepath: str) -> Path:

@@ -54,7 +54,7 @@ def test_record():
         "workspace_id": "default",
         "logical_type": "user_upload",
         "file_kind": "text",
-        "path": f"files/user_upload/original/{fid}__test.txt",
+        "path": f"files/data/{fid}__test.txt",
         "original_name": "test.txt",
         "mime_type": "text/plain",
         "binary": False,
@@ -85,7 +85,7 @@ class TestBasicAppendRead:
         for i in range(10):
             r = dict(test_record)
             r["file_id"] = f"file_{uuid.uuid4().hex[:16]}"
-            r["path"] = f"files/user_upload/original/{r['file_id']}__test.txt"
+            r["path"] = f"files/data/{r['file_id']}__test.txt"
             recs.append(r)
             append_file_record("default", r)
 
@@ -115,7 +115,7 @@ class TestConcurrentAppend:
                     "workspace_id": "default",
                     "logical_type": "user_upload",
                     "file_kind": "text",
-                    "path": f"files/user_upload/original/file_c{i:04d}__t.txt",
+                    "path": f"files/data/file_c{i:04d}__t.txt",
                     "original_name": "t.txt",
                     "mime_type": "text/plain",
                     "binary": False,
@@ -150,7 +150,7 @@ class TestConcurrentAppend:
                 "workspace_id": "default",
                 "logical_type": "user_upload",
                 "file_kind": "text",
-                "path": f"files/user_upload/original/file_m{i:04d}__t.txt",
+                    "path": f"files/data/file_m{i:04d}__t.txt",
                 "original_name": "t.txt",
                 "mime_type": "text/plain",
                 "binary": False,
@@ -374,8 +374,8 @@ class TestFileStoreIntegration:
             with patch("storage.file_store.workspace_root", return_value=Path(tmp_path)):
                 # Create a test file
                 ws = tmp_path
-                (ws / "files" / "user_upload" / "original").mkdir(parents=True)
-                test_file = ws / "files" / "user_upload" / "original" / "test_file.txt"
+                (ws / "files" / "data").mkdir(parents=True)
+                test_file = ws / "files" / "data" / "test_file.txt"
                 test_file.write_text("hello")
 
                 from storage.file_store import create_file_record
@@ -383,7 +383,7 @@ class TestFileStoreIntegration:
                     workspace_id="default",
                     logical_type="user_upload",
                     file_kind="text",
-                    path="files/user_upload/original/test_file.txt",
+                    path="files/data/test_file.txt",
                     original_name="test.txt",
                 )
                 assert rec is not None

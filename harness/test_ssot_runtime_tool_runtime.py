@@ -26,8 +26,7 @@ These tests assert the new behavior:
     ``ToolResult(success=True)``.
   * A handler returning ``{"success": False, "error_code": "...",
     "error": "..."}`` produces the expected ``error_code``.
-  * A handler returning bare dict with no flag is treated as
-    success (backward compatible).
+  * A handler returning bare dict with no flag is rejected.
   * The engine's ``metadata.runtime`` reports ``node_failure_count=1``
     when the only node fails (no longer over-counted).
 """
@@ -114,11 +113,8 @@ def test_handler_structured_error_code_is_propagated():
     ``ToolResult(success=False, error_code="X")`` and the error
     message.
 
-    v4 contract: only the modern ``ok`` key propagates the
-    handler's ``error_code`` into the resolver. The legacy
-    ``success`` key is treated as a boolean verdict only — see
-    ``test_legacy_success_false_does_not_propagate_error_code``
-    in test_ssot_runtime_v4_tool_truth.py for the asymmetry.
+    The current contract uses the canonical ``ok`` key to propagate the
+    handler's ``error_code`` into the resolver.
     """
     def handler(args: dict) -> dict:
         return {

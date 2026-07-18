@@ -1048,7 +1048,7 @@ def test_get_asset_flags_password_corrupted(tmp_path):
         for i, line in enumerate(lines):
             d = _json.loads(line)
             if d.get("asset_id") == "a_corrupt":
-                d["password_secret"] = "cmdb:v2:AAAA"  # bogus
+                d["password_secret"] = "cred:v3:AAAA"  # bogus
                 lines[i] = _json.dumps(d, ensure_ascii=False)
         jsonl.write_text("\n".join(lines) + "\n", encoding="utf-8")
         rec2 = cmdb.get_asset(ws, "a_corrupt")

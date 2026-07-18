@@ -6,7 +6,7 @@ Collects component status, counts, and metadata without exposing secrets.
 
 from dataclasses import dataclass, field
 
-from storage.paths import workspace_root
+from storage.status_store import workspace_counts, workspace_exists
 
 
 @dataclass
@@ -41,10 +41,10 @@ def get_diagnostics(workspace_id: str = "default") -> DiagnosticReport:
     """Collect diagnostic information for a workspace."""
     report = DiagnosticReport()
     components = []
-    ws_dir = workspace_root(workspace_id)
+    exists = workspace_exists(workspace_id)
 
     # 1. Workspace
-    if ws_dir.exists():
+    if exists:
         components.append(ComponentStatus("workspace", "ok",
             f"Workspace '{workspace_id}' exists"))
     else:
@@ -62,45 +62,16 @@ def get_diagnostics(workspace_id: str = "default") -> DiagnosticReport:
         components.append(ComponentStatus("capabilities", "error", f"Catalog failed: {str(e)[:100]}"))
 
     # 3. Run stats
-    runs_dir = ws_dir / "runs"
-    if runs_dir.is_dir():
-        try:
-            from storage.run_record_store import is_run_record_file
-
-            count = sum(
-                1 for path in runs_dir.iterdir()
-                if path.is_file() and is_run_record_file(path)
-            )
-            components.append(ComponentStatus("runs", "ok", f"{count} run records",
-                {"count": count}))
-        except Exception:
-            components.append(ComponentStatus("runs", "warning", "Cannot count runs"))
-    else:
-        components.append(ComponentStatus("runs", "ok", "No runs yet", {"count": 0}))
-
-    # 4. Artifact stats
-    art_dir = ws_dir / "files"
-    if art_dir.is_dir():
-        try:
-            count = len(list(art_dir.iterdir()))
-            components.append(ComponentStatus("artifacts", "ok", f"{count} artifacts",
-                {"count": count}))
-        except Exception:
-            components.append(ComponentStatus("artifacts", "warning", "Cannot count artifacts"))
-    else:
-        components.append(ComponentStatus("artifacts", "ok", "No artifacts", {"count": 0}))
-
-    # 5. Job stats
-    jobs_dir = ws_dir / "jobs"
-    if jobs_dir.is_dir():
-        try:
-            count = len(list(jobs_dir.iterdir()))
-            components.append(ComponentStatus("jobs", "ok", f"{count} jobs",
-                {"count": count}))
-        except Exception:
-            components.append(ComponentStatus("jobs", "warning", "Cannot count jobs"))
-    else:
-        components.append(ComponentStatus("jobs", "ok", "No jobs", {"count": 0}))
+    try:
+        counts = workspace_counts(workspace_id) if exists else {"runs": 0, "artifacts": 0, "jobs": 0}
+        components.append(ComponentStatus("runs", "ok", f"{counts['runs']} run records",
+            {"count": counts["runs"]}))
+        components.append(ComponentStatus("artifacts", "ok", f"{counts['artifacts']} artifacts",
+            {"count": counts["artifacts"]}))
+        components.append(ComponentStatus("jobs", "ok", f"{counts['jobs']} jobs",
+            {"count": counts["jobs"]}))
+    except Exception:
+        components.append(ComponentStatus("storage_counts", "warning", "Cannot read storage counts"))
 
     # 6. Agent runtime
     try:

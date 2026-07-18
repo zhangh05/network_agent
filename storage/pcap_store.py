@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from storage.file_store import resolve_file_path
-from storage.records import append_jsonl, read_jsonl, rewrite_jsonl
+from storage.records import append_jsonl, mutate_jsonl, read_jsonl
 from storage.reference_index import add_reference
 
 _SESSION_INDEX = ("index", "pcap_sessions.jsonl")
@@ -25,11 +25,11 @@ def add_source_reference(workspace_id: str, file_id: str, session_id: str) -> No
 
 
 def delete_session(workspace_id: str, session_id: str) -> None:
-    rows = [
-        row for row in read_jsonl(workspace_id, _SESSION_INDEX)
-        if row.get("session_id") != session_id
-    ]
-    rewrite_jsonl(workspace_id, _SESSION_INDEX, rows)
+    mutate_jsonl(
+        workspace_id,
+        _SESSION_INDEX,
+        lambda rows: ([row for row in rows if row.get("session_id") != session_id], None),
+    )
 
 
 def list_sessions(workspace_id: str, limit: int = 20) -> list[dict[str, Any]]:

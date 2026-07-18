@@ -5,11 +5,14 @@ No third-party tokenizer required.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
 from agent.runtime.utils import now_iso
-from storage.records import append_jsonl, delete_json_record, read_jsonl
+from storage.usage_store import append_usage, clear_usage, read_usage
+
+_LOG = logging.getLogger(__name__)
 
 
 def _is_cjk(c: str) -> bool:
@@ -90,9 +93,6 @@ _MODEL_PRICE_PER_1K: dict[str, tuple[float, float]] = {
 }
 
 
-_USAGE_PARTS = ("usage", "token_usage.jsonl")
-
-
 def record_llm_call(
     workspace_id: str = "default",
     session_id: str = "",
@@ -123,7 +123,7 @@ def record_llm_call(
         created_at=now_iso(),
     )
     try:
-        append_jsonl(workspace_id, _USAGE_PARTS, {
+        append_usage(workspace_id, {
             "workspace_id": record.workspace_id,
             "session_id": record.session_id,
             "run_id": record.run_id,
@@ -138,7 +138,7 @@ def record_llm_call(
             "created_at": record.created_at,
         })
     except Exception:
-        pass
+        _LOG.warning("token usage persistence failed", exc_info=True)
     return {
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
@@ -149,7 +149,7 @@ def record_llm_call(
 
 def get_usage(workspace_id: str = "default", session_id: str = "") -> dict:
     """Get aggregated usage stats."""
-    rows = read_jsonl(workspace_id, _USAGE_PARTS)
+    rows = read_usage(workspace_id)
     if not rows:
         return _empty_usage(workspace_id, session_id)
 
@@ -196,4 +196,4 @@ def _empty_usage(workspace_id: str, session_id: str) -> dict:
 
 def reset_usage_for_tests(workspace_id: str = "default"):
     """Remove usage data for tests."""
-    delete_json_record(workspace_id, _USAGE_PARTS)
+    clear_usage(workspace_id)

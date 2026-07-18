@@ -435,7 +435,7 @@ function fmtKey(k: string): string {
     runs_max_age_days: "运行保留", runs_max_count: "最大运行",
     traces_max_age_days: "追踪保留", traces_max_count: "最大追踪",
     jobs_max_age_days: "作业保留", artifacts_temp_max_age_days: "临时制品",
-    prune_reports: "清理报告", archive_active_refs: "活跃引用",
+    prune_reports: "清理报告",
     runs_older_than_days: "运行>天数", traces_older_than_days: "追踪>天数",
     temp_older_than_days: "临时>天数", runs_keep_latest: "保留最近运行",
   };

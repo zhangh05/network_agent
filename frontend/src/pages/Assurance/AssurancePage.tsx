@@ -413,7 +413,7 @@ export function AssurancePage() {
             <div className="assurance-list">{baselines.length ? baselines.map((item) => {
               const scopeLabel = [item.scope?.region, item.scope?.location, item.scope?.vendor].filter(Boolean).join(" · ") || "全部设备";
               return <article className="stack" key={item.baseline_id}>
-                <div><span className="assurance-status ok">权威基线</span><b>{item.name}</b><span>{scopeLabel} · 定调于 {dateText(item.created_at)}</span><span>结构化事实 {item.quality?.typed_fact_count ?? 0} 项 · 覆盖 {(item.quality?.categories || []).join("、") || "旧版摘要"}</span><span>来源巡检任务：{item.source_task_id}</span>{item.quality?.evidence_complete === false ? <em>该权威基线的原始证据覆盖不完整：{item.quality.fallback_assets || 0} 台设备仅保留截断片段。后续功能不得把未覆盖事实判成异常。</em> : null}</div>
+                <div><span className="assurance-status ok">权威基线</span><b>{item.name}</b><span>{scopeLabel} · 定调于 {dateText(item.created_at)}</span><span>结构化事实 {item.quality?.typed_fact_count ?? 0} 项 · 覆盖 {(item.quality?.categories || []).join("、") || "暂无分类"}</span><span>来源巡检任务：{item.source_task_id}</span>{item.quality?.evidence_complete === false ? <em>该权威基线的原始证据覆盖不完整：{item.quality.fallback_assets || 0} 台设备仅保留截断片段。后续功能不得把未覆盖事实判成异常。</em> : null}</div>
                 {item.source_task_id && <Link className="btn sm" to={`/artifacts?producer_id=${encodeURIComponent(item.source_task_id)}`}>查看基线来源证据</Link>}
               </article>;
             }) : <div className="assurance-empty compact">还没有保存正常状态</div>}</div>

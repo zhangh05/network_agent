@@ -80,7 +80,8 @@ def test_fact_missing_from_incomplete_baseline_is_not_a_drift():
 
 
 def test_continuous_alarm_requires_confirmation_and_recovery(tmp_path, monkeypatch):
-    from agent.modules.assurance import service, store
+    from agent.modules.assurance import service
+    from storage import assurance_store as store
     import storage.paths as spaths
 
     monkeypatch.setattr(spaths, "workspace_root", lambda workspace_id: tmp_path / workspace_id)

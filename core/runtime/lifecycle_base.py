@@ -14,7 +14,7 @@ import json
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from agent.runtime.utils import now_iso
 from storage.atomic_io import atomic_write_json
@@ -94,7 +94,8 @@ def get_active_refs(ws_dir: Path) -> set:
 
 def scan_directory(ws_dir: Path, subdir: str, max_age_days: int = 0,
                    max_count: int = 0, active_refs: Optional[set] = None,
-                   check_is_file: bool = True) -> dict:
+                   check_is_file: bool = True,
+                   name_filter: Callable[[Path], bool] | None = None) -> dict:
     """Scan a workspace subdirectory for candidates based on age and count.
 
     Args:
@@ -118,8 +119,12 @@ def scan_directory(ws_dir: Path, subdir: str, max_age_days: int = 0,
     active_refs = active_refs or set()
 
     # Sort by mtime (oldest first) for consistent count-based pruning
-    entries = sorted(target_dir.iterdir(), key=lambda p: p.stat().st_mtime)
+    entries = sorted(
+        (entry for entry in target_dir.iterdir() if name_filter is None or name_filter(entry)),
+        key=lambda p: p.stat().st_mtime,
+    )
     expired = []
+    eligible = []
 
     for entry in entries:
         if check_is_file and not entry.is_file():
@@ -131,6 +136,7 @@ def scan_directory(ws_dir: Path, subdir: str, max_age_days: int = 0,
         if entry.stem in active_refs:
             blocked.append({"path": entry.name, "reason": "active_ref"})
             continue
+        eligible.append(entry)
 
         # Age-based filter
         if max_age_days > 0:
@@ -139,8 +145,8 @@ def scan_directory(ws_dir: Path, subdir: str, max_age_days: int = 0,
                 expired.append(entry.name)
 
     # Count-based filter (keep newest max_count)
-    if max_count > 0 and len(entries) > max_count:
-        for entry in entries[:-max_count]:
+    if max_count > 0 and len(eligible) > max_count:
+        for entry in eligible[:-max_count]:
             if entry.name not in expired:
                 expired.append(entry.name)
 

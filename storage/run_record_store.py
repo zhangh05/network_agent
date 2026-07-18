@@ -99,7 +99,7 @@ def write_sub_agent_run(
     steps: int = 0,
     visible_tool_ids: list[str] | None = None,
 ) -> str:
-    """Persist a child-agent run record without depending on legacy stores."""
+    """Persist a child-agent run record through the current run repository."""
     run_id = validate_run_id(child_run_id)
     record = {
         "run_id": run_id,
@@ -189,8 +189,6 @@ def _safe_status(state: SimpleNamespace, result: dict) -> str:
         return "planned"
     result_ok = getattr(state, "result_ok", None)
     if result_ok is False:
-        return "error"
-    if result_ok is None and isinstance(result, dict) and result.get("ok") is False:
         return "error"
     if getattr(state, "result_errors", None):
         return "error"

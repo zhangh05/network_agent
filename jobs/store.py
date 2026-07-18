@@ -3,31 +3,30 @@
 
 import json, shutil
 import logging
-from pathlib import Path
 from typing import Optional
 
 from jobs.schemas import JobRecord, JobEvent
 from jobs.redaction import (
     sanitize_job_record_for_storage, sanitize_job_record_for_api,
-    sanitize_job_event_for_storage, sanitize_job_event_for_api,
-    sanitize_job_log_for_storage, sanitize_job_log_for_api,
+    sanitize_job_event_for_storage,
+    sanitize_job_log_for_storage,
 )
 from storage.time_utils import now_iso
 from storage.atomic_io import atomic_write_json
 from storage.records import append_jsonl, read_jsonl
+from storage.locking import FileLock
+from storage.ids import validate_job_id, validate_workspace_id
 
 _LOG = logging.getLogger("jobs.store")
-
-ROOT = Path(__file__).resolve().parent.parent
 
 def _get_ws_root():
     from storage.paths import get_workspace_root
     return get_workspace_root()
 
 def _job_dir(ws_id, job_id=""):
-    from storage.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
-    return _get_ws_root() / ws_id / "jobs" / (job_id if job_id else "")
+    safe_job_id = validate_job_id(job_id) if job_id else ""
+    return _get_ws_root() / ws_id / "jobs" / safe_job_id
 
 def _ensure(ws_id, job_id=""):
     d = _job_dir(ws_id, job_id)
@@ -35,18 +34,23 @@ def _ensure(ws_id, job_id=""):
     return d
 
 def _index_path(ws_id):
-    from storage.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
     return _get_ws_root() / ws_id / "sys" / "jobs.index.json"
+
+
+def _job_lock_path(ws_id, job_id):
+    ws_id = validate_workspace_id(ws_id)
+    job_id = validate_job_id(job_id)
+    return _get_ws_root() / ws_id / "jobs" / ".locks" / f"{job_id}.lock"
 
 
 def create_job(rec: JobRecord) -> JobRecord:
     from storage.workspace_store import ensure_workspace
     ensure_workspace(rec.workspace_id)
     d = _ensure(rec.workspace_id, rec.job_id)
-    # Sanitize before writing to disk
     safe = sanitize_job_record_for_storage(rec.as_dict())
-    atomic_write_json(d / f"{rec.job_id}.json", safe)
+    with FileLock(_job_lock_path(rec.workspace_id, rec.job_id)):
+        atomic_write_json(d / f"{rec.job_id}.json", safe)
     # Apply sanitization to rec before returning
     for k, v in safe.items():
         if hasattr(rec, k):
@@ -78,18 +82,19 @@ def get_job(ws_id, job_id) -> Optional[JobRecord]:
 
 
 def update_job(ws_id, job_id, patch: dict) -> Optional[JobRecord]:
-    rec = get_job(ws_id, job_id)
-    if not rec: return None
-    for k, v in patch.items():
-        if hasattr(rec, k):
-            setattr(rec, k, v)
-    rec.updated_at = now_iso()
-    d = _ensure(ws_id, job_id)
-    safe = sanitize_job_record_for_storage(rec.as_dict())
-    atomic_write_json(d / f"{job_id}.json", safe)
-    for k, v in safe.items():
-        if hasattr(rec, k):
-            setattr(rec, k, v)
+    with FileLock(_job_lock_path(ws_id, job_id)):
+        rec = get_job(ws_id, job_id)
+        if not rec: return None
+        for k, v in patch.items():
+            if hasattr(rec, k):
+                setattr(rec, k, v)
+        rec.updated_at = now_iso()
+        d = _ensure(ws_id, job_id)
+        safe = sanitize_job_record_for_storage(rec.as_dict())
+        atomic_write_json(d / f"{job_id}.json", safe)
+        for k, v in safe.items():
+            if hasattr(rec, k):
+                setattr(rec, k, v)
     _update_workspace_stats(ws_id)
     return rec
 
@@ -129,7 +134,6 @@ def list_jobs(ws_id=None, status=None, job_type=None, limit=100) -> list:
     results = []
     ws_root = _get_ws_root()
     if ws_id:
-        from storage.ids import validate_workspace_id
         ws_id = validate_workspace_id(ws_id)
     for wd in ws_root.iterdir() if not ws_id else [ws_root / ws_id]:
         if not wd.is_dir() or wd.name.startswith("."): continue
@@ -157,7 +161,10 @@ def delete_job(ws_id, job_id, soft=True) -> bool:
         raise ValueError("job_id is required for delete_job")
     if soft:
         return bool(update_job(ws_id, job_id, {"status": "cancelled", "cancel_requested": True}))
-    shutil.rmtree(_job_dir(ws_id, job_id), ignore_errors=True)
+    with FileLock(_job_lock_path(ws_id, job_id)):
+        shutil.rmtree(_job_dir(ws_id, job_id), ignore_errors=True)
+    _remove_from_index(ws_id, job_id)
+    _update_workspace_stats(ws_id)
     return True
 
 
@@ -197,21 +204,68 @@ def get_next_queued_job() -> Optional[JobRecord]:
     return None
 
 
+def reconcile_running_jobs(finished_at: str, started_before: str) -> int:
+    """Mark jobs left running by a previous backend process as failed."""
+    from storage.workspace_store import list_workspace_ids
+
+    reconciled = 0
+    for ws_id in list_workspace_ids():
+        jobs_dir = _get_ws_root() / ws_id / "jobs"
+        if not jobs_dir.is_dir():
+            continue
+        for path in jobs_dir.glob("*/*.json"):
+            if path.name != f"{path.parent.name}.json":
+                continue
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if data.get("status") != "running":
+                continue
+            if str(data.get("updated_at") or "") >= started_before:
+                continue
+            result = update_job(ws_id, str(data.get("job_id") or path.parent.name), {
+                "status": "failed",
+                "finished_at": finished_at,
+                "error": "backend_restart_during_job",
+            })
+            if result:
+                reconciled += 1
+    return reconciled
+
+
 # ── helpers ──
 
 def _update_index(ws_id, rec):
     p = _index_path(ws_id)
     p.parent.mkdir(parents=True, exist_ok=True)
-    idx = {"job_ids": [], "updated_at": ""}
-    if p.is_file():
+    with FileLock(p.with_name(p.name + ".lock")):
+        idx = {"job_ids": [], "updated_at": ""}
+        if p.is_file():
+            try:
+                idx = json.loads(p.read_text())
+            except Exception:
+                _LOG.warning("jobs.store: corrupt index", exc_info=True)
+        if rec.job_id not in idx.setdefault("job_ids", []):
+            idx["job_ids"].append(rec.job_id)
+        idx["updated_at"] = now_iso()
+        atomic_write_json(p, idx)
+
+
+def _remove_from_index(ws_id, job_id):
+    p = _index_path(ws_id)
+    if not p.is_file():
+        return
+    with FileLock(p.with_name(p.name + ".lock")):
         try:
-            idx = json.loads(p.read_text())
-        except Exception:
-            _LOG.warning("jobs.store: silent exception", exc_info=True)
-    if rec.job_id not in idx.setdefault("job_ids", []):
-        idx["job_ids"].append(rec.job_id)
-    idx["updated_at"] = now_iso()
-    atomic_write_json(p, idx)
+            idx = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            _LOG.warning("jobs.store: corrupt index", exc_info=True)
+            return
+        ids = [item for item in list(idx.get("job_ids") or []) if item != job_id]
+        idx["job_ids"] = ids
+        idx["updated_at"] = now_iso()
+        atomic_write_json(p, idx)
 
 def _update_workspace_stats(ws_id):
     """Update workspace state with job counts."""

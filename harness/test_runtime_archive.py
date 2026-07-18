@@ -13,7 +13,7 @@ class TestArchivePolicy:
         from core.runtime.archive import default_archive_policy
         policy = default_archive_policy()
         assert policy.runs_older_than_days == 30
-        assert policy.archive_reports is False
+        assert policy.temp_older_than_days == 7
 
     def test_policy_as_dict(self):
         from core.runtime.archive import default_archive_policy
@@ -107,6 +107,46 @@ class TestApplyArchive:
         from core.runtime.archive import preview_archive_candidates
         preview = preview_archive_candidates("../../../etc")
         assert len(preview.warnings) > 0
+
+    def test_current_run_trace_job_and_temp_layout_is_archived(self, temp_dirs):
+        from core.runtime.archive import ArchivePolicy, apply_archive, preview_archive_candidates
+        from jobs.schemas import JobRecord
+        from jobs.store import create_job, update_job
+        from storage.paths import workspace_root
+        from storage.run_record_store import save_trace_record
+        from storage.workspace_store import ensure_workspace
+
+        ws = "archive_current"
+        ensure_workspace(ws)
+        root = workspace_root(ws)
+        run_path = root / "runs" / "run_old.json"
+        run_path.write_text(json.dumps({"run_id": "run_old", "workspace_id": ws}), encoding="utf-8")
+        save_trace_record(ws, "run_old", {"run_id": "run_old"})
+        trace_path = root / "runs" / "run_old.trace.json"
+        job = create_job(JobRecord(workspace_id=ws, job_type="agent_run"))
+        update_job(ws, job.job_id, {"status": "succeeded"})
+        job_path = root / "jobs" / job.job_id / f"{job.job_id}.json"
+        temp_path = root / "files" / "tmp" / "old.tmp"
+        temp_path.write_text("temporary", encoding="utf-8")
+        old = 1_600_000_000
+        for path in (run_path, trace_path, job_path, temp_path):
+            os.utime(path, (old, old))
+
+        policy = ArchivePolicy(
+            runs_older_than_days=1,
+            traces_older_than_days=1,
+            jobs_older_than_days=1,
+            temp_older_than_days=1,
+        )
+        preview = preview_archive_candidates(ws, policy)
+        assert {item["type"] for item in preview.candidates} == {"run", "trace", "job", "temp"}
+
+        result = apply_archive(ws, policy, dry_run=False, confirm=True)
+        assert result.moved_counts == {"run": 1, "trace": 1, "job": 1, "temp": 1}
+        assert not run_path.exists()
+        assert not trace_path.exists()
+        assert not job_path.exists()
+        assert not temp_path.exists()
 
 
 class TestUIArchive:

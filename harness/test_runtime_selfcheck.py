@@ -6,7 +6,8 @@ from storage.workspace_store import ensure_workspace
 
 
 @pytest.fixture(autouse=True)
-def _default_workspace_exists():
+def _default_workspace_exists(tmp_path, monkeypatch):
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
     ensure_workspace("default")
 
 
@@ -94,9 +95,30 @@ class TestSelfcheck:
 
     def test_selfcheck_forbidden_api_passes(self):
         result = run_selfcheck("default")
-        forbidden = result.checks.get("forbidden_api", "")
-        if forbidden:
-            assert forbidden in ("ok", "unavailable")
+        assert result.checks.get("forbidden_api") == "ok"
+
+    def test_selfcheck_detects_stale_job_and_empty_task_event(self, tmp_path):
+        ws = tmp_path / "workspaces" / "default"
+        job_dir = ws / "jobs" / "job_stale"
+        job_dir.mkdir(parents=True)
+        (job_dir / "job_stale.json").write_text(json.dumps({
+            "job_id": "job_stale",
+            "status": "running",
+            "updated_at": "2020-01-01T00:00:00+00:00",
+        }), encoding="utf-8")
+        events = ws / "durable" / "events"
+        events.mkdir(parents=True)
+        (events / ".events.json").write_text(
+            json.dumps({"event_id": "evt_bad", "task_id": ""}) + "\n",
+            encoding="utf-8",
+        )
+
+        result = run_selfcheck("default")
+        codes = {issue.code for issue in result.issues}
+
+        assert result.status == SelfcheckStatus.DEGRADED
+        assert "JOB_STALE_RUNNING" in codes
+        assert "DURABLE_EVENT_TASK_MISSING" in codes
 
     def test_selfcheck_tool_forbidden_list(self):
         result = run_selfcheck("default")

@@ -1,13 +1,10 @@
 /**
- * OperationsPage — 运行与作业（合并页, v3.4）
+ * OperationsPage — 运行与作业
  *
- * 合并原 RunsPage（运行记录）与 JobsPage（作业管理）为一个界面：
+ * 单页展示作业全貌与运行细节：
  *   - 左栏：作业列表（工作区维度，含所有 job 类型 + 重试/恢复动作）
  *   - 右栏：选中作业 → 概要 / 运行记录 / 统计 三 tab
  *          运行记录中点击某 run → 内联展开 trace / 事件时间线 / 失败原因
- *
- * 这样消除了原来的跨页跳转（Jobs → /runs?focus=）和重复的 run 列表。
- * 与旧版的分工保持不变：Jobs = 任务全貌（做了什么），Runs = 执行细节（怎么做的）。
  */
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";

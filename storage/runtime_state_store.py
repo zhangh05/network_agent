@@ -4,37 +4,27 @@ from __future__ import annotations
 
 from typing import Any
 
-import json
-
-from storage.atomic_io import atomic_write_json
-from storage.records import runtime_record_file
+from storage.records import atomic_save_json_path, delete_record_path, read_json_record_path, runtime_record_file
 
 
 def save_runtime_record(name: str, value: dict[str, Any]) -> None:
-    atomic_write_json(_runtime_path(name), value)
+    atomic_save_json_path(_runtime_path(name, create_parent=True), value)
 
 
 def read_runtime_record(name: str) -> dict[str, Any] | None:
-    path = _runtime_path(name)
-    if not path.is_file():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    return data if isinstance(data, dict) else None
+    return read_json_record_path(_runtime_path(name, create_parent=False))
 
 
 def delete_runtime_record(name: str) -> bool:
-    path = _runtime_path(name)
-    if not path.is_file():
-        return False
-    path.unlink()
-    return True
+    return delete_record_path(_runtime_path(name, create_parent=False))
 
 
-def _runtime_path(name: str):
-    return runtime_record_file(f"{_safe_name(name)}.json")
+def job_worker_lock_path():
+    return runtime_record_file("jobs", "worker.lock")
+
+
+def _runtime_path(name: str, *, create_parent: bool):
+    return runtime_record_file(f"{_safe_name(name)}.json", create_parent=create_parent)
 
 
 def _safe_name(name: str) -> str:

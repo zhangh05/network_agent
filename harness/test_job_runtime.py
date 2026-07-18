@@ -102,6 +102,45 @@ class TestJobStore:
         logs = list_logs(ws, rec.job_id)
         assert len(logs) >= 1
 
+    def test_job_id_path_traversal_is_rejected(self, temp_dirs):
+        from jobs.store import get_job
+
+        with pytest.raises(ValueError, match="invalid_job_id"):
+            get_job("default", "..")
+
+    def test_reconcile_interrupted_running_job(self, temp_dirs):
+        from jobs.schemas import JobRecord
+        from jobs.store import create_job, get_job, reconcile_running_jobs, update_job
+        from storage.workspace_store import ensure_workspace
+
+        ws = "js_reconcile"
+        ensure_workspace(ws)
+        rec = create_job(JobRecord(workspace_id=ws, job_type="agent_run"))
+        update_job(ws, rec.job_id, {"status": "running"})
+
+        count = reconcile_running_jobs(
+            finished_at="2026-07-18T12:00:00+00:00",
+            started_before="9999-12-31T23:59:59+00:00",
+        )
+
+        recovered = get_job(ws, rec.job_id)
+        assert count == 1
+        assert recovered.status == "failed"
+        assert recovered.error == "backend_restart_during_job"
+
+    def test_hard_delete_removes_job_index_entry(self, temp_dirs):
+        from jobs.schemas import JobRecord
+        from jobs.store import create_job, delete_job
+        from storage.paths import workspace_root
+        from storage.workspace_store import ensure_workspace
+
+        ws = "js_hard_delete"
+        ensure_workspace(ws)
+        rec = create_job(JobRecord(workspace_id=ws, job_type="agent_run"))
+        assert delete_job(ws, rec.job_id, soft=False) is True
+        index = json.loads((workspace_root(ws) / "sys" / "jobs.index.json").read_text())
+        assert rec.job_id not in index["job_ids"]
+
 
 class TestJobManager:
     def test_create_enqueued_job(self, temp_dirs):

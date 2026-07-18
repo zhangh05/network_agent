@@ -46,7 +46,7 @@ def test_gc_dry_run_does_not_modify(gc_ws):
 def test_gc_dry_run_detects_orphan(gc_ws):
     """GC should detect files on disk with no FileRecord."""
     # Create an orphan file not managed by FileStore
-    orphan = gc_ws / "test_ws" / "files" / "agent_output" / "export" / "orphan.txt"
+    orphan = gc_ws / "test_ws" / "files" / "data" / "orphan.txt"
     orphan.parent.mkdir(parents=True, exist_ok=True)
     orphan.write_text("orphan")
 

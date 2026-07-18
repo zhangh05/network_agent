@@ -9,10 +9,11 @@ Security model:
 
 import ast
 import os
+import shutil
 import subprocess
 import sys
 
-from storage.records import workspace_record_dir
+from storage.workspace_files import write_python_temp_script
 
 # ── Safe environment allowlist ──
 # Only these environment variables are passed to the subprocess.
@@ -219,10 +220,6 @@ def execute_python_code(code: str, workspace_id: str, run_id: str,
 
     # ── 3. Setup temp directory and script path ──
     safe_run_id = re.sub(r"[^a-zA-Z0-9_-]", "_", str(run_id) or "unknown") or "unknown"
-    temp_dir = workspace_record_dir(workspace_id, "sys", "tmp", "python_exec", safe_run_id)
-
-    script_path = temp_dir / "script.py"
-
     # Add a preamble that sanitizes the environment
     safe_preamble = (
         "# Auto-generated sandbox preamble — best-effort local sandbox, not container isolation\n"
@@ -230,7 +227,11 @@ def execute_python_code(code: str, workspace_id: str, run_id: str,
         "# needed — stdlib modules such as json, collections, enum use eval() internally.\n"
         "_ = None\n"
     )
-    script_path.write_text(safe_preamble + "\n" + code, encoding="utf-8")
+    temp_dir, script_path = write_python_temp_script(
+        workspace_id,
+        safe_run_id,
+        safe_preamble + "\n" + code,
+    )
 
     # ── 4. Execute in subprocess with minimal environment ──
     try:
@@ -282,3 +283,5 @@ def execute_python_code(code: str, workspace_id: str, run_id: str,
             "timeout_seconds": timeout,
             "error": str(e)[:200],
         }
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)

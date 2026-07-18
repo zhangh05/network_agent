@@ -1,7 +1,7 @@
 """Workspace repository.
 
 This module owns workspace discovery and state persistence. Control-plane code
-must go through this data-layer boundary instead of importing legacy managers.
+must go through this data-layer boundary instead of filesystem adapters.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from storage.atomic_io import atomic_write_json, atomic_write_text
 from storage.paths import ensure_workspace_storage_dirs, get_workspace_root, workspace_root
 from storage.run_record_store import is_run_record_file
 from storage.ids import is_valid_workspace_id, validate_workspace_id
+from storage.locking import FileLock
 
 _LOG = logging.getLogger(__name__)
 
@@ -29,22 +30,22 @@ def ensure_workspace(ws_id: str = "default") -> str:
         (ws / dirname).mkdir(parents=True, exist_ok=True)
     ensure_workspace_storage_dirs(ws_id)
 
-    yaml_path = ws / "sys" / "workspace.yaml"
-    if not yaml_path.exists():
-        try:
+    with FileLock(ws / "sys" / "workspace-init.lock"):
+        yaml_path = ws / "sys" / "workspace.yaml"
+        if not yaml_path.exists():
             atomic_write_text(
                 yaml_path,
                 f"id: {ws_id}\nname: {ws_id}\ncreated: {time.time()}\n",
             )
-        except Exception:
-            _LOG.warning("failed to write workspace.yaml for ws=%s", ws_id, exc_info=True)
 
-    state_path = ws / "sys" / "state.json"
-    if not state_path.exists():
-        try:
+        state_path = ws / "sys" / "state.json"
+        if not state_path.exists():
             atomic_write_json(state_path, _default_state(ws_id))
-        except Exception:
-            _LOG.warning("failed to write state.json for ws=%s", ws_id, exc_info=True)
+
+        for index_name in ("files.jsonl", "references.jsonl", "artifacts.jsonl"):
+            index_path = ws / "index" / index_name
+            if not index_path.exists():
+                atomic_write_text(index_path, "")
     return ws_id
 
 
@@ -62,20 +63,19 @@ def get_workspace_state(ws_id: str = "default") -> dict:
 
 def update_workspace_state(ws_id: str, patch: dict) -> dict:
     ws_id = ensure_workspace(ws_id)
-    state = get_workspace_state(ws_id)
-    safe_patch = {}
-    for key, value in (patch or {}).items():
-        if isinstance(value, str) and len(value) > 500 and key not in ("last_result_summary",):
-            safe_patch[key] = value[:500] + "...[truncated]"
-        else:
-            safe_patch[key] = value
-    state.update(safe_patch)
-    state["updated_at"] = _now_iso()
-    state["runs_count"] = _count_runs(ws_id)
-    try:
+    state_path = workspace_root(ws_id) / "sys" / "state.json"
+    with FileLock(state_path.with_name("state.lock")):
+        state = get_workspace_state(ws_id)
+        safe_patch = {}
+        for key, value in (patch or {}).items():
+            if isinstance(value, str) and len(value) > 500 and key not in ("last_result_summary",):
+                safe_patch[key] = value[:500] + "...[truncated]"
+            else:
+                safe_patch[key] = value
+        state.update(safe_patch)
+        state["updated_at"] = _now_iso()
+        state["runs_count"] = _count_runs(ws_id)
         atomic_write_json(workspace_root(ws_id) / "sys" / "state.json", state)
-    except Exception:
-        _LOG.warning("failed to persist state for ws=%s", ws_id, exc_info=True)
     return state
 
 

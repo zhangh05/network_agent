@@ -474,14 +474,14 @@ def cancel_subagent_task(subtask_id: str, ws_id: str) -> dict:
 
 def list_subagent_tasks(ws_id: str, limit: int = 200) -> list[dict]:
     """Return persisted tasks for one workspace, newest first."""
-    from storage.records import list_json_records
+    from storage.subagent_store import list_subagents
     try:
         ws_id = _validated_workspace_id(ws_id)
     except ValueError:
         return []
     limit = max(1, min(int(limit), 1000))
     rows: list[dict] = []
-    for raw in list_json_records(ws_id, ("subagents",), limit=limit):
+    for raw in list_subagents(ws_id, limit):
         if raw.get("workspace_id") != ws_id:
             continue
         rows.append({
@@ -518,12 +518,12 @@ def get_subagent_task(ws_id: str, subtask_id: str) -> Optional[dict]:
 
 def reconcile_subagent_tasks() -> list[str]:
     """Mark process-owned queued/running tasks interrupted after restart."""
-    from storage.records import list_json_records
+    from storage.subagent_store import list_subagents
     from storage.workspace_store import list_workspace_ids
 
     reconciled: list[str] = []
     for ws_id in list_workspace_ids():
-        for raw in list_json_records(ws_id, ("subagents",), limit=1000):
+        for raw in list_subagents(ws_id, 1000):
             try:
                 if raw.get("workspace_id") != ws_id or raw.get("status") not in {"created", "running"}:
                     continue
@@ -562,20 +562,20 @@ def merge_subagent_result(parent_task_id: str, subtask_id: str, ws_id: str) -> d
 
 def _save_task(task: SubagentTask):
     from dataclasses import asdict
-    from storage.records import atomic_save_json
+    from storage.subagent_store import save_subagent
     task.workspace_id = _validated_workspace_id(task.workspace_id)
     _validated_subtask_id(task.subtask_id)
-    atomic_save_json(task.workspace_id, ("subagents", f"{task.subtask_id}.json"), asdict(task))
+    save_subagent(task.workspace_id, task.subtask_id, asdict(task))
 
 def _load_task(ws_id: str, subtask_id: str) -> Optional[SubagentTask]:
-    from storage.records import read_json_record
+    from storage.subagent_store import read_subagent
     try:
         ws_id = _validated_workspace_id(ws_id)
         subtask_id = _validated_subtask_id(subtask_id)
     except ValueError:
         return None
     try:
-        raw = read_json_record(ws_id, ("subagents", f"{subtask_id}.json"))
+        raw = read_subagent(ws_id, subtask_id)
         if not raw: return None
         return SubagentTask(**{k:v for k,v in raw.items() if k in SubagentTask.__dataclass_fields__})
     except Exception: return None

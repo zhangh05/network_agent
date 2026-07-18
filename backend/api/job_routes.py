@@ -1,10 +1,8 @@
 # backend/api/job_routes.py
 """Job API routes — job CRUD and worker management."""
 
-import json
-
 from flask import jsonify, request
-from storage.ids import validate_workspace_id
+from storage.ids import validate_job_id, validate_workspace_id
 from jobs.redaction import sanitize_job_record_for_api
 
 
@@ -29,6 +27,13 @@ def _validated_limit(default=100, max_value=500):
         return parse_limit(request.args, default=default, max_value=max_value), None
     except ValueError:
         return None, _invalid_limit()
+
+
+def _validated_job_id(raw):
+    try:
+        return validate_job_id(raw), None
+    except ValueError:
+        return None, (jsonify({"ok": False, "error": "invalid_job_id"}), 400)
 
 
 def register_job_routes(app):
@@ -77,6 +82,9 @@ def register_job_routes(app):
 
     @app.route("/api/jobs/<job_id>")
     def api_job_detail(job_id):
+        job_id, err = _validated_job_id(job_id)
+        if err:
+            return err
         ws = request.args.get("workspace_id", "")
         if not ws:
             return jsonify(
@@ -101,6 +109,9 @@ def register_job_routes(app):
 
     @app.route("/api/workspaces/<ws_id>/jobs/<job_id>")
     def api_workspace_job_detail(ws_id, job_id):
+        job_id, err = _validated_job_id(job_id)
+        if err:
+            return err
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
@@ -112,6 +123,9 @@ def register_job_routes(app):
 
     @app.route("/api/jobs/<job_id>/cancel", methods=["POST"])
     def api_job_cancel(job_id):
+        job_id, err = _validated_job_id(job_id)
+        if err:
+            return err
         ws, err = _validated_ws_id((request.get_json(silent=True) or {}).get("workspace_id", ""))
         if err:
             return err
@@ -124,6 +138,9 @@ def register_job_routes(app):
 
     @app.route("/api/jobs/<job_id>/retry", methods=["POST"])
     def api_job_retry(job_id):
+        job_id, err = _validated_job_id(job_id)
+        if err:
+            return err
         ws, err = _validated_ws_id((request.get_json(silent=True) or {}).get("workspace_id", ""))
         if err:
             return err
@@ -136,6 +153,9 @@ def register_job_routes(app):
 
     @app.route("/api/jobs/<job_id>/events")
     def api_job_events(job_id):
+        job_id, err = _validated_job_id(job_id)
+        if err:
+            return err
         ws, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err
@@ -144,6 +164,9 @@ def register_job_routes(app):
 
     @app.route("/api/jobs/<job_id>/logs")
     def api_job_logs(job_id):
+        job_id, err = _validated_job_id(job_id)
+        if err:
+            return err
         ws, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err
@@ -152,6 +175,9 @@ def register_job_routes(app):
 
     @app.route("/api/jobs/<job_id>/artifacts")
     def api_job_artifacts(job_id):
+        job_id, err = _validated_job_id(job_id)
+        if err:
+            return err
         ws, err = _validated_ws_id(request.args.get("workspace_id", ""))
         if err:
             return err

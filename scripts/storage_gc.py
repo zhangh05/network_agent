@@ -33,7 +33,7 @@ def detect_missing_files(workspace_id: str) -> list[dict]:
     indexed_paths = {r.get("path", "") for r in list_files(workspace_id, lifecycle="")}
 
     missing = []
-    managed_dirs = ["files/user_upload", "files/agent_output", "files/knowledge", "files/tmp"]
+    managed_dirs = ["files/data"]
     for md in managed_dirs:
         d = ws / md
         if not d.is_dir():

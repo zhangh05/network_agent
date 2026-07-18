@@ -8,8 +8,8 @@ from typing import Any
 from storage.records import (
     append_jsonl_path,
     delete_record_path,
+    mutate_jsonl_path,
     read_jsonl_path,
-    rewrite_jsonl_path,
     runtime_record_file,
 )
 
@@ -26,9 +26,9 @@ def read_approval_records(*, path: Path | None = None) -> list[dict[str, Any]]:
     return read_jsonl_path(path or approval_log_path())
 
 
-def rewrite_approval_records(rows: list[dict[str, Any]], *, path: Path | None = None) -> None:
-    rewrite_jsonl_path(path or approval_log_path(), rows)
-
-
 def delete_approval_log(*, path: Path | None = None) -> bool:
     return delete_record_path(path or approval_log_path())
+
+
+def mutate_approval_records(mutator, *, path: Path | None = None):
+    return mutate_jsonl_path(path or approval_log_path(), mutator)

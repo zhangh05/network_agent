@@ -41,8 +41,12 @@ def test_cmdb_asset_password_is_resolved_only_for_internal_connectors():
         shutil.rmtree(root)
 
 
-def test_cmdb_secret_v2_detects_tampering():
-    from agent.modules.cmdb import service as cmdb_service
+def test_workspace_credential_v3_detects_tampering():
+    from storage.credential_store import (
+        CREDENTIAL_DECRYPT_FAILED,
+        open_credential_strict,
+        seal_credential,
+    )
     from storage.paths import workspace_root
 
     workspace_id = "pytest_cmdb_secret_auth"
@@ -50,20 +54,20 @@ def test_cmdb_secret_v2_detects_tampering():
     if root.exists():
         shutil.rmtree(root)
 
-    sealed = cmdb_service._seal_secret(workspace_id, "secret-pass")
-    assert sealed.startswith("cmdb:v2:")
-    assert cmdb_service._open_secret_strict(workspace_id, sealed) == "secret-pass"
+    sealed = seal_credential(workspace_id, "secret-pass")
+    assert sealed.startswith("cred:v3:")
+    assert open_credential_strict(workspace_id, sealed) == "secret-pass"
 
     tampered = sealed[:-2] + ("AA" if not sealed.endswith("AA") else "BB")
     assert (
-        cmdb_service._open_secret_strict(workspace_id, tampered)
-        == cmdb_service._OPEN_SECRET_FAIL
+        open_credential_strict(workspace_id, tampered)
+        == CREDENTIAL_DECRYPT_FAILED
     )
 
     wrong_workspace = "pytest_cmdb_secret_auth_other"
     assert (
-        cmdb_service._open_secret_strict(wrong_workspace, sealed)
-        == cmdb_service._OPEN_SECRET_FAIL
+        open_credential_strict(wrong_workspace, sealed)
+        == CREDENTIAL_DECRYPT_FAILED
     )
 
     for ws in (workspace_id, wrong_workspace):

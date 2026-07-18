@@ -105,3 +105,26 @@ def is_valid_run_id(rid: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def validate_task_id(task_id: str) -> str:
+    """Validate durable task/event/checkpoint identifiers."""
+    try:
+        return validate_run_id(task_id)
+    except ValueError as exc:
+        raise ValueError("invalid_task_id") from exc
+
+
+def validate_checkpoint_id(checkpoint_id: str) -> str:
+    try:
+        return validate_run_id(checkpoint_id)
+    except ValueError as exc:
+        raise ValueError("invalid_checkpoint_id") from exc
+
+
+def validate_job_id(job_id: str) -> str:
+    """Validate job identifiers before using them as path segments."""
+    try:
+        return validate_run_id(job_id)
+    except ValueError as exc:
+        raise ValueError("invalid_job_id") from exc

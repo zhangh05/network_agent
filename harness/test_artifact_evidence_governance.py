@@ -64,7 +64,7 @@ def test_streams_are_isolated_by_asset_and_script_profile():
     assert summary["deliverables"] == 1
 
 
-def test_legacy_redacted_evidence_keys_fall_back_to_asset_streams():
+def test_redacted_evidence_keys_use_asset_streams():
     first = _record("a1", "2026-07-16T01:00:00+00:00", "complete", asset_id="a1")
     second = _record("a2", "2026-07-16T02:00:00+00:00", "complete", asset_id="a2")
     first.metadata["evidence_key"] = "[REDACTED_SECRET]"

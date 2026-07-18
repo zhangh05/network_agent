@@ -168,8 +168,8 @@ class TestArtifactStore:
         assert got is not None and got.title == "data1"
 
     def test_report_listing_hides_intermediate_drafts(self, temp_dirs):
-        from artifacts.schemas import ArtifactIndex, ArtifactRecord
-        from artifacts.store import _save_artifact_record, _save_index, list_artifacts
+        from artifacts.schemas import ArtifactRecord
+        from artifacts.store import _save_artifact_record, list_artifacts
         from storage.workspace_store import ensure_workspace
 
         ws = "st_report_dedupe"
@@ -202,15 +202,14 @@ class TestArtifactStore:
             ),
         ]
         for rec in records:
-            _save_artifact_record(rec)
-        _save_index(ArtifactIndex(workspace_id=ws, artifact_ids=[r.artifact_id for r in records]))
+            _save_artifact_record(rec, add_to_index=True)
 
         ids = [r["artifact_id"] for r in list_artifacts(ws, artifact_type="report", limit=20)]
         assert ids == ["art_latest_named", "art_next_day"]
 
     def test_report_listing_collapses_generic_only_reports(self, temp_dirs):
-        from artifacts.schemas import ArtifactIndex, ArtifactRecord
-        from artifacts.store import _save_artifact_record, _save_index, list_artifacts
+        from artifacts.schemas import ArtifactRecord
+        from artifacts.store import _save_artifact_record, list_artifacts
         from storage.workspace_store import ensure_workspace
 
         ws = "st_report_generic"
@@ -228,8 +227,7 @@ class TestArtifactStore:
             ),
         ]
         for rec in records:
-            _save_artifact_record(rec)
-        _save_index(ArtifactIndex(workspace_id=ws, artifact_ids=[r.artifact_id for r in records]))
+            _save_artifact_record(rec, add_to_index=True)
 
         ids = [r["artifact_id"] for r in list_artifacts(ws, artifact_type="report", limit=20)]
         assert ids == ["art_generic_b"]

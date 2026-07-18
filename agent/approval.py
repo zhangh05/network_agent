@@ -256,21 +256,23 @@ class ApprovalStore:
         # the retention cutoff (also ISO).
         cutoff_iso = _now_iso_offset(-_RETENTION_DAYS * 86400)
         try:
-            from storage.approval_record_store import read_approval_records, rewrite_approval_records
+            from storage.approval_record_store import mutate_approval_records
 
-            kept: list[dict] = []
-            for rec in read_approval_records(path=self._persist_path):
-                raw_created = rec.get("created_at") or ""
-                if not raw_created:
-                    continue
-                try:
-                    from_iso(raw_created)
-                except (TypeError, ValueError):
-                    continue
-                if raw_created < cutoff_iso:
-                    continue
-                kept.append(rec)
-            rewrite_approval_records(kept, path=self._persist_path)
+            def _retain_recent(rows):
+                kept: list[dict] = []
+                for rec in rows:
+                    raw_created = rec.get("created_at") or ""
+                    if not raw_created:
+                        continue
+                    try:
+                        from_iso(raw_created)
+                    except (TypeError, ValueError):
+                        continue
+                    if raw_created >= cutoff_iso:
+                        kept.append(rec)
+                return kept, None
+
+            mutate_approval_records(_retain_recent, path=self._persist_path)
         except OSError:
             logger.warning("approval: GC history compaction failed for %s",
                            self._persist_path, exc_info=True)

@@ -316,9 +316,8 @@ def register_workspace_routes(app):
             "turn_id", "started_at", "finished_at", "selected_capabilities",
             "visible_tools", "tool_call_count", "warning_count", "error_count",
             "tool_decision", "no_tool_reason",
-            # v3.9.1: expose `ok` so the frontend can render badges honestly
-            # for disk records whose `status` may be stuck at "ok"
-            # despite a failed run (see storage.run_record_store._safe_status).
+            # Expose `ok` so the frontend can render badges from the current
+            # AgentResult projection as well as the persisted status.
             "ok",
         })
         from observability.store import get_trace

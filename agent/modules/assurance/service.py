@@ -27,7 +27,7 @@ from storage.index import IndexLock
 from storage.workspace_store import list_workspace_ids
 from storage.ids import validate_workspace_id
 
-from . import store
+from storage import assurance_store as store
 from .models import (
     AssuranceBaseline,
     AssuranceAlarm,
@@ -287,14 +287,14 @@ def _snapshot_quality(facts: list[dict[str, Any]], source_status: str,
     if source_status != "succeeded":
         level = "incomplete"
     elif not typed:
-        level = "legacy"
+        level = "incomplete"
     elif missing or (extraction is not None and not extraction.get("evidence_complete", False)):
         level = "partial"
     else:
         level = "complete"
     return {
         "level": level, "typed_fact_count": len(typed), "categories": categories,
-        "missing_categories": missing, "comparable": level in {"complete", "partial", "legacy"},
+        "missing_categories": missing, "comparable": level in {"complete", "partial"},
         **dict(extraction or {}),
     }
 
