@@ -6,7 +6,7 @@ import hashlib, logging, uuid, time as _time
 from dataclasses import dataclass, field, asdict
 from typing import Optional, Literal
 from agent.runtime.utils import now_iso
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 from storage import ecosystem_store
 
 _LOG = logging.getLogger(__name__)
@@ -171,7 +171,7 @@ def apply_import(data: dict, ws_id: str, confirm: bool = False) -> dict:
     if "memories" in data:
         for m in data.get("memories", []):
             try:
-                from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+                from storage.memory_governance import MemoryRecord, MemoryWriteGate
                 gate = MemoryWriteGate()
                 rec = MemoryRecord(
                     workspace_id=ws_id, status="pending", source="file",

@@ -8,8 +8,8 @@ All endpoints follow the pattern:
 
 from flask import request, jsonify
 
-from workspace.ids import validate_workspace_id, validate_session_id
-from workspace.session_store import (
+from storage.ids import validate_workspace_id, validate_session_id
+from storage.session_store import (
     create_session,
     get_session,
     list_sessions,

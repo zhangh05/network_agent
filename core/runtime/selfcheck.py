@@ -96,7 +96,7 @@ def run_checks(result: SelfcheckResult, ws_id: str):
 
     # 1. Workspace root exists
     if not ws_dir.exists():
-        result.issues.append(SelfcheckIssue("error", "WS_ROOT_MISSING",
+        result.issues.append(SelfcheckIssue("error", "WORKSPACE_ROOT_MISSING",
             f"Workspace '{ws_id}' not found", ws_id, "Create workspace first"))
         result.checks["workspace_root"] = "missing"
         return  # Cannot proceed without workspace

@@ -1,4 +1,3 @@
-# workspace/memory_governance.py
 """Memory Governance — canonical schema, gate, retrieval, and conflict lifecycle."""
 
 from __future__ import annotations
@@ -6,9 +5,13 @@ import json, time as _time, hashlib, logging, re, uuid
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional, Literal
-from workspace.run_store import WS_ROOT
-from workspace.atomic_io import atomic_write_json
+from storage.paths import get_workspace_root
+from storage.atomic_io import atomic_write_json
 from agent.runtime.utils import from_iso, now_iso, to_iso
+
+
+def _ws_root() -> Path:
+    return get_workspace_root()
 
 Scope = Literal["global","workspace","session","task"]
 MemoryType = Literal[
@@ -87,11 +90,11 @@ class MemoryStore:
         pass
 
     def _validated_ws_id(self, ws_id: str) -> str:
-        from workspace.ids import validate_workspace_id
+        from storage.ids import validate_workspace_id
         return validate_workspace_id(ws_id)
 
     def _dir(self, ws_id: str) -> Path:
-        return WS_ROOT / self._validated_ws_id(ws_id) / "memory"
+        return _ws_root() / self._validated_ws_id(ws_id) / "memory"
 
     def _path(self, ws_id: str, memory_id: str) -> Path:
         memory_id = str(memory_id or "")
@@ -266,7 +269,7 @@ class MemoryWriteGate:
                     "rejected": True, "error": "workspace_id is required",
                     "gate_mode": gate_mode}
         try:
-            from workspace.ids import validate_workspace_id
+            from storage.ids import validate_workspace_id
             candidate.workspace_id = validate_workspace_id(candidate.workspace_id)
         except Exception:
             return {"ok": False, "status": "rejected", "memory_id": candidate.memory_id,
@@ -598,7 +601,7 @@ def get_memory_gate_mode(workspace_id: str) -> str:
     """Read memory_gating setting from workspace state.
     Returns 'rule_only' or 'llm_first'. """
     try:
-        from workspace.manager import get_workspace_state
+        from storage.workspace_store import get_workspace_state
         state = get_workspace_state(workspace_id)
         raw = state.get("memory_gating", "").strip().lower()
         if raw == "llm_first":

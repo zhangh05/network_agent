@@ -17,15 +17,12 @@ def storage_ws(monkeypatch, tmp_path):
     ws.mkdir()
     monkeypatch.setenv("NA_WORKSPACE_ROOT", str(ws))
     monkeypatch.setenv("NETWORK_AGENT_WORKSPACE_DIR", str(ws))
-    monkeypatch.setattr("workspace.manager.WS_ROOT", ws)
     try:
         import artifacts.store as _as
-        monkeypatch.setattr(_as, "WS_ROOT", ws)
     except Exception:
         pass
     try:
-        import workspace.message_store as _ms
-        monkeypatch.setattr(_ms, "WS_ROOT", ws)
+        import storage.message_store as _ms
     except Exception:
         pass
     from storage.paths import ensure_workspace_storage_dirs
@@ -138,7 +135,7 @@ def test_default_listing_hides_pcap_runtime_state(storage_ws):
 # ── SessionMessageStore large content ────────────────────────────────
 
 def test_message_large_content_uses_artifact(storage_ws):
-    from workspace.message_store import SessionMessageStore
+    from storage.message_store import SessionMessageStore
 
     store = SessionMessageStore("sess_test", ws_id="test_ws")
     large_content = "x" * 60_000  # exceeds 50KB threshold
@@ -155,7 +152,7 @@ def test_message_large_content_uses_artifact(storage_ws):
 
 
 def test_message_files_are_windows_safe_but_keep_stable_logical_ids(storage_ws):
-    from workspace.message_store import SessionMessageStore
+    from storage.message_store import SessionMessageStore
 
     store = SessionMessageStore("sess_windows", ws_id="test_ws")
     assert store.write_message("run_windows_1", "user", "hello") == "run_windows_1:user"

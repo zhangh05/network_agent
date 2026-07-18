@@ -50,7 +50,7 @@ class TestJobStore:
     def test_create_and_get(self, temp_dirs):
         from jobs.store import create_job, get_job
         from jobs.schemas import JobRecord
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "js_test"
         ensure_workspace(ws)
         rec = JobRecord(workspace_id=ws, job_type="agent_run", title="test job")
@@ -62,7 +62,7 @@ class TestJobStore:
     def test_update(self, temp_dirs):
         from jobs.store import create_job, get_job, update_job
         from jobs.schemas import JobRecord
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "js_upd"
         ensure_workspace(ws)
         rec = create_job(JobRecord(workspace_id=ws, job_type="agent_run"))
@@ -72,7 +72,7 @@ class TestJobStore:
     def test_list(self, temp_dirs):
         from jobs.store import create_job, list_jobs
         from jobs.schemas import JobRecord
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "js_list"
         ensure_workspace(ws)
         create_job(JobRecord(workspace_id=ws, job_type="agent_run", title="j1"))
@@ -83,7 +83,7 @@ class TestJobStore:
     def test_events(self, temp_dirs):
         from jobs.store import create_job, append_event, list_events
         from jobs.schemas import JobRecord, JobEvent
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "js_evt"
         ensure_workspace(ws)
         rec = create_job(JobRecord(workspace_id=ws, job_type="agent_run"))
@@ -94,7 +94,7 @@ class TestJobStore:
     def test_logs(self, temp_dirs):
         from jobs.store import create_job, append_log, list_logs
         from jobs.schemas import JobRecord
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "js_log"
         ensure_workspace(ws)
         rec = create_job(JobRecord(workspace_id=ws, job_type="agent_run"))
@@ -105,7 +105,7 @@ class TestJobStore:
 
 class TestJobManager:
     def test_create_enqueued_job(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "jm_cr"
         ensure_workspace(ws)
         from jobs.manager import create_job
@@ -113,7 +113,7 @@ class TestJobManager:
         assert rec.status == "queued"
 
     def test_cancel_queued(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "jm_cx"
         ensure_workspace(ws)
         from jobs.manager import create_job, cancel_job
@@ -122,7 +122,7 @@ class TestJobManager:
         assert cancelled.status == "cancelled"
 
     def test_retry_failed(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "jm_rt"
         ensure_workspace(ws)
         from jobs.manager import create_job, mark_running, mark_failed, retry_job
@@ -134,7 +134,7 @@ class TestJobManager:
         assert retried.retry_count == 1
 
     def test_retry_max_exceeded(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "jm_max"
         ensure_workspace(ws)
         from jobs.manager import create_job, mark_running, mark_failed, retry_job
@@ -152,7 +152,7 @@ class TestJobManager:
 
 class TestJobRunner:
     def test_agent_run_job(self, temp_dirs, monkeypatch):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "jr_ar"
         ensure_workspace(ws)
 
@@ -188,7 +188,7 @@ class TestJobRunner:
         assert final.status == "succeeded"
 
     def test_translate_config_job(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "jr_tc"
         ensure_workspace(ws)
         from jobs.manager import create_job
@@ -205,7 +205,7 @@ class TestJobRunner:
         assert len(final.run_ids) == 1
 
     def test_translate_with_export_report(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "jr_er"
         ensure_workspace(ws)
         from jobs.manager import create_job
@@ -221,7 +221,7 @@ class TestJobRunner:
         assert final.status == "succeeded"
 
     def test_planned_job_type(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "jr_pl"
         ensure_workspace(ws)
         from jobs.store import create_job, get_job

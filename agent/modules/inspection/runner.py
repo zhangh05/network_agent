@@ -269,7 +269,7 @@ def reconcile_all_workspaces(root=None) -> dict:
     """Sweep every workspace for phantom-running inspection tasks.
 
     Returns a per-workspace count summary; safe to call on backend
-    startup. ``root`` (optional) overrides ``WS_ROOT`` for tests.
+    startup. ``root`` (optional) overrides the storage root for tests.
     """
     out: dict = {}
     for ws in inspection_store.list_workspace_ids(root):

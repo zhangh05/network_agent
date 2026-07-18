@@ -158,8 +158,6 @@ def test_import_from_artifact_uses_current_store_and_is_searchable(tmp_path, mon
     from backend.main import app
 
     ws_root = tmp_path / "workspaces"
-    monkeypatch.setattr(artifact_store, "WS_ROOT", ws_root)
-    monkeypatch.setattr(workspace_manager, "WS_ROOT", ws_root)
     monkeypatch.setenv("NA_WORKSPACE_ROOT", str(ws_root))
 
     rec = save_artifact(

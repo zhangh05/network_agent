@@ -132,7 +132,7 @@ class TestImport:
 
     def test_rejected_memory_is_not_counted(self, monkeypatch):
         monkeypatch.setattr(
-            "workspace.memory_governance.MemoryWriteGate.write",
+            "storage.memory_governance.MemoryWriteGate.write",
             lambda self, record: {"ok": False, "error": "rejected"},
         )
         result = apply_import(

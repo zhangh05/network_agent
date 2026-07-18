@@ -178,14 +178,14 @@ def test_runtime_step_mark_finished_uses_iso_str():
 def test_runtime_utils_import_does_not_eager_load_context_stack():
     """Importing runtime utils must not pull context/memory into a cycle."""
     from agent.runtime.utils import now_iso
-    from workspace.memory_governance import MemoryStore
+    from storage.memory_governance import MemoryStore
 
     assert now_iso()
     assert MemoryStore
 
 
 def test_memory_naive_expiry_is_rejected_not_compat_parsed():
-    from workspace.memory_governance import MemoryRecord
+    from storage.memory_governance import MemoryRecord
 
     rec = MemoryRecord(
         status="active",
@@ -198,11 +198,12 @@ def test_memory_naive_expiry_is_rejected_not_compat_parsed():
 def test_system_session_create_and_archive_call_store_with_current_signature():
     from core.tools.schemas import ToolInvocation
     from core.tools.general_tools.session_tools import handle_session_create, handle_session_archive
-    from workspace.session_store import get_session
-    from workspace.manager import ensure_workspace, WS_ROOT
+    from storage.session_store import get_session
+    from storage.workspace_store import ensure_workspace
+    from storage.paths import get_workspace_root
 
     ws = "pytest_session_tool_branch"
-    shutil.rmtree(WS_ROOT / ws, ignore_errors=True)
+    shutil.rmtree(get_workspace_root() / ws, ignore_errors=True)
     ensure_workspace(ws)
     try:
         created = handle_session_create(ToolInvocation(
@@ -222,21 +223,22 @@ def test_system_session_create_and_archive_call_store_with_current_signature():
         assert archived["ok"] is True
         assert get_session(sid, ws)["status"] == "archived"
     finally:
-        shutil.rmtree(WS_ROOT / ws, ignore_errors=True)
+        shutil.rmtree(get_workspace_root() / ws, ignore_errors=True)
 
 
 def test_system_run_get_summary_uses_run_id_then_workspace_order():
     from agent.runtime.utils import now_iso
     from core.tools.schemas import ToolInvocation
     from core.tools.general_tools.session_tools import handle_run_get_summary
-    from workspace.manager import ensure_workspace, WS_ROOT
+    from storage.workspace_store import ensure_workspace
+    from storage.paths import get_workspace_root
 
     ws = "pytest_run_tool_branch"
     run_id = "run_tool_branch"
-    shutil.rmtree(WS_ROOT / ws, ignore_errors=True)
+    shutil.rmtree(get_workspace_root() / ws, ignore_errors=True)
     ensure_workspace(ws)
     try:
-        runs_dir = WS_ROOT / ws / "runs"
+        runs_dir = get_workspace_root() / ws / "runs"
         runs_dir.mkdir(parents=True, exist_ok=True)
         ts = now_iso()
         (runs_dir / f"{run_id}.json").write_text(json.dumps({
@@ -258,18 +260,19 @@ def test_system_run_get_summary_uses_run_id_then_workspace_order():
         assert result["run_id"] == run_id
         assert result["intent"] == "tool_contract"
     finally:
-        shutil.rmtree(WS_ROOT / ws, ignore_errors=True)
+        shutil.rmtree(get_workspace_root() / ws, ignore_errors=True)
 
 
 def test_system_session_checkpoint_has_runtime_imports_and_iso_timestamp():
     from agent.runtime.utils import from_iso
     from core.tools.schemas import ToolInvocation
     from core.tools.general_tools.session_tools import handle_session_checkpoint
-    from workspace.session_store import create_session
-    from workspace.manager import ensure_workspace, WS_ROOT
+    from storage.session_store import create_session
+    from storage.workspace_store import ensure_workspace
+    from storage.paths import get_workspace_root
 
     ws = "pytest_checkpoint_tool_branch"
-    shutil.rmtree(WS_ROOT / ws, ignore_errors=True)
+    shutil.rmtree(get_workspace_root() / ws, ignore_errors=True)
     ensure_workspace(ws)
     try:
         session = create_session(ws_id=ws, title="checkpoint branch")
@@ -280,10 +283,10 @@ def test_system_session_checkpoint_has_runtime_imports_and_iso_timestamp():
         ))
         assert result["ok"] is True
         checkpoint_path = (
-            WS_ROOT / ws / "sessions" / session["session_id"]
+            get_workspace_root() / ws / "sessions" / session["session_id"]
             / "checkpoints" / f"{result['checkpoint_id']}.json"
         )
         payload = json.loads(checkpoint_path.read_text(encoding="utf-8"))
         assert from_iso(payload["created_at"]) > 0
     finally:
-        shutil.rmtree(WS_ROOT / ws, ignore_errors=True)
+        shutil.rmtree(get_workspace_root() / ws, ignore_errors=True)

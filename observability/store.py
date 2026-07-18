@@ -49,7 +49,7 @@ def _locked_trace(path: Path):
 
 def write_trace(trace, ws_id: str = "default") -> str:
     """Write a trace record to workspace runs directory. Returns trace_id."""
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
 
     trace_id = trace.trace_id
@@ -68,7 +68,7 @@ def write_trace(trace, ws_id: str = "default") -> str:
 
 def get_trace(run_id: str, ws_id: str = "default") -> Optional[dict]:
     """Get a trace record by run_id."""
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
     path = workspace_record_file(ws_id, "runs", f"{run_id}.trace.json")
     if not path.is_file():
@@ -81,7 +81,7 @@ def get_trace(run_id: str, ws_id: str = "default") -> Optional[dict]:
 
 def list_traces(ws_id: str = "default", limit: int = 50) -> list:
     """List trace records for a workspace."""
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
     runs_dir = workspace_record_dir(ws_id, "runs")
     if not runs_dir.is_dir():
@@ -114,7 +114,7 @@ def append_event(trace_id: str, event, ws_id: str = "default"):
     back to a single directory scan if the hint path is missing.
     Atomic via tmp + os.replace().
     """
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
     runs_dir = workspace_record_dir(ws_id, "runs")
     if not runs_dir.is_dir():

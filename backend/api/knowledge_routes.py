@@ -4,7 +4,7 @@
 from pathlib import Path
 
 from flask import jsonify, request
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 
 KNOWLEDGE_SEARCH_PARAMS = {"workspace_id", "q", "limit", "source_id", "scope"}

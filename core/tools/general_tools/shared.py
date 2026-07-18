@@ -12,7 +12,7 @@ from typing import Any, Optional
 from core.tools.schemas import ToolSpec, ToolInvocation, ToolResult
 from core.tools.redaction import redact_tool_output
 from core.tools.path_security import PathSecurityError, safe_workspace_path
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 ROOT = Path(__file__).resolve().parents[3]
 

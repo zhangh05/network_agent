@@ -266,7 +266,7 @@ def _write_turn_memories(
 ) -> None:
     gate_mode = "rule_only"
     try:
-        from workspace.memory_governance import MemoryRecord, MemoryWriteGate, get_memory_gate_mode
+        from storage.memory_governance import MemoryRecord, MemoryWriteGate, get_memory_gate_mode
 
         gate_mode = get_memory_gate_mode(workspace_id)
         items: list[dict] = []
@@ -992,7 +992,7 @@ def _load_context_messages(session) -> list[dict[str, str]]:
     session_id = str(getattr(session, "session_id", "") or "")
     if ws_id and session_id:
         try:
-            from workspace.message_store import SessionMessageStore
+            from storage.message_store import SessionMessageStore
 
             for m in SessionMessageStore(session_id=session_id, ws_id=ws_id).get_messages():
                 _append_context_message(persisted, persisted_seen, m)

@@ -72,7 +72,7 @@ def _find_or_create_job(ws_id: str, session_id: str, user_input: str) -> str | N
     if not job_id:
         title = user_input[:40].replace("\n", " ") if user_input else "agent_run"
         try:
-            from workspace.session_store import get_session
+            from storage.session_store import get_session
             s = get_session(session_id, ws_id)
             if s and s.get("title"):
                 title = s["title"]
@@ -121,7 +121,7 @@ def _merge_run_id(ws_id: str, job_id: str, session_id: str, run_id: str, tool_ca
 
     # Recovery: merge session run_ids that might be missing from job
     try:
-        from workspace.session_store import get_session
+        from storage.session_store import get_session
         s = get_session(session_id, ws_id)
         if s:
             for rid in (s.get("run_ids") or []):
@@ -141,7 +141,7 @@ def _merge_run_id(ws_id: str, job_id: str, session_id: str, run_id: str, tool_ca
     # populated even when the artifact store run index uses a different id.
     output_arts = list(getattr(rec, "output_artifacts", None) or [])
     try:
-        from workspace.run_store import get_run
+        from storage.run_record_store import get_run
         for rid in new_ids:
             run_rec = get_run(rid, ws_id)
             if run_rec:

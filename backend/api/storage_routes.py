@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from flask import Response, jsonify, request, stream_with_context
 
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 
 def register_storage_routes(app) -> None:

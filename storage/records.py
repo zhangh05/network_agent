@@ -16,7 +16,7 @@ from typing import Any, Callable, Iterable
 
 from storage import paths as storage_paths
 from storage.atomic_io import atomic_write_json
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 _LOCKS: dict[str, threading.RLock] = {}
 _GLOBAL_LOCK = threading.RLock()

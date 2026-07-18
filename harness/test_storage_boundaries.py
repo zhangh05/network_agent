@@ -8,9 +8,8 @@ def test_new_workspace_creates_current_storage_dirs(monkeypatch, tmp_path):
     ws = tmp_path / "workspaces"
     ws.mkdir()
     monkeypatch.setenv("NA_WORKSPACE_ROOT", str(ws))
-    monkeypatch.setattr("workspace.manager.WS_ROOT", ws)
 
-    from workspace.manager import ensure_workspace
+    from storage.workspace_store import ensure_workspace
 
     ensure_workspace("test_ws")
 
@@ -65,9 +64,7 @@ def test_storage_api_projects_managed_files_without_paths(monkeypatch, tmp_path)
 def test_text_artifact_upload_reuses_one_file_record(monkeypatch, tmp_path):
     root = tmp_path / "workspaces"
     monkeypatch.setenv("NA_WORKSPACE_ROOT", str(root))
-    monkeypatch.setattr("workspace.manager.WS_ROOT", root)
     import artifacts.store as artifact_store
-    monkeypatch.setattr(artifact_store, "WS_ROOT", root)
     from backend.main import app
     from storage.file_store import list_files
 

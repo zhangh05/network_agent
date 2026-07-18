@@ -1,7 +1,7 @@
 """CMDB API routes."""
 
 from flask import request, jsonify
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 from agent.modules.cmdb.service import save_asset, list_assets, get_asset, delete_asset
 

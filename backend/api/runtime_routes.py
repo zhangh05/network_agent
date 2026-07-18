@@ -9,7 +9,7 @@ from collections import OrderedDict
 
 from flask import jsonify, request
 
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 _LOG = logging.getLogger(__name__)
 
@@ -604,7 +604,7 @@ def register_runtime_routes(app):
         import json as _json
 
         try:
-            from workspace.ids import validate_session_id
+            from storage.ids import validate_session_id
             sid = validate_session_id(session_id)
         except Exception:
             return jsonify({"ok": False, "error": "invalid_session_id"}), 400
@@ -617,7 +617,7 @@ def register_runtime_routes(app):
             return err
 
         try:
-            from workspace.session_store import get_session
+            from storage.session_store import get_session
             if not get_session(sid, ws_id):
                 return jsonify({"ok": False, "error": "session_not_found"}), 404
         except Exception:

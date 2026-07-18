@@ -176,9 +176,8 @@ class TestProfileToolsFilter:
         assert cancel_subagent_task(cr["subtask_id"], ws_a)["ok"] is False
 
     def test_reconcile_marks_phantom_running_failed(self, monkeypatch, tmp_path):
-        import workspace.run_store as run_store
+        import storage.run_record_store as run_store
 
-        monkeypatch.setattr(run_store, "WS_ROOT", tmp_path)
         ws = f"ws_restart_{uuid.uuid4().hex[:8]}"
         cr = create_subagent_task("t1", ws, "s1", "network_diag_agent", "Diagnose")
         from agent.runtime.durable.subagent import _load_task, _save_task

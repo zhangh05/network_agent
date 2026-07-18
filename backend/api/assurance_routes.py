@@ -7,7 +7,7 @@ import logging
 from flask import jsonify, request
 
 from agent.modules.assurance import service
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 
 _LOG = logging.getLogger(__name__)

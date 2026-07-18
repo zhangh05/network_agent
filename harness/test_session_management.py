@@ -16,7 +16,7 @@ import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from workspace.session_store import (
+from storage.session_store import (
     create_session,
     get_session,
     list_sessions,
@@ -31,7 +31,7 @@ from workspace.session_store import (
     get_session_count,
     list_sessions_by_status,
 )
-from workspace.run_store import write_run_record
+from storage.run_record_store import write_run_record
 from agent.state import NetworkAgentState
 
 TEST_WS = "session_mgmt_test"
@@ -179,7 +179,7 @@ class TestSessionMessages:
         assert msgs == []
 
     def test_get_session_messages_from_canonical_store(self):
-        from workspace.message_store import SessionMessageStore
+        from storage.message_store import SessionMessageStore
 
         s = create_session(TEST_WS, "Messages Test")
         store = SessionMessageStore(s["session_id"], TEST_WS)

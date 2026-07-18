@@ -76,7 +76,7 @@ def register_remote_ws(app):
 
                 if msg_type == "connect":
                     from agent.modules.remote.service import connect_device
-                    from workspace.ids import validate_workspace_id
+                    from storage.ids import validate_workspace_id
 
                     try:
                         raw_ws = msg.get("workspace_id", "") or ""

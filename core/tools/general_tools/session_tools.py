@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from agent.runtime.utils import now_iso
 from core.tools.schemas import ToolInvocation
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 from core.tools.general_tools.shared import _caller_workspace, _contract, _error, _error_inv, _ok, _result, _unavailable, _workspace_path
 """Split general tool handlers."""
@@ -11,7 +11,7 @@ def handle_session_list(inv: ToolInvocation) -> dict:
     ws = _caller_workspace(inv)
     try:
         validate_workspace_id(ws)
-        from workspace.session_store import list_sessions
+        from storage.session_store import list_sessions
         sessions = list_sessions(ws, limit=50)
         results = []
         for s in sessions:
@@ -30,7 +30,7 @@ def handle_session_get_summary(inv: ToolInvocation) -> dict:
     sid = inv.arguments.get("session_id", "")
     try:
         validate_workspace_id(ws)
-        from workspace.session_store import get_session
+        from storage.session_store import get_session
         s = get_session(sid, ws)
         if not s:
             return _error_inv(inv, "session not found")
@@ -50,7 +50,7 @@ def handle_session_create(inv: ToolInvocation) -> dict:
     title = inv.arguments.get("title", "new_session")
     try:
         validate_workspace_id(ws)
-        from workspace.session_store import create_session
+        from storage.session_store import create_session
         session = create_session(ws_id=ws, title=title)
         return _ok(inv, "", {
             "session_id": session.get("session_id", ""),
@@ -64,7 +64,7 @@ def handle_session_archive(inv: ToolInvocation) -> dict:
     sid = inv.arguments.get("session_id", "")
     try:
         validate_workspace_id(ws)
-        from workspace.session_store import archive_session
+        from storage.session_store import archive_session
         archived = archive_session(sid, ws)
         return _ok(inv, "", {"archived": True}) if archived else _error_inv(inv, "archive failed")
     except Exception as e:
@@ -129,7 +129,7 @@ def handle_session_snapshot(inv: ToolInvocation) -> dict:
         return _error_inv(inv, "session_id is required")
     try:
         validate_workspace_id(ws)
-        from workspace.session_snapshot import create_snapshot
+        from storage.session_snapshot import create_snapshot
         result = create_snapshot(workspace_id=ws, session_id=sid, reason=reason)
         return _result(inv, result.get("ok", False), result)
     except Exception as e:
@@ -143,7 +143,7 @@ def handle_session_list_snapshots(inv: ToolInvocation) -> dict:
         return _error_inv(inv, "session_id is required")
     try:
         validate_workspace_id(ws)
-        from workspace.session_snapshot import list_snapshots
+        from storage.session_snapshot import list_snapshots
         results = list_snapshots(workspace_id=ws, session_id=sid)
         return _ok(inv, "", {"snapshots": results, "count": len(results)})
     except Exception as e:
@@ -161,7 +161,7 @@ def handle_session_rewind(inv: ToolInvocation) -> dict:
         return _error_inv(inv, "snapshot_id is required")
     try:
         validate_workspace_id(ws)
-        from workspace.session_snapshot import rewind_session
+        from storage.session_snapshot import rewind_session
         result = rewind_session(
             workspace_id=ws,
             session_id=sid,
@@ -181,7 +181,7 @@ def handle_session_checkpoint(inv: ToolInvocation) -> dict:
         return _error_inv(inv, "session_id is required")
     try:
         validate_workspace_id(ws)
-        from workspace.session_store import get_session
+        from storage.session_store import get_session
         s = get_session(sid, ws)
         if not s:
             return _error_inv(inv, "session not found")
@@ -217,7 +217,7 @@ def handle_session_export(inv: ToolInvocation) -> dict:
         return _error_inv(inv, "session_id is required")
     try:
         validate_workspace_id(ws)
-        from workspace.session_store import get_session
+        from storage.session_store import get_session
         s = get_session(sid, ws)
         if not s:
             return _error_inv(inv, "session not found")

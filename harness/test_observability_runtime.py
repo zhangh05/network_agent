@@ -53,7 +53,7 @@ class TestTraceStore:
     def test_write_and_get_trace(self, temp_dirs):
         from observability.schemas import TraceRecord, TraceEvent
         from observability.store import write_trace, get_trace
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
 
         ws_id = "trace_test_ws"
         ensure_workspace(ws_id)
@@ -78,7 +78,7 @@ class TestTraceStore:
     def test_list_traces(self, temp_dirs):
         from observability.schemas import TraceRecord
         from observability.store import write_trace, list_traces
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
 
         ws_id = "trace_list_ws"
         ensure_workspace(ws_id)
@@ -92,7 +92,7 @@ class TestTraceStore:
     def test_trace_redacts_key(self, temp_dirs):
         from observability.schemas import TraceRecord, TraceEvent
         from observability.store import write_trace, get_trace
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
 
         ws_id = "trace_redact_ws"
         ensure_workspace(ws_id)
@@ -114,7 +114,7 @@ class TestTraceStore:
     def test_trace_redacts_password(self, temp_dirs):
         from observability.schemas import TraceRecord, TraceEvent
         from observability.store import write_trace
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
 
         ws_id = "trace_redact_pw"
         ensure_workspace(ws_id)
@@ -134,7 +134,7 @@ class TestTraceStore:
     def test_trace_redacts_full_config(self, temp_dirs):
         from observability.schemas import TraceRecord, TraceEvent
         from observability.store import write_trace
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
 
         ws_id = "trace_redact_cfg"
         ensure_workspace(ws_id)
@@ -154,7 +154,7 @@ class TestTraceStore:
     def test_append_event(self, temp_dirs):
         from observability.schemas import TraceRecord, TraceEvent
         from observability.store import write_trace, append_event, get_trace
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
 
         ws_id = "append_ws"
         ensure_workspace(ws_id)
@@ -289,7 +289,7 @@ class TestTraceAPI:
 
 class TestRegression:
     def test_workspace_runs_count(self, temp_dirs):
-        from workspace.manager import list_workspaces, ensure_workspace
+        from storage.workspace_store import list_workspaces, ensure_workspace
         ws_id = "reg_ws"
         ensure_workspace(ws_id)
         ws_list = list_workspaces()

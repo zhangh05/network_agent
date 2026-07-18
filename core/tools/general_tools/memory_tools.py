@@ -3,7 +3,7 @@
 from core.tools.schemas import ToolInvocation
 
 from core.tools.general_tools.shared import _error_inv, _ok
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 from agent.runtime.utils import now_iso
 
 
@@ -21,7 +21,7 @@ def _caller_workspace(inv: ToolInvocation) -> str:
 
 
 def _get_store(ws_id: str):
-    from workspace.memory_governance import MemoryStore
+    from storage.memory_governance import MemoryStore
     return MemoryStore()
 
 
@@ -30,7 +30,7 @@ def _via_gate(title: str, content: str, ws_id: str, source: str = "llm_tool",
               session_id: str = "", task_id: str = "",
               citations: list = None, tags: list = None) -> dict:
     """Write memory through MemoryWriteGate. Gate decides status."""
-    from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+    from storage.memory_governance import MemoryRecord, MemoryWriteGate
     rec = MemoryRecord(
         workspace_id=ws_id, session_id=session_id, task_id=task_id,
         scope=scope, memory_type=memory_type,
@@ -42,7 +42,7 @@ def _via_gate(title: str, content: str, ws_id: str, source: str = "llm_tool",
         redacted=True,
     )
     gate = MemoryWriteGate()
-    from workspace.memory_governance import get_memory_gate_mode
+    from storage.memory_governance import get_memory_gate_mode
     gate_mode = get_memory_gate_mode(ws_id)
     return gate.write(rec, gate_mode=gate_mode)
 
@@ -191,7 +191,7 @@ def handle_memory_confirm(inv: ToolInvocation) -> dict:
         return _error_inv(inv, "memory_id is required")
     try:
         ws = _caller_workspace(inv)
-        from workspace.memory_governance import confirm_memory
+        from storage.memory_governance import confirm_memory
         result = confirm_memory(ws, memory_id)
         return _ok(inv, "", {"memory_id": memory_id, **result})
     except Exception as e:
@@ -230,7 +230,7 @@ def handle_memory_set_profile(inv: ToolInvocation) -> dict:
         return _error_inv(inv, "field is required")
     try:
         ws = _caller_workspace(inv)
-        from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+        from storage.memory_governance import MemoryRecord, MemoryWriteGate
         existing = {}
         store = _get_store(ws)
         results = store.list_retrievable(ws, memory_type="profile", limit=1)
@@ -290,7 +290,7 @@ def handle_memory_update(inv: ToolInvocation) -> dict:
         rec = store.get(ws, memory_id)
         if not rec:
             return _error_inv(inv, f"memory_id not found: {memory_id}")
-        from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+        from storage.memory_governance import MemoryRecord, MemoryWriteGate
         replacing_active = rec.status == "active"
         proposal = MemoryRecord(
             workspace_id=ws,
@@ -338,7 +338,7 @@ def handle_memory_delete_soft(inv: ToolInvocation) -> dict:
         return _error_inv(inv, "memory_id is required")
     try:
         ws = _caller_workspace(inv)
-        from workspace.memory_governance import reject_memory
+        from storage.memory_governance import reject_memory
         result = reject_memory(ws, memory_id)
         return _ok(inv, "", {
             "memory_id": memory_id, "deleted": True, **result,

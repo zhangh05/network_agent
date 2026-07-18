@@ -195,7 +195,7 @@ def _cmd_memory(args: str, session_id: Optional[str], context: Optional[dict]) -
     """List memories."""
     ws_id = (context or {}).get("workspace_id", "")
     try:
-        from workspace.memory_governance import MemoryStore
+        from storage.memory_governance import MemoryStore
         memories = MemoryStore().list_retrievable(ws_id, session_id=session_id or "", limit=20)
     except Exception:
         return "Memory store not available."
@@ -245,7 +245,7 @@ def _cmd_sessions(args: str, session_id: Optional[str], context: Optional[dict])
     """List sessions."""
     ws_id = (context or {}).get("workspace_id", "")
     try:
-        from workspace.session_store import list_sessions
+        from storage.session_store import list_sessions
         sessions = list_sessions(ws_id)
     except Exception:
         return "Session store not available."
@@ -294,7 +294,7 @@ def _cmd_compact(args: str, session_id: Optional[str], context: Optional[dict]) 
 
     # Also try to compact immediately if messages available
     try:
-        from workspace.message_store import get_message_store
+        from storage.message_store import get_message_store
         store = get_message_store()
         messages = store.get_recent(sid, limit=50)
         if messages:
@@ -386,7 +386,7 @@ def _cmd_agent(args: str, session_id: Optional[str], context: Optional[dict]) ->
 def _cmd_reset(args: str, session_id: Optional[str], context: Optional[dict]) -> str:
     """Reset session: archive current history or create new session."""
     try:
-        from workspace.session_store import archive_session
+        from storage.session_store import archive_session
         sid = ""
         wid = ""
         if isinstance(session_id, str):
@@ -400,7 +400,7 @@ def _cmd_reset(args: str, session_id: Optional[str], context: Optional[dict]) ->
 
         # Archive messages too
         try:
-            from workspace.message_store import get_message_store
+            from storage.message_store import get_message_store
             ms = get_message_store()
             if hasattr(ms, 'archive_all'):
                 ms.archive_all(sid)
@@ -449,7 +449,7 @@ def _cmd_export(args, session_id: Optional[str], context: Optional[dict]) -> str
 
     # Try message_store first
     try:
-        from workspace.message_store import get_message_store
+        from storage.message_store import get_message_store
         ms = get_message_store()
         raw = ms.get_recent(sid, limit=limit)
         if raw:
@@ -463,7 +463,7 @@ def _cmd_export(args, session_id: Optional[str], context: Optional[dict]) -> str
     # Fallback to session_store
     if not messages:
         try:
-            from workspace.session_store import get_session
+            from storage.session_store import get_session
             sess = get_session(sid, wid)
             if sess:
                 sess_messages = sess.get("messages") if isinstance(sess, dict) else None

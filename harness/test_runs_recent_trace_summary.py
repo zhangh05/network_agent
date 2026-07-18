@@ -22,7 +22,7 @@ def client(temp_dirs):
 def test_recent_runs_enriches_counts_from_trace(client, temp_dirs):
     from observability.schemas import TraceEvent, TraceRecord
     from observability.store import write_trace
-    from workspace.manager import ensure_workspace
+    from storage.workspace_store import ensure_workspace
 
     ws_id = "runs_trace_summary_ws"
     run_id = "run-trace-summary"

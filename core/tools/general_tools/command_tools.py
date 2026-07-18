@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from core.tools.schemas import ToolInvocation
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 from core.tools.general_tools.shared import _caller_workspace, _error_inv, _ok, _result, _run_shell, _unavailable, _SHELL_MAX_OUTPUT
 """Split general tool handlers."""

@@ -36,7 +36,7 @@ def _inv_workspace(inv: ToolInvocation) -> str:
     ws = caller or requested
     if not ws:
         raise ValueError("workspace_id is required")
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     validate_workspace_id(ws)
     return ws
 

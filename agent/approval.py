@@ -183,7 +183,7 @@ class ApprovalStore:
                     if rec.get("resolved"):
                         continue
                     try:
-                        from workspace.ids import validate_workspace_id
+                        from storage.ids import validate_workspace_id
                         workspace_id = validate_workspace_id(str(rec.get("workspace_id") or ""))
                     except (ValueError, TypeError):
                         continue
@@ -315,7 +315,7 @@ class ApprovalStore:
         if not workspace_id:
             raise ValueError("workspace_id is required")
         try:
-            from workspace.ids import validate_workspace_id
+            from storage.ids import validate_workspace_id
             workspace_id = validate_workspace_id(workspace_id)
         except Exception as exc:
             raise ValueError("invalid_workspace_id") from exc
@@ -349,7 +349,7 @@ class ApprovalStore:
         if not workspace_id:
             return None
         try:
-            from workspace.ids import validate_workspace_id
+            from storage.ids import validate_workspace_id
             workspace_id = validate_workspace_id(workspace_id)
         except Exception:
             return None

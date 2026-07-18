@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from core.tools.schemas import ToolInvocation
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 """Web tool handlers — search, weather, news, fetch."""
 import threading
 import time

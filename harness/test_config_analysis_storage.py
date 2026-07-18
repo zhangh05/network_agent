@@ -15,10 +15,8 @@ def config_ws(monkeypatch, tmp_path):
     ws.mkdir()
     monkeypatch.setenv("NA_WORKSPACE_ROOT", str(ws))
     monkeypatch.setenv("NETWORK_AGENT_WORKSPACE_DIR", str(ws))
-    monkeypatch.setattr("workspace.manager.WS_ROOT", ws)
     try:
         import artifacts.store as _as
-        monkeypatch.setattr(_as, "WS_ROOT", ws)
     except Exception:
         pass
     from storage.paths import ensure_workspace_storage_dirs

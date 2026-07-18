@@ -41,7 +41,7 @@ def translate_config(
         }
 
     try:
-        from workspace.ids import validate_workspace_id
+        from storage.ids import validate_workspace_id
         workspace_id = validate_workspace_id(workspace_id)
     except ValueError:
         return {

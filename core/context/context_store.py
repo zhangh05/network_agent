@@ -23,12 +23,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Iterator
 
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 from storage.paths import workspace_root
 
 
 def _now_iso() -> str:
-    """UTC ISO 8601 timestamp — matches workspace.session_store."""
+    """UTC ISO 8601 timestamp — matches storage.session_store."""
     return datetime.now(timezone.utc).isoformat()
 
 # ---------------------------------------------------------------------------

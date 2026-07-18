@@ -25,7 +25,7 @@ from artifacts.store import read_artifact_content
 from agent.runtime.utils import now_iso
 from storage.index import IndexLock
 from storage.workspace_store import list_workspace_ids
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 from . import store
 from .models import (

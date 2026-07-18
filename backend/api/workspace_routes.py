@@ -2,7 +2,7 @@
 """Workspace, Run, Report & Trace routes."""
 
 from flask import jsonify, request
-from workspace.ids import validate_session_id, validate_workspace_id
+from storage.ids import validate_session_id, validate_workspace_id
 from artifacts.store import sanitize_record
 
 
@@ -164,7 +164,7 @@ def register_workspace_routes(app):
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id required"}), 400
         from storage.workspace_store import ensure_workspace
-        from workspace.ids import validate_workspace_id
+        from storage.ids import validate_workspace_id
         try:
             ws_id = validate_workspace_id(ws_id)
         except ValueError:
@@ -268,7 +268,7 @@ def register_workspace_routes(app):
                 return err
 
         from storage.run_record_store import list_runs, run_sort_key
-        from workspace.session_store import get_session, list_sessions
+        from storage.session_store import get_session, list_sessions
 
         # Fetch more runs than needed to account for filtering
         raw_runs = list_runs(ws_id, limit=limit * 5)

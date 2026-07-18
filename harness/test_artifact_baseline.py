@@ -122,7 +122,7 @@ class TestRedaction:
 class TestArtifactStore:
     def test_save_and_get(self, temp_dirs):
         from artifacts.store import save_artifact, get_artifact
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "st_sg"
         ensure_workspace(ws)
         rec = save_artifact(ws, content="hostname R1\ninterface Gi0/1", artifact_type="input_config", title="R1", scope="run")
@@ -133,7 +133,7 @@ class TestArtifactStore:
 
     def test_save_sha256(self, temp_dirs):
         from artifacts.store import save_artifact
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "st_sha"
         ensure_workspace(ws)
         rec = save_artifact(ws, content="hello", artifact_type="template", sensitivity="public", scope="run")
@@ -141,7 +141,7 @@ class TestArtifactStore:
 
     def test_save_reject_secret_content(self, temp_dirs):
         from artifacts.store import save_artifact
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "st_sec"
         ensure_workspace(ws)
         rec = save_artifact(ws, content="password admin123", sensitivity="sensitive", scope="run")
@@ -149,7 +149,7 @@ class TestArtifactStore:
 
     def test_save_secret_label_redacts(self, temp_dirs):
         from artifacts.store import save_artifact
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "st_sec2"
         ensure_workspace(ws)
         rec = save_artifact(ws, content="password admin123", sensitivity="secret", scope="run")
@@ -158,7 +158,7 @@ class TestArtifactStore:
 
     def test_list_and_delete(self, temp_dirs):
         from artifacts.store import save_artifact, get_artifact
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "st_ls"
         ensure_workspace(ws)
         rec = save_artifact(ws, content="hello_world_data", artifact_type="template", title="data1", sensitivity="public", scope="run")
@@ -170,7 +170,7 @@ class TestArtifactStore:
     def test_report_listing_hides_intermediate_drafts(self, temp_dirs):
         from artifacts.schemas import ArtifactIndex, ArtifactRecord
         from artifacts.store import _save_artifact_record, _save_index, list_artifacts
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
 
         ws = "st_report_dedupe"
         ensure_workspace(ws)
@@ -211,7 +211,7 @@ class TestArtifactStore:
     def test_report_listing_collapses_generic_only_reports(self, temp_dirs):
         from artifacts.schemas import ArtifactIndex, ArtifactRecord
         from artifacts.store import _save_artifact_record, _save_index, list_artifacts
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
 
         ws = "st_report_generic"
         ensure_workspace(ws)
@@ -236,7 +236,7 @@ class TestArtifactStore:
 
     def test_report_generic_title_uses_markdown_heading(self, temp_dirs):
         from artifacts.store import save_artifact
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
 
         ws = "st_report_title"
         ensure_workspace(ws)
@@ -252,7 +252,7 @@ class TestArtifactStore:
 
     def test_unique_artifact_ids(self, temp_dirs):
         from artifacts.store import save_artifact
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "st_uniq"
         ensure_workspace(ws)
         r1 = save_artifact(ws, content="unique_content_abc", artifact_type="template", sensitivity="public", scope="run")
@@ -269,7 +269,7 @@ class TestArtifactStore:
 
 class TestArtifactAPI:
     def test_workspace_dirs(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ensure_workspace("api_dirs")
         p = Path(str(temp_dirs["workspace_dir"])) / "api_dirs"
         assert (p / "sys").is_dir()

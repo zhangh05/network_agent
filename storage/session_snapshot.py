@@ -1,4 +1,3 @@
-# workspace/session_snapshot.py
 """Session Snapshot & Rewind — save and restore session message state.
 
 Snapshots save the current messages/history of a session to a JSON file.
@@ -13,8 +12,10 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-ROOT = Path(__file__).resolve().parent.parent
-WS_ROOT = ROOT / "workspaces"
+from storage.paths import get_workspace_root
+
+def _ws_root() -> Path:
+    return get_workspace_root()
 
 
 def _now_iso() -> str:
@@ -23,7 +24,7 @@ def _now_iso() -> str:
 
 
 def _session_dir(workspace_id: str, session_id: str) -> Path:
-    return WS_ROOT / workspace_id / "sessions" / session_id
+    return _ws_root() / workspace_id / "sessions" / session_id
 
 
 def _snapshots_dir(workspace_id: str, session_id: str) -> Path:
@@ -55,12 +56,12 @@ def create_snapshot(workspace_id: str, session_id: str, reason: str = "") -> dic
         sid = _safe_id(session_id)
 
         # Read current session messages
-        from workspace.session_store import get_session
+        from storage.session_store import get_session
         session = get_session(sid, ws_id)
         if not session:
             return {"ok": False, "error": "session not found"}
 
-        from workspace.message_store import SessionMessageStore
+        from storage.message_store import SessionMessageStore
         store = SessionMessageStore(session_id=sid, ws_id=ws_id)
         messages = store.get_messages()
 
@@ -171,7 +172,7 @@ def rewind_session(workspace_id: str, session_id: str,
             }
 
         # ── Apply: restore messages ──
-        from workspace.message_store import SessionMessageStore
+        from storage.message_store import SessionMessageStore
         store = SessionMessageStore(session_id=sid, ws_id=ws_id)
 
         # Clear existing message files

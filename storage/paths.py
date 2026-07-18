@@ -1,8 +1,8 @@
 # storage/paths.py
 """Unified workspace path resolution.
 
-All storage code and module code MUST use these functions
-instead of defining their own WS_ROOT.
+All storage code and module code MUST use these functions instead of defining
+their own workspace root constants.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ def get_workspace_root() -> Path:
 
 def workspace_root(workspace_id: str) -> Path:
     """Return the root directory for a specific workspace."""
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     return get_workspace_root() / validate_workspace_id(workspace_id)
 
 

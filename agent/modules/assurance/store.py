@@ -13,7 +13,7 @@ from storage.records import (
     list_json_records,
     read_json_record,
 )
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 
 _LOCK = threading.RLock()

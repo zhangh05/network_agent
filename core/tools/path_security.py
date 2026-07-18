@@ -22,7 +22,7 @@ import urllib.parse
 from pathlib import Path
 
 from storage.workspace_files import resolve_workspace_path
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 
 class PathSecurityError(ValueError):

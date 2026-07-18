@@ -128,8 +128,7 @@ def test_schedule_evidence_cannot_become_current_state_authority_even_with_stale
 
 def test_hard_delete_removes_payload_metadata_and_run_reference(tmp_path, monkeypatch):
     monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
-    import workspace.manager as workspace_manager
-    monkeypatch.setattr(workspace_manager, "WS_ROOT", tmp_path)
+    import storage.workspace_store as workspace_manager
 
     from artifacts.store import delete_artifact, get_artifact, get_run_artifacts, save_artifact
     from storage.file_store import get_file_record

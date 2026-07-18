@@ -54,12 +54,6 @@ def temp_dirs(monkeypatch):
     except Exception:
         pass
 
-    # Monkeypatch workspace paths
-    monkeypatch.setattr("workspace.manager.WS_ROOT", ws_dir)
-    monkeypatch.setattr("workspace.run_store.WS_ROOT", ws_dir)
-    # Also patch cached imports to avoid module-load-time reference staleness
-    monkeypatch.setattr("core.tools.general_tools.shared.WS_ROOT", ws_dir, raising=False)
-
     # Set env vars
     monkeypatch.setenv("NETWORK_AGENT_REPORTS_DIR", str(reports_dir))
     monkeypatch.setenv("NETWORK_AGENT_MEMORY_DIR", str(mem_dir))
@@ -138,7 +132,7 @@ def protect_llm_config():
 @pytest.fixture
 def fresh_workspace(temp_dirs):
     """Get a fresh workspace for a test."""
-    from workspace.manager import ensure_workspace
+    from storage.workspace_store import ensure_workspace
     ensure_workspace("test_ws")
     return "test_ws"
 

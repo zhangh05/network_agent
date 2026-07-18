@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from agent.runtime.utils import now_iso
-from workspace.message_store import SessionMessageStore
+from storage.message_store import SessionMessageStore
 from storage.run_record_store import save_trace_record, update_run_record, write_run_record
 
 

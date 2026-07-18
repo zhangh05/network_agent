@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from core.tools.schemas import ToolInvocation
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 from core.tools.general_tools.shared import _caller_workspace, _error_inv, _ok, _result
 
@@ -182,7 +182,7 @@ def handle_agent_get_result(inv: ToolInvocation) -> dict:
 
     try:
         validate_workspace_id(ws)
-        from workspace.message_store import SessionMessageStore
+        from storage.message_store import SessionMessageStore
         store = SessionMessageStore(session_id=child_session_id, ws_id=ws)
         if store.exists():
             messages = store.get_history_window(k=50)

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from flask import Response, jsonify, request
 
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 from agent.modules.inspection import service as inspection_service
 from agent.modules.inspection.profiles import (

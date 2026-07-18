@@ -30,7 +30,6 @@ _AREC_LOCKS_GUARD = threading.Lock()
 _LOG = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent
-WS_ROOT = ROOT / "workspaces"
 
 # Allowed source directories for source_path reads. Removed storage directories
 # are intentionally not allowed for runtime reads.
@@ -55,11 +54,8 @@ def _get_max_size() -> int:
 
 
 def _get_ws_root():
-    try:
-        from workspace.manager import WS_ROOT as w
-        return w
-    except Exception:
-        return WS_ROOT
+    from storage.paths import get_workspace_root
+    return get_workspace_root()
 
 
 def _safe_name(name: str) -> str:
@@ -72,13 +68,13 @@ def _new_artifact_id() -> str:
 
 
 def _index_path(ws_id: str) -> Path:
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
     return _get_ws_root() / ws_id / "sys" / "artifacts.index.json"
 
 
 def _artifact_records_path(ws_id: str) -> Path:
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
     return _get_ws_root() / ws_id / "index" / "artifacts.jsonl"
 
@@ -176,7 +172,7 @@ def _record_meta_dict(rec: ArtifactRecord) -> dict:
 
 def _save_artifact_record(rec: ArtifactRecord) -> None:
     """Upsert one ArtifactRecord into index/artifacts.jsonl."""
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
 
     ws_id = validate_workspace_id(rec.workspace_id)
     p = _artifact_records_path(ws_id)
@@ -346,7 +342,7 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
                   tags: list = None, source: str = "module_output",
                   file_id: str = "", created_by: str = "") -> Optional[ArtifactRecord]:
     """Save an artifact. Returns ArtifactRecord or None if blocked by policy."""
-    from workspace.manager import ensure_workspace
+    from storage.workspace_store import ensure_workspace
     ensure_workspace(workspace_id)
 
     if source_path and not content:
@@ -487,7 +483,7 @@ def save_artifact(workspace_id: str, content: str = "", source_path: str = "",
 
 def get_artifact(workspace_id: str, artifact_id: str) -> Optional[ArtifactRecord]:
     """Get artifact by exact ID (not sha256)."""
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     workspace_id = validate_workspace_id(workspace_id)
     for data in reversed(_read_artifact_record_dicts(workspace_id)):
         if data.get("artifact_id") == artifact_id:
@@ -711,7 +707,7 @@ def _remove_from_knowledge_index(workspace_id: str, artifact_id: str):
     """Remove knowledge source entries for a deleted artifact."""
     try:
         from agent.modules.knowledge.service import delete_source, list_sources
-        from workspace.ids import validate_workspace_id
+        from storage.ids import validate_workspace_id
         validate_workspace_id(workspace_id)
         result = list_sources(
             workspace_id, include_disabled=True, include_deleted=True,
@@ -755,7 +751,7 @@ def summarize_artifact_content(workspace_id: str, artifact_id: str) -> dict:
 
 
 def get_run_artifacts(workspace_id: str, run_id: str) -> dict:
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     workspace_id = validate_workspace_id(workspace_id)
     p = _get_ws_root() / workspace_id / "runs" / f"{run_id}.artifacts.json"
     if p.is_file():
@@ -793,7 +789,7 @@ def sanitize_record(rec: ArtifactRecord, include_metadata: bool = False) -> dict
 # ── helpers ──
 
 def _update_run_index(ws_id, run_id, art_id, artifact_type, title):
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
     idx = get_run_artifacts(ws_id, run_id)
     info = {"artifact_id": art_id, "artifact_type": artifact_type, "title": title}

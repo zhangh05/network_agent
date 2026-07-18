@@ -19,14 +19,11 @@ _LOG = logging.getLogger("jobs.store")
 ROOT = Path(__file__).resolve().parent.parent
 
 def _get_ws_root():
-    try:
-        from workspace.manager import WS_ROOT as w
-        return w
-    except Exception:
-        return ROOT / "workspaces"
+    from storage.paths import get_workspace_root
+    return get_workspace_root()
 
 def _job_dir(ws_id, job_id=""):
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
     return _get_ws_root() / ws_id / "jobs" / (job_id if job_id else "")
 
@@ -36,13 +33,13 @@ def _ensure(ws_id, job_id=""):
     return d
 
 def _index_path(ws_id):
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
     return _get_ws_root() / ws_id / "sys" / "jobs.index.json"
 
 
 def create_job(rec: JobRecord) -> JobRecord:
-    from workspace.manager import ensure_workspace
+    from storage.workspace_store import ensure_workspace
     ensure_workspace(rec.workspace_id)
     d = _ensure(rec.workspace_id, rec.job_id)
     # Sanitize before writing to disk
@@ -130,7 +127,7 @@ def list_jobs(ws_id=None, status=None, job_type=None, limit=100) -> list:
     results = []
     ws_root = _get_ws_root()
     if ws_id:
-        from workspace.ids import validate_workspace_id
+        from storage.ids import validate_workspace_id
         ws_id = validate_workspace_id(ws_id)
     for wd in ws_root.iterdir() if not ws_id else [ws_root / ws_id]:
         if not wd.is_dir() or wd.name.startswith("."): continue
@@ -244,7 +241,7 @@ def _write_atomic(path, content):
 def _update_workspace_stats(ws_id):
     """Update workspace state with job counts."""
     try:
-        from workspace.manager import update_workspace_state
+        from storage.workspace_store import update_workspace_state
         jobs = list_jobs(ws_id=ws_id, limit=500)
         status_counts = {}
         for j in jobs:

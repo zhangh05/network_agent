@@ -18,7 +18,7 @@ def register_state_routes(app):
         if not raw:
             return "", (jsonify({"ok": False, "error": "workspace_id is required"}), 400)
         try:
-            from workspace.ids import validate_workspace_id
+            from storage.ids import validate_workspace_id
             return validate_workspace_id(raw), None
         except Exception:
             return "", (jsonify({"ok": False, "error": "invalid_workspace_id"}), 400)

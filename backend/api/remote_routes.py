@@ -5,7 +5,7 @@ Interactive connection management and terminal I/O live exclusively on
 """
 
 from flask import request, jsonify
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 from agent.modules.remote.service import (
     save_device, list_devices, delete_device, get_vendors,

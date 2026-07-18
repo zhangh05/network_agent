@@ -6,7 +6,7 @@ from __future__ import annotations
 from flask import jsonify
 
 from backend.core.responses import error_response, ok_response
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 
 def register_workspace_status_routes(app):

@@ -489,7 +489,7 @@ def test_memory_gate_rejects_generic_task_completion_noise():
     import shutil
 
     from storage.paths import workspace_root
-    from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+    from storage.memory_governance import MemoryRecord, MemoryWriteGate
 
     workspace_id = "pytest_memory_noise"
     root = workspace_root(workspace_id)

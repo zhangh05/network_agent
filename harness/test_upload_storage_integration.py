@@ -26,11 +26,9 @@ def upload_client(monkeypatch, tmp_path):
     ws_dir.mkdir()
 
     monkeypatch.setenv("NA_WORKSPACE_ROOT", str(ws_dir))
-    monkeypatch.setattr("workspace.manager.WS_ROOT", ws_dir)
 
     try:
         import artifacts.store as _as
-        monkeypatch.setattr(_as, "WS_ROOT", ws_dir)
     except Exception:
         pass
 

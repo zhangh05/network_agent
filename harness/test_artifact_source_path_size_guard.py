@@ -22,13 +22,13 @@ class TestSourcePathSizeGuard:
     def test_oversized_source_path_rejected_before_read(self, temp_dirs, monkeypatch):
         """Oversized source_path must NOT call read_text()."""
         from artifacts.store import save_artifact, _get_max_size
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
 
         # Create a large file in an allowed location
         ws = "sz_test"
         ensure_workspace(ws)
-        from workspace.manager import WS_ROOT
-        ws_root = WS_ROOT
+        from storage.paths import get_workspace_root
+        ws_root = get_workspace_root()
         uploads = ws_root / "runtime" / "uploads"
         uploads.mkdir(parents=True, exist_ok=True)
         big_file = uploads / "big_config.cfg"
@@ -52,11 +52,12 @@ class TestSourcePathSizeGuard:
 
     def test_oversized_not_in_index(self, temp_dirs):
         from artifacts.store import save_artifact, list_artifacts, _get_max_size
-        from workspace.manager import ensure_workspace, WS_ROOT
+        from storage.workspace_store import ensure_workspace
+        from storage.paths import get_workspace_root
 
         ws = "sz_idx"
         ensure_workspace(ws)
-        uploads = WS_ROOT / "runtime" / "uploads"
+        uploads = get_workspace_root() / "runtime" / "uploads"
         uploads.mkdir(parents=True, exist_ok=True)
         big_file = uploads / "big2.cfg"
         big_file.write_text("y" * (_get_max_size() + 100))
@@ -67,7 +68,7 @@ class TestSourcePathSizeGuard:
 
     def test_small_source_path_saves(self, temp_dirs):
         from artifacts.store import save_artifact, get_artifact
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
 
         ws = "sz_small"
         ensure_workspace(ws)
@@ -85,11 +86,12 @@ class TestSourcePathSizeGuard:
 
     def test_source_path_directory_rejected(self, temp_dirs):
         from artifacts.store import save_artifact
-        from workspace.manager import ensure_workspace, WS_ROOT
+        from storage.workspace_store import ensure_workspace
+        from storage.paths import get_workspace_root
 
         ws = "sz_dir"
         ensure_workspace(ws)
-        uploads = WS_ROOT / "runtime" / "uploads"
+        uploads = get_workspace_root() / "runtime" / "uploads"
         uploads.mkdir(parents=True, exist_ok=True)
         # source_path is a directory, not a file
         rec = save_artifact(workspace_id=ws, source_path=str(uploads))
@@ -97,11 +99,12 @@ class TestSourcePathSizeGuard:
 
     def test_source_path_missing_returns_none(self, temp_dirs):
         from artifacts.store import save_artifact
-        from workspace.manager import ensure_workspace, WS_ROOT
+        from storage.workspace_store import ensure_workspace
+        from storage.paths import get_workspace_root
 
         ws = "sz_miss"
         ensure_workspace(ws)
-        uploads = WS_ROOT / "runtime" / "uploads"
+        uploads = get_workspace_root() / "runtime" / "uploads"
         uploads.mkdir(parents=True, exist_ok=True)
         rec = save_artifact(workspace_id=ws, source_path=str(uploads / "nonexistent.cfg"))
         assert rec is None
@@ -115,7 +118,7 @@ class TestSourcePathSizeGuard:
 class TestContentSizeGuard:
     def test_content_oversized_rejected(self, temp_dirs):
         from artifacts.store import save_artifact, _get_max_size
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
 
         ws = "cz_oversize"
         ensure_workspace(ws)
@@ -125,7 +128,7 @@ class TestContentSizeGuard:
 
     def test_content_oversized_not_indexed(self, temp_dirs):
         from artifacts.store import save_artifact, list_artifacts, _get_max_size
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
 
         ws = "cz_oidx"
         ensure_workspace(ws)
@@ -136,7 +139,7 @@ class TestContentSizeGuard:
 
     def test_content_normal_size_saves(self, temp_dirs):
         from artifacts.store import save_artifact
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
 
         ws = "cz_ok"
         ensure_workspace(ws)

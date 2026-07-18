@@ -2,7 +2,7 @@
 """Context, Prompt & Harness routes — context resolution, prompt management."""
 
 from flask import jsonify, request
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 
 def _invalid_ws():

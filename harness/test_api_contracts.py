@@ -251,7 +251,7 @@ class TestArtifactApiContract:
 class TestRunSidecarFiltering:
     def test_run_store_excludes_trace_sidecars(self):
         from pathlib import Path
-        from workspace.run_store import is_run_record_file
+        from storage.run_record_store import is_run_record_file
 
         assert is_run_record_file(Path("run_1.json"))
         assert not is_run_record_file(Path("run_1.trace.json"))
@@ -260,7 +260,7 @@ class TestRunSidecarFiltering:
 
     def test_workspace_manager_excludes_trace_sidecars(self):
         from pathlib import Path
-        from workspace.manager import is_run_record_file
+        from storage.run_record_store import is_run_record_file
 
         assert is_run_record_file(Path("run_1.json"))
         assert not is_run_record_file(Path("run_1.trace.json"))

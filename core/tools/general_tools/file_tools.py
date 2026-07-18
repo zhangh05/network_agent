@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 from core.tools.schemas import ToolInvocation
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 from storage.workspace_files import (
     is_current_workspace_write_path,
     write_text_atomic,

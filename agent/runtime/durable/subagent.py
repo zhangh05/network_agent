@@ -363,7 +363,7 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
 
     # v3.10: Generate pending memory candidates (subagent cannot write active memory)
     try:
-        from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+        from storage.memory_governance import MemoryRecord, MemoryWriteGate
         gate = MemoryWriteGate()
         for tr in result.tool_results if result.status == "succeeded" else []:
             if tr.get("ok"):
@@ -609,7 +609,7 @@ def _prune_live_tasks(live_tasks: dict[str, dict], limit: int = 256) -> None:
 
 
 def _validated_workspace_id(ws_id: str) -> str:
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     return validate_workspace_id(str(ws_id or "").strip())
 
 

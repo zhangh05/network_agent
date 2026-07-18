@@ -9,7 +9,7 @@ _log = logging.getLogger("agent_routes")
 
 
 def _validated_ws_id(ws_id: str):
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     try:
         ws = validate_workspace_id(ws_id)
         if not ws:
@@ -22,7 +22,7 @@ def _validated_ws_id(ws_id: str):
 def _validated_session_id(sid: str):
     if not sid:
         return sid, None
-    from workspace.ids import validate_session_id
+    from storage.ids import validate_session_id
     try:
         s = validate_session_id(sid)
         if not s:

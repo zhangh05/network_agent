@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from agent.runtime.utils import now_iso
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 from .models import InspectionScope, InspectionTask
 from .profiles import BUILTIN_PROFILES, resolve_profile

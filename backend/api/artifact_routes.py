@@ -2,7 +2,7 @@
 """Artifact API routes — CRUD for artifact store."""
 
 from flask import jsonify, request
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 from artifacts.store import (
     save_artifact, sanitize_record,
     list_artifacts, get_artifact, read_artifact_content,

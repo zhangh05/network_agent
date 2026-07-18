@@ -520,7 +520,7 @@ def test_cancel_task_closes_registered_remote_sessions(monkeypatch, tmp_path):
     from agent.modules.inspection import runner
     from agent.modules.inspection.models import InspectionScope, InspectionTask
     from agent.runtime.utils import now_iso
-    import workspace.run_store as ws_store
+    import storage.run_record_store as ws_store
     import storage.paths as spaths
 
     ws = "ws_cancel_close_sessions"
@@ -549,14 +549,11 @@ def test_cancel_task_closes_registered_remote_sessions(monkeypatch, tmp_path):
     runner._register_task_session(ws, task_id, "ssh", "ssh_sid_1")
     runner._register_task_session(ws, task_id, "telnet", "telnet_sid_2")
 
-    orig = ws_store.WS_ROOT
     orig_storage_root = spaths.workspace_root
-    ws_store.WS_ROOT = tmp_path
     spaths.workspace_root = lambda ws_id: tmp_path / ws_id
     try:
         result = runner.cancel_task(ws, task_id)
     finally:
-        ws_store.WS_ROOT = orig
         spaths.workspace_root = orig_storage_root
 
     assert result["ok"] is True
@@ -773,7 +770,7 @@ def test_reconcile_all_workspaces_flips_phantom_running(tmp_path):
     assert flipped.get("ws_phantom_a") == 1, flipped
     assert "ws_phantom_b" not in flipped or flipped.get("ws_phantom_b", 0) == 0
     # and verify the on-disk status was actually flipped
-    from workspace.atomic_io import safe_read_json
+    from storage.atomic_io import safe_read_json
     data = safe_read_json(
         tmp_path / "ws_phantom_a" / "inspection" / "tasks"
         / "ins_phantom_001.json",
@@ -894,9 +891,7 @@ def test_save_task_lock_serializes_concurrent_writers(monkeypatch, tmp_path):
     ws = "ws_lock_test"
     ws_root = tmp_path / ws
     ws_root.mkdir(parents=True)
-    import workspace.run_store as ws_store
-    orig = ws_store.WS_ROOT
-    ws_store.WS_ROOT = tmp_path
+    import storage.run_record_store as ws_store
     try:
         task = InspectionTask(
             task_id="ins_lock_001",
@@ -924,7 +919,6 @@ def test_save_task_lock_serializes_concurrent_writers(monkeypatch, tmp_path):
         w2_in = next(t for t, e in log if e == "w2_in")
         assert w1_out <= w2_in, log
     finally:
-        ws_store.WS_ROOT = orig
         runner._release_task_save_lock(task.task_id)
 
 
@@ -936,15 +930,13 @@ def test_run_task_sequential_path_no_executor(monkeypatch, tmp_path):
     """
     from agent.modules.inspection import runner, service
     from agent.modules.cmdb.service import save_asset
-    import workspace.run_store as ws_store
+    import storage.run_record_store as ws_store
     import storage.paths as spaths
 
     ws = "ws_sequential"
     ws_root = tmp_path / ws
     ws_root.mkdir(parents=True)
-    orig = ws_store.WS_ROOT
     orig_storage_root = spaths.workspace_root
-    ws_store.WS_ROOT = tmp_path
     spaths.workspace_root = lambda ws_id: tmp_path / ws_id
     try:
         # Seed one asset.
@@ -967,7 +959,6 @@ def test_run_task_sequential_path_no_executor(monkeypatch, tmp_path):
         # that the pool wasn't opened.
         assert not saw_pool["v"], "executor should be skipped for max_workers=1"
     finally:
-        ws_store.WS_ROOT = orig
         spaths.workspace_root = orig_storage_root
 
 
@@ -1029,7 +1020,7 @@ def test_get_asset_flags_password_corrupted(tmp_path):
     try:
         ws = "ws_corrupt_secret"
         # Patch both layers used by cmdb: storage.paths.workspace_root
-        # and the WS_ROOT the test sees.
+        # and the workspace root the test sees.
         def fake_root(ws_id):
             return tmp_path / ws_id
         spaths.workspace_root = fake_root
@@ -1081,12 +1072,10 @@ def test_inspection_profiles_drop_blank_rows_and_keep_explicit_enter():
 def test_uploaded_log_script_keeps_vendor_paging_guards(monkeypatch, tmp_path):
     """Uploaded log scripts must inherit vendor pre/post paging guards."""
     from agent.modules.inspection import profiles
-    import workspace.run_store as run_store
+    import storage.run_record_store as run_store
     import storage.paths as spaths
 
-    original_root = run_store.WS_ROOT
     original_storage_root = spaths.workspace_root
-    run_store.WS_ROOT = tmp_path
     spaths.workspace_root = lambda ws_id: tmp_path / ws_id
     try:
         ok = profiles.upload_vendor_script_file(
@@ -1101,7 +1090,6 @@ def test_uploaded_log_script_keeps_vendor_paging_guards(monkeypatch, tmp_path):
         assert profile.pre_commands == ["screen-length disable"]
         assert profile.post_commands == ["undo screen-length disable"]
     finally:
-        run_store.WS_ROOT = original_root
         spaths.workspace_root = original_storage_root
 
 

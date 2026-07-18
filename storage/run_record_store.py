@@ -10,7 +10,7 @@ from typing import Any
 
 from storage.redaction import redact_text
 from storage.records import atomic_save_json, workspace_record_dir, workspace_record_file
-from workspace.ids import validate_run_id
+from storage.ids import validate_run_id
 
 
 def write_run_record(state: SimpleNamespace, workspace_id: str = "default") -> str:
@@ -72,6 +72,17 @@ def write_run_record(state: SimpleNamespace, workspace_id: str = "default") -> s
         "redaction_applied": True,
     }
     atomic_save_json(ws_id, ("runs", f"{run_id}.json"), record)
+    session_id = str(record.get("session_id") or "")
+    if session_id:
+        try:
+            from storage.session_store import add_run_to_session, auto_title_from_input
+
+            add_run_to_session(session_id, run_id, ws_id)
+            user_input = getattr(state, "user_input", "") or ""
+            if user_input:
+                auto_title_from_input(session_id, user_input, ws_id)
+        except Exception:
+            pass
     return run_id
 
 
@@ -212,6 +223,11 @@ def list_runs(workspace_id: str = "default", limit: int = 50, **kwargs) -> list[
     if session_id:
         rows = [row for row in rows if row.get("session_id") == session_id]
     return sorted(rows, key=run_sort_key, reverse=True)[:limit]
+
+
+def get_last_run(workspace_id: str = "default") -> dict[str, Any] | None:
+    runs = list_runs(workspace_id, limit=1)
+    return runs[0] if runs else None
 
 
 def run_sort_key(record: dict[str, Any]) -> tuple:

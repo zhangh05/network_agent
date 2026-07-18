@@ -106,7 +106,7 @@ def register_ws_routes(app):
                 if msg.get("type") == "ping":
                     workspace_id = str(msg.get("workspace_id") or "").strip()
                     try:
-                        from workspace.ids import validate_workspace_id
+                        from storage.ids import validate_workspace_id
                         workspace_id = validate_workspace_id(workspace_id)
                     except ValueError:
                         ws.send(json.dumps({"type": "error", "message": "invalid_workspace_id"}))
@@ -135,7 +135,7 @@ def register_ws_routes(app):
                     ws.send(json.dumps({"type": "error", "message": "workspace_id is required"}, ensure_ascii=True))
                     continue
                 try:
-                    from workspace.ids import validate_workspace_id, validate_session_id
+                    from storage.ids import validate_workspace_id, validate_session_id
                     workspace_id = validate_workspace_id(workspace_id)
                     if session_id:
                         session_id = validate_session_id(session_id)

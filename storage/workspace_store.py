@@ -1,7 +1,7 @@
 """Workspace repository.
 
 This module owns workspace discovery and state persistence. Control-plane code
-must go through this data-layer boundary instead of importing workspace.manager.
+must go through this data-layer boundary instead of importing legacy managers.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from typing import Optional
 from storage.atomic_io import atomic_write_json, atomic_write_text
 from storage.paths import ensure_workspace_storage_dirs, get_workspace_root, workspace_root
 from storage.run_record_store import is_run_record_file
-from workspace.ids import is_valid_workspace_id, validate_workspace_id
+from storage.ids import is_valid_workspace_id, validate_workspace_id
 
 _LOG = logging.getLogger(__name__)
 

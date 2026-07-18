@@ -10,7 +10,7 @@ from agent.modules.pcap.service import (
     list_pcap_sessions,
     parse_pcap_file,
 )
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 
 def _invalid_ws():

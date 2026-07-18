@@ -119,10 +119,9 @@ def test_reload_unresolved_on_startup(tmp_path):
 
 def test_sub_agent_run_record_written(tmp_path, monkeypatch):
     from workspace import run_store
-    from workspace.manager import ensure_workspace
+    from storage.workspace_store import ensure_workspace
 
     ws_root = tmp_path / "workspaces"
-    monkeypatch.setattr(run_store, "WS_ROOT", ws_root)
 
     ensure_workspace("ws_sub")
 

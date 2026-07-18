@@ -7,7 +7,7 @@ class TestRunHistoryPersistence:
     def test_run_record_written(self):
         """After run_agent, a run record should be persisted."""
         # Test that the run_store produces valid records
-        from workspace.run_store import write_run_record, get_run
+        from storage.run_record_store import write_run_record, get_run
         state = NetworkAgentState(
             user_input="你好", intent="assistant_chat",
             workspace_id="default",
@@ -29,7 +29,7 @@ class TestRunHistoryPersistence:
 
     def test_run_record_no_full_config(self):
         """Run record must NOT contain full deployable config lines."""
-        from workspace.run_store import write_run_record, get_run
+        from storage.run_record_store import write_run_record, get_run
         state = NetworkAgentState(
             user_input="test config",
             intent="translate_config",
@@ -46,7 +46,7 @@ class TestRunHistoryPersistence:
 
     def test_run_record_has_quality_summary(self):
         """Run record should include quality_summary counts."""
-        from workspace.run_store import write_run_record, get_run
+        from storage.run_record_store import write_run_record, get_run
         state = NetworkAgentState(user_input="test", intent="translate_config",
                                   workspace_id="default")
         state.skill_results = {
@@ -63,7 +63,7 @@ class TestRunHistoryPersistence:
 
     def test_run_record_no_password(self):
         """Run record must not leak password in result fields (user_input_summary is ok)."""
-        from workspace.run_store import write_run_record, get_run
+        from storage.run_record_store import write_run_record, get_run
         state = NetworkAgentState(
             user_input="set password mypassword",
             intent="translate_config",
@@ -80,8 +80,8 @@ class TestRecentRunsSessionScope:
     def test_recent_runs_can_be_filtered_to_current_session(self):
         """Sidebar recent runs must follow workspace -> session -> recent runs."""
         from backend.main import create_app
-        from workspace.session_store import create_session
-        from workspace.run_store import write_run_record
+        from storage.session_store import create_session
+        from storage.run_record_store import write_run_record
 
         ws = "recent_runs_session_scope"
         session_a = create_session(ws, title="Session A")

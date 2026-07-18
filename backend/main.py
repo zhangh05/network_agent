@@ -53,7 +53,7 @@ from backend.api.assurance_routes import register_assurance_routes
 from backend.api.storage_routes import register_storage_routes
 from backend.core.settings import UNIFIED_PORT, API_MODE, BUILD_COMMIT, TRANSLATOR_ENTRY
 from backend.core.rate_limit import rate_limit_middleware
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 
 
 def _invalid_workspace_response():
@@ -350,7 +350,7 @@ def create_app():
         if not raw_ws:
             return jsonify({"ok": False, "error": "workspace_id is required"}), 400
         try:
-            from workspace.ids import validate_workspace_id
+            from storage.ids import validate_workspace_id
             ws_id = validate_workspace_id(raw_ws)
         except Exception:
             return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400

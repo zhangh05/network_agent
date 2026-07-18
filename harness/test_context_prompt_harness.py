@@ -102,7 +102,7 @@ class TestContextResolver:
 
 class TestContextBuilder:
     def test_builds_bundle(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "cb_test"
         ensure_workspace(ws)
         from core.context.builder import build_context_bundle
@@ -112,7 +112,7 @@ class TestContextBuilder:
         assert b.safe_llm_context is not None
 
     def test_request_context_contains_user_input(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "cb_user_input"
         ensure_workspace(ws)
         from core.context.builder import build_context_bundle
@@ -122,7 +122,7 @@ class TestContextBuilder:
         assert request_items[0].get("summary") == "memory怎么回事"
 
     def test_safe_context_no_secret(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         ws = "cb_sec"
         ensure_workspace(ws)
         from core.context.builder import build_context_bundle

@@ -7,7 +7,7 @@ def _validated_ws_id(raw: str) -> str:
     """Validate and return workspace_id. Empty → 400."""
     if not raw or not raw.strip():
         return ""
-    from workspace.ids import validate_workspace_id
+    from storage.ids import validate_workspace_id
     return validate_workspace_id(raw.strip())
 
 
@@ -28,7 +28,7 @@ def handle_memory_status():
     if err:
         return jsonify({"ok": False, "error": err}), 400
     try:
-        from workspace.memory_governance import MemoryStore, get_memory_gate_mode
+        from storage.memory_governance import MemoryStore, get_memory_gate_mode
         store = MemoryStore()
         records = store.list_retrievable(ws_id)
         all_records = store.list_all(ws_id)
@@ -71,7 +71,7 @@ def handle_memory_write():
     is_subagent = bool(data.get("is_subagent", False))
 
     try:
-        from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+        from storage.memory_governance import MemoryRecord, MemoryWriteGate
         gate = MemoryWriteGate()
 
         # Build MemoryRecord for governance
@@ -91,7 +91,7 @@ def handle_memory_write():
             redacted=True,
         )
         # The workspace setting selects the single governed write policy.
-        from workspace.memory_governance import get_memory_gate_mode
+        from storage.memory_governance import get_memory_gate_mode
         gate_mode = get_memory_gate_mode(ws_id)
         result = gate.write(rec, gate_mode=gate_mode)
         return jsonify(result)
@@ -114,7 +114,7 @@ def handle_memory_search():
         return jsonify({"ok": False, "error": "invalid_limit"}), 400
 
     try:
-        from workspace.memory_governance import MemoryStore
+        from storage.memory_governance import MemoryStore
         store = MemoryStore()
         records = store.search(ws_id, query, limit=limit)
 
@@ -134,7 +134,7 @@ def handle_memory_confirm():
         return jsonify({"ok": False, "error": "memory_id required"}), 400
 
     try:
-        from workspace.memory_governance import confirm_memory
+        from storage.memory_governance import confirm_memory
         result = confirm_memory(ws_id, memory_id)
         return jsonify(result)
     except Exception as e:
@@ -152,7 +152,7 @@ def handle_memory_reject():
         return jsonify({"ok": False, "error": "memory_id required"}), 400
 
     try:
-        from workspace.memory_governance import reject_memory
+        from storage.memory_governance import reject_memory
         result = reject_memory(ws_id, memory_id)
         return jsonify(result)
     except Exception as e:
@@ -167,7 +167,7 @@ def handle_memory_delete(memory_id):
     if err:
         return jsonify({"ok": False, "error": err}), 400
     try:
-        from workspace.memory_governance import MemoryStore
+        from storage.memory_governance import MemoryStore
         store = MemoryStore()
         ok = store.delete_file(ws_id, memory_id)
         if not ok:
@@ -189,7 +189,7 @@ def handle_memory_batch_delete():
     if not ids or not isinstance(ids, list):
         return jsonify({"ok": False, "error": "memory_ids required (list)"}), 400
 
-    from workspace.memory_governance import MemoryStore
+    from storage.memory_governance import MemoryStore
     store = MemoryStore()
     deleted = 0
     for mid in ids:
@@ -203,7 +203,7 @@ def handle_memory_list():
     ws_id, err = _read_ws_id(request.args.get("workspace_id", ""))
     if err:
         return jsonify({"ok": False, "error": err}), 400
-    from workspace.memory_governance import MemoryStore
+    from storage.memory_governance import MemoryStore
     store = MemoryStore()
     include_deleted = str(request.args.get("include_deleted", "")).lower() in {"1", "true", "yes"}
     status_filter = str(request.args.get("status", "")).strip()

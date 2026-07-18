@@ -20,7 +20,7 @@ def client(temp_dirs):
 
 class TestLogRedaction:
     def test_append_log_redacts_config(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         from jobs.store import create_job, append_log, list_logs
         from jobs.schemas import JobRecord
         ws = "jh_log"
@@ -33,7 +33,7 @@ class TestLogRedaction:
         assert "ip address" not in raw
 
     def test_append_log_redacts_secrets(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         from jobs.store import create_job, append_log, list_logs
         from jobs.schemas import JobRecord
         ws = "jh_sec"
@@ -47,7 +47,7 @@ class TestLogRedaction:
         assert "sk-test" not in raw
 
     def test_append_log_sanitizes_metadata(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         from jobs.store import create_job, append_log, list_logs
         from jobs.schemas import JobRecord
         ws = "jh_meta"
@@ -78,7 +78,7 @@ class TestConfigRefSafety:
         assert "hostname" not in raw
 
     def test_nested_payload_redacted(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         from jobs.manager import create_job
         from jobs.store import get_job
         ws = "jh_nest"
@@ -89,7 +89,7 @@ class TestConfigRefSafety:
         assert "hostname" not in raw
 
     def test_deployable_config_redacted(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         from jobs.store import create_job, get_job
         from jobs.schemas import JobRecord
         ws = "jh_dc"
@@ -116,7 +116,7 @@ class TestStateMachine:
 
     def test_mark_running_allows_succeeded(self, temp_dirs):
         """mark_running after succeeded is allowed for session restore flow."""
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         from jobs.manager import create_job, mark_succeeded, mark_running
         ws = "jh_sm1"
         ensure_workspace(ws)
@@ -128,7 +128,7 @@ class TestStateMachine:
         assert restored.status == "running"
 
     def test_retry_failed_works(self, temp_dirs):
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         from jobs.manager import create_job, mark_running, mark_failed, retry_job
         ws = "jh_rt1"
         ensure_workspace(ws)

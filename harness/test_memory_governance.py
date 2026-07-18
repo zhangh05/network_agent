@@ -3,7 +3,7 @@
 
 import json, pytest, uuid
 from typing import get_args
-from workspace.memory_governance import (
+from storage.memory_governance import (
     MemoryRecord, MemorySource, MemoryStore, MemoryType, MemoryWriteGate,
     confirm_memory, reject_memory, expire_memory,
 )
@@ -72,8 +72,8 @@ class TestMemoryWriteGate:
         assert result["rejected"] is True
 
     def test_secret_in_metadata_is_rejected(self, tmp_path, monkeypatch):
-        import workspace.memory_governance as mg
-        monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+        import storage.memory_governance as mg
+        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
         record = MemoryRecord(
             workspace_id="ws_meta_secret",
             content="Reusable operational finding with sufficient detail.",
@@ -86,8 +86,8 @@ class TestMemoryWriteGate:
         assert MemoryStore().get(record.workspace_id, record.memory_id) is None
 
     def test_store_redacts_structured_projection_fields(self, tmp_path, monkeypatch):
-        import workspace.memory_governance as mg
-        monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+        import storage.memory_governance as mg
+        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
         record = MemoryRecord(
             workspace_id="ws_structured_redaction",
             status="pending",
@@ -109,9 +109,9 @@ class TestMemoryWriteGate:
         assert result["rejected"] is True
 
     def test_llm_first_fallback_surfaces_warning(self, tmp_path, monkeypatch):
-        import workspace.memory_governance as mg
+        import storage.memory_governance as mg
 
-        monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
 
         def boom(self, candidates):
             raise RuntimeError("provider leaked prompt should not appear")
@@ -136,8 +136,8 @@ class TestMemoryWriteGate:
         assert "provider leaked prompt" not in str(result)
 
     def test_rule_only_agent_suggestion_stays_pending(self, tmp_path, monkeypatch):
-        import workspace.memory_governance as mg
-        monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+        import storage.memory_governance as mg
+        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
         result = MemoryWriteGate().write(MemoryRecord(
             workspace_id="ws_rule_pending",
             source="agent_suggestion",
@@ -151,8 +151,8 @@ class TestMemoryWriteGate:
 
     @pytest.mark.parametrize("score,expected", [(4, "active"), (3, "pending")])
     def test_llm_first_cached_score_drives_lifecycle(self, tmp_path, monkeypatch, score, expected):
-        import workspace.memory_governance as mg
-        monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+        import storage.memory_governance as mg
+        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
 
         def must_not_call(self, candidates):
             raise AssertionError("cached generation decision must avoid a second LLM call")
@@ -171,8 +171,8 @@ class TestMemoryWriteGate:
         assert result["status"] == expected
 
     def test_llm_first_low_cached_score_is_rejected_and_audited(self, tmp_path, monkeypatch):
-        import workspace.memory_governance as mg
-        monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+        import storage.memory_governance as mg
+        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
         record = MemoryRecord(
             workspace_id="ws_cached_low",
             source="agent_suggestion",
@@ -187,8 +187,8 @@ class TestMemoryWriteGate:
         assert stored is not None and stored.status == "rejected"
 
     def test_content_without_summary_is_not_automatically_low_value(self, tmp_path, monkeypatch):
-        import workspace.memory_governance as mg
-        monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+        import storage.memory_governance as mg
+        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
         result = MemoryWriteGate().write(MemoryRecord(
             workspace_id="ws_no_summary",
             source="user",
@@ -234,9 +234,9 @@ class TestPromotion:
 class TestRetrieval:
     def test_pending_confirmation_updates_context_projection(self, tmp_path, monkeypatch):
         import core.context.context_store as context_store
-        import workspace.memory_governance as mg
+        import storage.memory_governance as mg
 
-        monkeypatch.setattr(mg, "WS_ROOT", tmp_path / "workspaces")
+        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
         monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path / "context"))
         context_store._stores.clear()
 
@@ -280,9 +280,9 @@ class TestRetrieval:
         assert any(r["memory_id"] == rec.memory_id for r in results)
 
     def test_store_rejects_invalid_workspace_id(self, tmp_path, monkeypatch):
-        import workspace.memory_governance as mg
+        import storage.memory_governance as mg
 
-        monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
         store = MemoryStore()
 
         with pytest.raises(ValueError):
@@ -383,8 +383,8 @@ class TestConflict:
         assert loaded.status == "active"
 
     def test_confirming_conflict_expires_previous_active_memory(self, tmp_path, monkeypatch):
-        import workspace.memory_governance as mg
-        monkeypatch.setattr(mg, "WS_ROOT", tmp_path)
+        import storage.memory_governance as mg
+        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
         ws = "ws_conflict_confirm"
         gate = MemoryWriteGate()
         old = MemoryRecord(
@@ -515,7 +515,7 @@ class TestLLMFirstMemoryGeneration:
 
     def test_ssot_writer_converts_llm_ttl_days_to_record_seconds(self, monkeypatch):
         import agent.runtime.ssot_runtime as runtime
-        import workspace.memory_governance as governance
+        import storage.memory_governance as governance
         from agent.runtime.memory_write import llm_memory
 
         captured = []

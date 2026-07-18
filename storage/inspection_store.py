@@ -13,7 +13,7 @@ from storage.records import (
 )
 from storage.atomic_io import atomic_write_json, safe_read_json
 from storage import paths as storage_paths
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 from storage.workspace_store import list_workspace_ids as _list_workspace_ids
 
 _SCRIPT_TYPES = {"general", "log"}

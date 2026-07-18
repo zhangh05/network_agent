@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from storage.records import atomic_save_json, list_json_records, read_json_record
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 from agent.runtime.utils import now_iso, duration_ms
 
 def _now(): return now_iso()
@@ -201,7 +201,7 @@ def save_feedback(traj_id: str, ws_id: str, feedback: dict) -> dict:
     atomic_save_json(ws_id, ("trajectories", f"{traj_id}.json"), _redact_dict(traj))
     # Generate pending MemoryCandidate for the feedback
     try:
-        from workspace.memory_governance import MemoryRecord, MemoryWriteGate
+        from storage.memory_governance import MemoryRecord, MemoryWriteGate
         gate = MemoryWriteGate()
         rec = MemoryRecord(
             workspace_id=ws_id, session_id=traj.get("session_id",""),

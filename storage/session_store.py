@@ -14,23 +14,25 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from workspace.ids import validate_session_id, validate_workspace_id
-from workspace.manager import ensure_workspace
-from workspace.atomic_io import atomic_write_json
+from storage.ids import validate_session_id, validate_workspace_id
+from storage.workspace_store import ensure_workspace
+from storage.atomic_io import atomic_write_json
 
-ROOT = Path(__file__).resolve().parent.parent
-WS_ROOT = ROOT / "workspaces"
+from storage.paths import get_workspace_root
+
+def _ws_root() -> Path:
+    return get_workspace_root()
 _LOG = logging.getLogger(__name__)
 
 
 def _session_dir(ws_id: str) -> Path:
     """Return the sessions directory for a workspace."""
-    return WS_ROOT / ws_id / "sessions"
+    return _ws_root() / ws_id / "sessions"
 
 
 def _session_path(session_id: str, ws_id: str) -> Path:
     """Return the file path for a session record. Validates session_id to prevent path traversal."""
-    # Use the canonical validator from workspace.ids so session validation
+    # Use the canonical storage validator so session validation
     # matches SessionMessageStore (rejects reserved names, >64 chars, etc.).
     safe_id = validate_session_id(session_id)
     return _session_dir(ws_id) / f"{safe_id}.json"
@@ -230,7 +232,7 @@ def delete_session_permanently(
 
     # Also scan runs dir for any runs with this session_id (recovery)
     try:
-        from workspace.run_store import list_runs
+        from storage.run_record_store import list_runs
         for run in list_runs(ws_id, limit=5000):
             if run.get("session_id") == session_id:
                 rid = run.get("run_id") or run.get("turn_id") or ""
@@ -240,7 +242,7 @@ def delete_session_permanently(
         _log.debug("run scan failed for session=%s ws=%s", session_id, ws_id)
 
     # ── Delete run records and trace files ──
-    runs_dir = WS_ROOT / ws_id / "runs"
+    runs_dir = _ws_root() / ws_id / "runs"
     for rid in run_ids:
         # Delete run record
         run_file = runs_dir / f"{rid}.json"
@@ -320,7 +322,7 @@ def add_run_to_session(
 def _auto_title_from_run(run_id: str, ws_id: str) -> str:
     """Generate a human-friendly title from the run's user input."""
     try:
-        from workspace.run_store import get_run
+        from storage.run_record_store import get_run
         run = get_run(run_id, ws_id)
         if run:
             text = (run.get("user_input_summary") or "").strip()
@@ -340,7 +342,7 @@ def get_session_messages(session_id: str, ws_id: str = "default") -> List[Dict[s
     deleted sessions never fall back to runs, so deletion semantics remain
     intact.
     """
-    from workspace.message_store import SessionMessageStore
+    from storage.message_store import SessionMessageStore
 
     session = get_session(session_id, ws_id)
     if session is None:
@@ -351,7 +353,7 @@ def get_session_messages(session_id: str, ws_id: str = "default") -> List[Dict[s
     store = SessionMessageStore(session_id=session_id, ws_id=ws_id)
     messages = store.get_messages()
 
-    from workspace.run_store import list_runs, run_sort_key
+    from storage.run_record_store import list_runs, run_sort_key
 
     runs = [
         run for run in list_runs(ws_id, limit=100_000)
@@ -414,7 +416,7 @@ def get_session_messages(session_id: str, ws_id: str = "default") -> List[Dict[s
     merged = list(messages)
     merged.extend(m for m in projected if m.get("message_id") not in existing_ids)
     try:
-        from workspace.message_store import _message_sort_key
+        from storage.message_store import _message_sort_key
         merged.sort(key=_message_sort_key)
     except Exception:
         merged.sort(key=lambda m: (
@@ -429,7 +431,7 @@ def get_session_messages(session_id: str, ws_id: str = "default") -> List[Dict[s
 def _tool_only_assistant_projection(ws_id: str, run_id: str) -> str:
     """Build a readable assistant message for historical tool-only turns."""
     try:
-        decision_path = WS_ROOT / ws_id / "runs" / f"{run_id}.decision.json"
+        decision_path = _ws_root() / ws_id / "runs" / f"{run_id}.decision.json"
         if decision_path.is_file():
             decision = json.loads(decision_path.read_text(encoding="utf-8"))
             summary = decision.get("tool_execution_summary") or {}

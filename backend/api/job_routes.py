@@ -4,7 +4,7 @@
 import json
 
 from flask import jsonify, request
-from workspace.ids import validate_workspace_id
+from storage.ids import validate_workspace_id
 from jobs.redaction import sanitize_job_record_for_api
 
 
