@@ -6,7 +6,7 @@ import { apiRequest } from "../../api/client";
 import { isApiError } from "../../types";
 import { RemoteTerminal } from "../../components/RemoteTerminal/RemoteTerminal";
 import { ScriptManagerModal } from "../../components/ScriptManagerModal";
-import { PageHeader, FilterBar } from "../../components/ui";
+import { PageHeader, FilterBar, Button, Input, Select, FormField } from "../../components/ui";
 
 interface Asset {
   asset_id: string; name: string; type: string; vendor: string;
@@ -43,10 +43,10 @@ const VENDOR_PRESETS_LIST = [
 ];
 
 // ── compact stat pill ──
-function Stat({ label, value, color, sub }: { label: string; value: number | string; color: string; sub?: string }) {
+function Stat({ label, value, className, sub }: { label: string; value: number | string; className?: string; sub?: string }) {
   return (
     <div className="stat-card">
-      <div className="stat-value" style={{ color }}>{value}</div>
+      <div className={className ? `stat-value ${className}` : "stat-value"}>{value}</div>
       <div className="stat-label">{label}</div>
       {sub && <div className="stat-sub">{sub}</div>}
     </div>
@@ -256,50 +256,35 @@ export function CMDBPage() {
 
   // ── form helpers ──
   const field = (label: string, child: ReactNode, span = 1) => (
-    <div style={{ gridColumn: span > 1 ? `span ${span}` : undefined, display: "flex", flexDirection: "column", gap: 4 }}>
-      {label && <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 600 }}>{label}</span>}
+    <FormField label={label} className={span > 1 ? "span-" + span : ""}>
       {child}
-    </div>
+    </FormField>
   );
-  const stl = (mono = true, w: CSSProperties = {}, suffix = false) => ({
-    padding: "7px 10px", fontSize: 13, borderRadius: 6, border: "1px solid var(--line)",
-    background: "var(--surface)", color: "var(--text)", outline: "none",
-    fontFamily: mono ? "var(--font-mono)" : "var(--font-sans)",
-    width: suffix ? "136px" : "100%", boxSizing: "border-box" as const,
-    transition: "border-color .15s",
-    ...w,
-  });
-  const inp = (ph: string, key: string, w: CSSProperties = {}, mono = true) => (
-    <input
+  const inp = (ph: string, key: string, _w: CSSProperties = {}, mono = true) => (
+    <Input
       placeholder={ph} value={fv[key] || ""} onChange={e => ufv(key, e.target.value)}
-      style={stl(mono, w)}
-      onFocus={e => e.currentTarget.style.borderColor = "var(--accent)"}
-      onBlur={e => e.currentTarget.style.borderColor = "var(--line)"}
+      className={mono ? "mono" : ""}
     />
   );
   const sel = (key: string, opts: [string, string][], onChange?: (v: string) => void) => (
-    <select
+    <Select
       value={fv[key] || ""} onChange={e => { ufv(key, e.target.value); onChange?.(e.target.value); }}
-      style={{
-        padding: "7px 10px", fontSize: 13, borderRadius: 6, border: "1px solid var(--line)",
-        background: "var(--surface)", color: "var(--text)", outline: "none",
-        width: "100%", boxSizing: "border-box" as const, cursor: "pointer",
-      }}>
+    >
       {opts.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-    </select>
+    </Select>
   );
   // v3.9.13: custom input helper removed — vendor/region are
   // ``<input list="...">`` comboboxes tied to ``<datalist>``s that
   // grow with previously-saved values. No extra "select + 自定义填
   // 写" switch any more.
   const sectionTitle = (title: string, desc: string) => (
-    <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "baseline", gap: 10, marginTop: 4 }}>
-      <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>{title}</span>
-      <span style={{ fontSize: 11, color: "var(--text-4)" }}>{desc}</span>
+    <div className="form-section-title">
+      <span className="form-section-title-text">{title}</span>
+      <span className="form-section-title-desc">{desc}</span>
     </div>
   );
   const helpText = (text: string) => (
-    <div style={{ fontSize: 11, color: "var(--text-4)", lineHeight: 1.45 }}>{text}</div>
+    <div className="form-help-text">{text}</div>
   );
 
   // ── build dropdown options ──
@@ -326,31 +311,31 @@ export function CMDBPage() {
   return (
     <div className="page">
       <PageHeader title="设备资产" subtitle={`已注册 ${assets.length} 台设备`}>
-        <button className="btn" onClick={() => setScriptManagerType("general")}>
+        <Button onClick={() => setScriptManagerType("general")}>
           通用脚本管理
-        </button>
-        <button className="btn" onClick={() => setScriptManagerType("log")}>
+        </Button>
+        <Button onClick={() => setScriptManagerType("log")}>
           日志脚本管理
-        </button>
-        <button className="btn" onClick={() => setGlobalTerm(true)}>
+        </Button>
+        <Button onClick={() => setGlobalTerm(true)}>
           终端
-        </button>
-        <button className="btn primary" onClick={openNew}>
+        </Button>
+        <Button variant="primary" onClick={openNew}>
           + 新增设备
-        </button>
+        </Button>
       </PageHeader>
 
       <div className="page-body">
         {/* ── 统计栏 ── */}
         <div className="stat-grid">
-          <Stat label="总资产" value={stats.total} color="var(--accent)" sub={`${stats.regions.size} 区域`} />
-          <Stat label="可连接" value={stats.connectable} color="var(--ok)" sub={`SSH ${stats.ssh} / Telnet ${stats.telnet}`} />
-          <Stat label="厂商" value={stats.vendors.size} color="#7e22ce" sub="已登记厂商" />
-          <Stat label="交换机" value={stats.switch} color="var(--info)" />
-          <Stat label="路由器" value={stats.router} color="#cf0a2c" />
-          <Stat label="防火墙" value={stats.firewall} color="#e65100" />
-          <Stat label="服务器" value={stats.server} color="#475569" />
-          <Stat label="其它" value={stats.other} color="var(--text-4)" />
+          <Stat label="总资产" value={stats.total} className="stat-value-accent" sub={`${stats.regions.size} 区域`} />
+          <Stat label="可连接" value={stats.connectable} className="stat-value-ok" sub={`SSH ${stats.ssh} / Telnet ${stats.telnet}`} />
+          <Stat label="厂商" value={stats.vendors.size} className="stat-value-purple" sub="已登记厂商" />
+          <Stat label="交换机" value={stats.switch} className="stat-value-info" />
+          <Stat label="路由器" value={stats.router} className="stat-value-red" />
+          <Stat label="防火墙" value={stats.firewall} className="stat-value-orange" />
+          <Stat label="服务器" value={stats.server} className="stat-value-slate" />
+          <Stat label="其它" value={stats.other} className="stat-value-muted" />
         </div>
 
         {/* ── 区域筛选 ── */}
@@ -358,6 +343,7 @@ export function CMDBPage() {
           <FilterBar>
             <span className="filter-chip-label">区域：</span>
             <button
+              type="button"
               onClick={() => setRegionFilter("")}
               className={`filter-chip ${!regionFilter ? "active" : ""}`}
             >全部</button>
@@ -365,71 +351,65 @@ export function CMDBPage() {
               const active = regionFilter === r;
               return (
                 <button
+                  type="button"
                   key={r}
                   onClick={() => setRegionFilter(active ? "" : r)}
                   className={`filter-chip region ${active ? "active" : ""}`}
-                  style={{
-                    ...(active
-                      ? {
-                          "--chip-bg": REGION_TINT[r] || "var(--surface-3)",
-                          "--chip-color": REGION_TEXT[r] || "var(--text)",
-                          "--chip-border": REGION_TEXT[r] || "var(--text-3)",
-                        }
-                      : {}),
-                  } as React.CSSProperties}
-                >{r}</button>
-              );
-            })}
-            <div className="spacer" />
-            <button
-              type="button"
-              className="btn"
-              data-testid="cmdb-inspect-region-general"
-              disabled={!activeInspectionRegion}
-              title={activeInspectionRegion
-                ? `跳转工作台，让 LLM 对 ${activeInspectionRegion} 的 ${activeInspectionRegionCount} 台设备发起通用巡检`
-                : "选择区域后发起巡检"}
-              onClick={() => {
-                if (!activeInspectionRegion) return;
-                launchInspection({
-                  region: activeInspectionRegion,
-                  label: activeInspectionRegion,
-                  source: "cmdb_region_button",
-                  type: "general",
-                });
-              }}
-              style={{ opacity: activeInspectionRegion ? 1 : .55 }}
-            >
-              通用巡检
-            </button>
-            <button
-              type="button"
-              className="btn"
-              data-testid="cmdb-inspect-region-log"
-              disabled={!activeInspectionRegion}
-              title={activeInspectionRegion
-                ? `跳转工作台，让 LLM 对 ${activeInspectionRegion} 的 ${activeInspectionRegionCount} 台设备发起日志巡检`
-                : "选择区域后发起巡检"}
-              onClick={() => {
-                if (!activeInspectionRegion) return;
-                launchInspection({
-                  region: activeInspectionRegion,
-                  label: activeInspectionRegion,
-                  source: "cmdb_region_button",
-                  type: "log",
-                });
-              }}
               style={{
-                opacity: activeInspectionRegion ? 1 : .55,
-                background: "var(--info-soft)",
-                color: "var(--info)",
-                border: "1px solid var(--info-soft)",
-              }}
-            >
-              日志巡检
-            </button>
-          </FilterBar>
-        )}
+                ...(active
+                  ? {
+                      "--chip-bg": REGION_TINT[r] || "var(--surface-3)",
+                      "--chip-color": REGION_TEXT[r] || "var(--text)",
+                      "--chip-border": REGION_TEXT[r] || "var(--text-3)",
+                    }
+                  : {}),
+              } as React.CSSProperties}
+            >{r}</button>
+          );
+        })}
+        <div className="spacer" />
+        <button
+          type="button"
+          className="btn"
+          data-testid="cmdb-inspect-region-general"
+          disabled={!activeInspectionRegion}
+          title={activeInspectionRegion
+            ? `跳转工作台，让 LLM 对 ${activeInspectionRegion} 的 ${activeInspectionRegionCount} 台设备发起通用巡检`
+            : "选择区域后发起巡检"}
+          onClick={() => {
+            if (!activeInspectionRegion) return;
+            launchInspection({
+              region: activeInspectionRegion,
+              label: activeInspectionRegion,
+              source: "cmdb_region_button",
+              type: "general",
+            });
+          }}
+        >
+          通用巡检
+        </button>
+        <button
+          type="button"
+          className="btn btn-info-soft"
+          data-testid="cmdb-inspect-region-log"
+          disabled={!activeInspectionRegion}
+          title={activeInspectionRegion
+            ? `跳转工作台，让 LLM 对 ${activeInspectionRegion} 的 ${activeInspectionRegionCount} 台设备发起日志巡检`
+            : "选择区域后发起巡检"}
+          onClick={() => {
+            if (!activeInspectionRegion) return;
+            launchInspection({
+              region: activeInspectionRegion,
+              label: activeInspectionRegion,
+              source: "cmdb_region_button",
+              type: "log",
+            });
+          }}
+        >
+          日志巡检
+        </button>
+      </FilterBar>
+    )}
 
         {/* ── 全局终端 ── */}
         {globalTerm && <RemoteTerminal onClose={() => setGlobalTerm(false)} />}
@@ -453,82 +433,57 @@ export function CMDBPage() {
               {/* 标题 */}
               <div className="modal-header">
                 <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div className="row-flex-sm">
                     <span className="modal-title">
                       {editingAsset ? "编辑设备资产" : "新增设备资产"}
                     </span>
                     {editingAsset?.asset_id && (
-                      <span className="mono" style={{
-                        fontSize: 11, color: "var(--text-4)", background: "var(--surface-3)",
-                        border: "1px solid var(--line-2)", borderRadius: 5, padding: "2px 7px",
-                      }}>{editingAsset.asset_id}</span>
+                      <span className="mono asset-id-badge">{editingAsset.asset_id}</span>
                     )}
                   </div>
                   <div className="modal-subtitle">
                     字段与 CMDB 后端一致；密码只会保存为服务端密钥，列表和详情不会返回明文。
                   </div>
                 </div>
-                <button className="btn sm ghost modal-close" onClick={() => setShowForm(false)} type="button">×</button>
+                <Button size="sm" variant="ghost" className="modal-close" onClick={() => setShowForm(false)}>×</Button>
               </div>
 
               <div className="modal-form-grid">
                 {/* 基本信息 */}
                 {sectionTitle("基础信息", "用于识别资产，LLM 会优先根据名称、厂商、型号和标签检索。")}
-                <div style={{ gridColumn: "span 6" }}>{field("名称 *", inp("设备名称，例如：杭州核心交换机-01", "name", { fontFamily: "var(--font-sans)" }, false))}</div>
-                <div style={{ gridColumn: "span 3" }}>{field("类型", sel("type", typeOpts))}</div>
-                {/* v3.9.13: vendor is a combobox — pick from presets or type
-                    anything for a custom entry. The datalist grows with
-                    the CMDB. */}
-                <div style={{ gridColumn: "span 3", display: "flex", flexDirection: "column", gap: 4 }}>
-                  <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 600 }}>厂商</span>
-                  <input
-                    list="cmdb-vendor-options"
-                    placeholder="选择或输入，例如：H3C"
-                    value={fv.vendor || ""}
-                    onChange={e => ufv("vendor", e.target.value)}
-                    style={stl(false)}
-                    onFocus={e => e.currentTarget.style.borderColor = "var(--accent)"}
-                    onBlur={e => e.currentTarget.style.borderColor = "var(--line)"}
-                  />
-                  <datalist id="cmdb-vendor-options">
-                    {savedVendors.map(v => <option key={v} value={v} />)}
-                  </datalist>
+                <div className="span-6">{field("名称 *", inp("设备名称，例如：杭州核心交换机-01", "name", {}, false))}</div>
+                <div className="span-3">{field("类型", sel("type", typeOpts))}</div>
+                <div className="span-3">
+                  <FormField label="厂商">
+                    <Input list="cmdb-vendor-options" placeholder="选择或输入，例如：H3C" value={fv.vendor || ""} onChange={e => ufv("vendor", e.target.value)} />
+                    <datalist id="cmdb-vendor-options">
+                      {savedVendors.map(v => <option key={v} value={v} />)}
+                    </datalist>
+                  </FormField>
                 </div>
-                <div style={{ gridColumn: "span 4" }}>{field("型号", inp("型号，例如：S5735 / AR3260", "model", { fontFamily: "var(--font-sans)" }, false))}</div>
-                <div style={{ gridColumn: "span 8" }}>{field("标签", inp("多个标签用逗号分隔，例如：核心, BGP, 生产", "tags", { fontFamily: "var(--font-sans)" }, false))}</div>
+                <div className="span-4">{field("型号", inp("型号，例如：S5735 / AR3260", "model", {}, false))}</div>
+                <div className="span-8">{field("标签", inp("多个标签用逗号分隔，例如：核心, BGP, 生产", "tags", {}, false))}</div>
 
                 {/* 区域 & 位置 */}
                 {sectionTitle("区域与位置", "区域用于 LLM 分区检索和运维调度；位置用于机房、机柜、U 位等物理定位。")}
-                {/* v3.9.13: region combobox — same pattern as vendor. */}
-                <div style={{ gridColumn: "span 4", display: "flex", flexDirection: "column", gap: 4 }}>
-                  <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 600 }}>区域</span>
-                  <input
-                    list="cmdb-region-options"
-                    placeholder="选择或输入，例如：华东"
-                    value={fv.region || ""}
-                    onChange={e => ufv("region", e.target.value)}
-                    style={stl(false)}
-                    onFocus={e => e.currentTarget.style.borderColor = "var(--accent)"}
-                    onBlur={e => e.currentTarget.style.borderColor = "var(--line)"}
-                  />
-                  <datalist id="cmdb-region-options">
-                    {savedRegions.map(r => <option key={r} value={r} />)}
-                  </datalist>
+                <div className="span-4">
+                  <FormField label="区域">
+                    <Input list="cmdb-region-options" placeholder="选择或输入，例如：华东" value={fv.region || ""} onChange={e => ufv("region", e.target.value)} />
+                    <datalist id="cmdb-region-options">
+                      {savedRegions.map(r => <option key={r} value={r} />)}
+                    </datalist>
+                  </FormField>
                 </div>
-                <div style={{ gridColumn: "span 4" }}>{field("位置", inp("机房 / 机柜 / U 位，例如：7A-18U", "location", { fontFamily: "var(--font-sans)" }, false))}</div>
-                <div style={{ gridColumn: "span 4", alignSelf: "end" }}>{helpText("示例：华东 / 杭州-A机房 / 7A-18U。区域越稳定，LLM 按区域查找越可靠。")}</div>
-                <div style={{ gridColumn: "span 12" }}>{field("备注", inp("备注信息，例如用途、业务归属、维护窗口", "description", { fontFamily: "var(--font-sans)" }, false))}</div>
+                <div className="span-4">{field("位置", inp("机房 / 机柜 / U 位，例如：7A-18U", "location", {}, false))}</div>
+                <div className="span-4 align-end">{helpText("示例：华东 / 杭州-A机房 / 7A-18U。区域越稳定，LLM 按区域查找越可靠。")}</div>
+                <div className="span-12">{field("备注", inp("备注信息，例如用途、业务归属、维护窗口", "description", {}, false))}</div>
 
                 {/* 连接信息分隔 */}
                 {sectionTitle("连接凭据", "SSH / Telnet 可直接从资产发起远程终端；其它协议先作为资产资料保存。")}
 
-                {/* v3.9.13: protocol picker is two-stage — primary chips
-                    for SSH / Telnet (live-terminal protocols), an
-                    "其它协议" disclosure for the rest. "ssh" remains
-                    the default for new entries. */}
-                <div style={{ gridColumn: "span 12", display: "flex", flexDirection: "column", gap: 6 }}>
-                  <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 600 }}>协议</span>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <div className="protocol-section">
+                  <span className="protocol-label">协议</span>
+                  <div className="protocol-row">
                     {terminalProtocols.map(p => {
                       const active = (fv.protocol || "").toLowerCase() === p.value;
                       return (
@@ -537,28 +492,17 @@ export function CMDBPage() {
                           type="button"
                           title={p.desc}
                           onClick={() => { ufv("protocol", p.value); setShowAdvancedProtocol(false); }}
-                          style={{
-                            padding: "6px 14px", borderRadius: "var(--r-pill)", cursor: "pointer",
-                            border: `1px solid ${active ? "var(--accent)" : "var(--line-2)"}`,
-                            background: active ? "var(--accent-soft)" : "var(--surface)",
-                            color: active ? "var(--accent)" : "var(--text-3)",
-                            fontSize: 13, fontWeight: 600, transition: "all .15s",
-                          }}
+                          className={"protocol-chip" + (active ? " active" : "")}
                         >{p.label}</button>
                       );
                     })}
                     <button
                       type="button"
                       onClick={() => setShowAdvancedProtocol(v => !v)}
-                      style={{
-                        padding: "6px 12px", borderRadius: "var(--r-pill)", cursor: "pointer",
-                        border: `1px solid ${showAdvancedProtocol ? "var(--accent)" : "var(--line)"}`,
-                        background: "transparent", color: "var(--text-4)",
-                        fontSize: 12,
-                      }}
+                      className={"protocol-advanced-toggle" + (showAdvancedProtocol ? " active" : "")}
                     >{showAdvancedProtocol ? "收起其它协议" : "其它协议 ▾"}</button>
                     {showAdvancedProtocol && (
-                      <div style={{ display: "flex", gap: 6, marginLeft: 4, flexWrap: "wrap" }}>
+                      <div className="protocol-advanced-list">
                         {passiveProtocols.map(p => {
                           const active = (fv.protocol || "").toLowerCase() === p.value;
                           return (
@@ -566,13 +510,7 @@ export function CMDBPage() {
                               key={p.value}
                               type="button"
                               onClick={() => ufv("protocol", p.value)}
-                              style={{
-                                padding: "5px 12px", borderRadius: "var(--r-pill)", cursor: "pointer",
-                                border: `1px solid ${active ? "var(--accent)" : "var(--line)"}`,
-                                background: active ? "var(--accent-soft)" : "var(--surface)",
-                                color: active ? "var(--accent)" : "var(--text-4)",
-                                fontSize: 12, fontWeight: 500,
-                              }}
+                              className={"protocol-advanced-chip" + (active ? " active" : "")}
                             >{p.label}</button>
                           );
                         })}
@@ -581,36 +519,18 @@ export function CMDBPage() {
                   </div>
                 </div>
 
-                <div style={{ display: "flex", gap: 8, gridColumn: "span 12" }}>
-                  <div style={{ flex: 1 }}>{field("主机 *", inp("192.168.1.1", "host"))}</div>
-                  <div style={{ width: 92 }}>{field("端口", inp("22", "port", { textAlign: "center" }))}</div>
+                <div className="host-port-row">
+                  <div className="flex-1">{field("主机 *", inp("192.168.1.1", "host"))}</div>
+                  <div className="cmdb-port-field">{field("端口", inp("22", "port"))}</div>
                 </div>
-                <div style={{ gridColumn: "span 6" }}>{field("用户名", inp("admin", "username"))}</div>
-                <div style={{ gridColumn: "span 6", display: "flex", flexDirection: "column", gap: 4 }}>
-                  <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 600 }}>
-                    密码 <span style={{ color: "var(--text-4)", fontWeight: 400 }}>· 后端保存为密钥，不返回明文</span>
-                  </span>
-                  <input
-                    type="password"
-                    placeholder={editingAsset ? "留空保留原密钥" : "选填；填入将覆盖"}
-                    value={fv.password}
-                    onChange={e => ufv("password", e.target.value)}
-                    style={{
-                      padding: "7px 10px", fontSize: 13, borderRadius: 6,
-                      border: "1px solid var(--line)", background: "var(--surface)",
-                      color: "var(--text)", outline: "none",
-                      fontFamily: "var(--font-mono)", transition: "border-color .15s",
-                    }}
-                    onFocus={e => e.currentTarget.style.borderColor = "var(--accent)"}
-                    onBlur={e => e.currentTarget.style.borderColor = "var(--line)"}
-                  />
+                <div className="span-6">{field("用户名", inp("admin", "username"))}</div>
+                <div className="span-6">
+                  <FormField label={<span>密码 <span className="password-label-hint">· 后端保存为密钥，不返回明文</span></span>}>
+                    <Input type="password" placeholder={editingAsset ? "留空保留原密钥" : "选填；填入将覆盖"} value={fv.password} onChange={e => ufv("password", e.target.value)} className="mono" />
+                  </FormField>
                 </div>
-                <div style={{ gridColumn: "span 12" }}>
-                  <div style={{
-                    border: "1px solid var(--line-2)", background: "var(--surface-2)",
-                    borderRadius: 7, padding: "9px 11px", fontSize: 12,
-                    color: "var(--text-3)", lineHeight: 1.55,
-                  }}>
+                <div className="span-12">
+                  <div className="password-hint-box">
                     {editingAsset
                       ? "保存时密码留空 → 后端保留原 password_secret；填入新值才替换。"
                       : "保存后，LLM 和远程终端通过 asset_id 发起连接，看不到明文密码。"}
@@ -619,16 +539,16 @@ export function CMDBPage() {
               </div>
 
               {fv.err && (
-                <div style={{ margin: "10px 24px 0", padding: "8px 12px", borderRadius: 6, background: "var(--warn-soft)", color: "var(--warn)", fontSize: 12, fontWeight: 500 }}>
+                <div className="error-banner">
                   {fv.err}
                 </div>
               )}
 
               <div className="modal-footer">
-                <button className="btn" onClick={() => setShowForm(false)}>取消</button>
-                <button className="btn primary" onClick={doSave}>
+                <Button onClick={() => setShowForm(false)}>取消</Button>
+                <Button variant="primary" onClick={doSave}>
                   {editingAsset ? "保存更改" : "创建设备"}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -657,7 +577,7 @@ export function CMDBPage() {
                   <div className="asset-card-meta">
                     <span className="asset-card-type">{TYPE_LABEL[a.type] || a.type}</span>
                     {a.vendor && (
-                      <span style={{ fontSize: 11, color: "var(--text-4)" }}>{a.vendor}</span>
+                      <span className="asset-card-vendor">{a.vendor}</span>
                     )}
                     {regionName && (
                       <span className="asset-card-region" style={{ background: REGION_TINT[regionName], color: REGION_TEXT[regionName] }}>
@@ -667,8 +587,8 @@ export function CMDBPage() {
                   </div>
                 </div>
                 <div className="asset-card-actions">
-                  <button className="btn sm ghost" onClick={() => openEdit(a)}>编辑</button>
-                  <button className="btn sm ghost text-danger" onClick={() => doDelete(a.asset_id)}>删除</button>
+                  <button type="button" className="btn sm ghost" onClick={() => openEdit(a)}>编辑</button>
+                  <button type="button" className="btn sm ghost text-danger" onClick={() => doDelete(a.asset_id)}>删除</button>
                 </div>
               </div>
 
@@ -676,7 +596,7 @@ export function CMDBPage() {
                 <div className="asset-card-host">
                   <span className="asset-card-protocol">{a.protocol}</span>
                   <span>{a.host}:{a.port}</span>
-                  {a.username && <span style={{ color: "var(--text-4)" }}>@{a.username}</span>}
+                  {a.username && <span className="asset-card-username">@{a.username}</span>}
                 </div>
                 {(a.model || a.location) && (
                   <div className="asset-card-extra">
@@ -687,7 +607,7 @@ export function CMDBPage() {
               </div>
 
               <div className="asset-card-footer">
-                <button className="btn primary" onClick={() => canOpenTerminal && setTermAsset(a)}
+                <button type="button" className="btn primary" onClick={() => canOpenTerminal && setTermAsset(a)}
                   disabled={!canOpenTerminal}>
                   {canOpenTerminal ? "连接" : "已保存资料"}
                 </button>
@@ -704,7 +624,7 @@ export function CMDBPage() {
                   通用巡检
                 </button>
                 <button
-                  className="btn"
+                  className="btn btn-info-soft"
                   type="button"
                   onClick={() => launchInspection({
                     asset_ids: [a.asset_id],
@@ -712,11 +632,6 @@ export function CMDBPage() {
                     source: "cmdb_asset_button",
                     type: "log",
                   })}
-                  style={{
-                    background: "var(--info-soft)",
-                    color: "var(--info)",
-                    border: "1px solid var(--info-soft)",
-                  }}
                 >
                   日志巡检
                 </button>

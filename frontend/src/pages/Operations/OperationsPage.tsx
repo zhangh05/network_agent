@@ -395,7 +395,7 @@ export function OperationsPage() {
                   )}
                   {job.error && (
                     <div className="job-card-meta">
-                      <span className="danger-text" style={{ fontSize: "var(--fs-11)" }}>{job.error.slice(0, 60)}</span>
+                      <span className="danger-text job-error-text">{job.error.slice(0, 60)}</span>
                     </div>
                   )}
                   <div className="job-card-actions">
@@ -547,7 +547,7 @@ function QuickStat({ label, value, mono, danger }: { label: string; value: strin
   return (
     <span className="row-flex-xs">
       <span className="faint text-xs">{label}</span>
-      <span className={mono ? "mono" : undefined} style={{ fontWeight: 680, color: danger ? "var(--danger)" : "var(--text-2)" }}>{value}</span>
+      <span className={`quick-stat-value ${mono ? "mono" : ""} ${danger ? "quick-stat-value-danger" : ""}`}>{value}</span>
     </span>
   );
 }
@@ -604,7 +604,7 @@ function TabStats({ job, runs, runsLoading, stats, duration }: {
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "10px", marginBottom: 20 }}>
+      <div className="stat-grid-4">
         <StatCard label="会话 ID" value={getSessionId(job).slice(0, 16) || "-"} mono />
         <StatCard label="作业 ID" value={job.job_id.slice(0, 12)} mono />
         <StatCard label="类型" value={JOB_TYPE_LABELS[job.job_type] || job.job_type} />
@@ -612,8 +612,8 @@ function TabStats({ job, runs, runsLoading, stats, duration }: {
         <StatCard label="耗时" value={duration || "-"} />
       </div>
 
-      <div className="section-head" style={{ marginBottom: 10 }}>执行统计</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: "8px", marginBottom: 20 }}>
+      <div className="section-head">执行统计</div>
+      <div className="stat-grid-6">
         <StatCard label="总轮数" value={String(stats.runCount)} highlight />
         <StatCard label="成功" value={String(succeededRuns)} highlight ok />
         <StatCard label="失败" value={String(failedRuns)} highlight danger={failedRuns > 0} />
@@ -623,7 +623,7 @@ function TabStats({ job, runs, runsLoading, stats, duration }: {
       </div>
 
       <div className="section-head mb-2">时间线</div>
-      <div className="row-flex-sm" style={{ flexWrap: "wrap", fontSize: "var(--fs-12)", color: "var(--text-3)", marginBottom: 20 }}>
+      <div className="row-flex-sm timeline-meta-row">
         <div>创建：{formatCompactDate(job.created_at) || "-"}</div>
         <div>开始：{formatCompactDate(job.started_at) || "-"}</div>
         <div>结束：{formatCompactDate(job.finished_at) || "-"}</div>
@@ -632,7 +632,7 @@ function TabStats({ job, runs, runsLoading, stats, duration }: {
 
       {runList.length > 0 && (
         <>
-          <div className="section-head" style={{ marginBottom: 10 }}>各轮耗时</div>
+          <div className="section-head">各轮耗时</div>
           {runList.map((r, i) => (
             <div key={i} className="timeline-row">
               <span className="timeline-index">#{runList.length - i}</span>
@@ -792,7 +792,7 @@ function RunTraceView({ run, trace, tab, setTab, onBack }: {
                   <div className="fail-reason-body">{failInfo.error}</div>
                 </div>
               )}
-              <div className="section-head" style={{ justifyContent: "flex-start" }}>事件时间线 · {trace.length} 个事件</div>
+              <div className="section-head">事件时间线 · {trace.length} 个事件</div>
               {trace.length === 0 ? <EmptyState text="该运行无事件记录" /> : (
                 trace.map((ev: any, i: number) => {
                   const et = ev.event_type || ev.type || "unknown";

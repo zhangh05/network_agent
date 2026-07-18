@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { memoryApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { Badge, StatusDot } from "../../components/common";
@@ -32,6 +32,11 @@ export function MemoryPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<{ kind: "ok" | "err"; msg: string } | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -118,7 +123,8 @@ export function MemoryPage() {
 
   const showToast = (kind: "ok" | "err", msg: string) => {
     setToast({ kind, msg });
-    setTimeout(() => setToast(null), 2000);
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 2000);
   };
 
   const allVisibleIds = useMemo(() => display.map(e => e.memory_id ?? "__").filter(Boolean), [display]);
@@ -144,17 +150,17 @@ export function MemoryPage() {
         <div className="page-body">
           {showCreate && (
             <div className="card card-highlight">
-              <div className="card-title" style={{ marginBottom: 10 }}>新建记忆</div>
-              <input className="input" type="text" placeholder="标题" value={title} onChange={(e) => setTitle(e.target.value)} style={{ marginBottom: 8 }} />
-              <textarea className="input" placeholder="记忆内容..." value={content} onChange={(e) => setContent(e.target.value)} rows={3} style={{ marginBottom: 10 }} />
-              <div style={{ display: "flex", gap: 8 }}>
+              <div className="card-title memory-form-title">新建记忆</div>
+              <input className="input memory-form-input" type="text" placeholder="标题" value={title} onChange={(e) => setTitle(e.target.value)} />
+              <textarea className="input memory-form-textarea" placeholder="记忆内容..." value={content} onChange={(e) => setContent(e.target.value)} rows={3} />
+              <div className="memory-form-actions">
                 <button className="btn primary sm" onClick={handleCreate} disabled={!title || !content}>保存</button>
                 <button className="btn sm" onClick={() => { setShowCreate(false); setTitle(""); setContent(""); }}>取消</button>
               </div>
             </div>
           )}
           <div className="hero">
-            <div className="hero-mark" style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.5 }}>
+            <div className="hero-mark hero-mark-memory">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 2L2 7l10 5 10-5-10-5z" />
                 <path d="M2 17l10 5 10-5" />
@@ -163,7 +169,7 @@ export function MemoryPage() {
             </div>
             <h2 className="hero-title">暂无记忆数据</h2>
             <p className="hero-sub">Agent 在处理任务时会自动记录重要的决策、偏好和知识。你也可以手动创建新的记忆条目。</p>
-            <button className="btn primary" onClick={() => setShowCreate(true)} style={{ marginTop: 16 }}>
+            <button className="btn primary hero-create-btn" onClick={() => setShowCreate(true)}>
               <IconPlus size={14} /> 创建第一条记忆
             </button>
           </div>
@@ -190,10 +196,9 @@ export function MemoryPage() {
             <svg className="search-input-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
             </svg>
-            <input className="input" type="text" placeholder="搜索记忆..." value={searchQ}
+            <input className={`input ${searchQ ? "search-input--has-clear" : ""}`} type="text" placeholder="搜索记忆..." value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
-              style={{ paddingRight: searchQ ? 32 : 11 }} />
+              onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }} />
             {searchQ && (
               <button className="search-input-clear" onClick={() => { setSearchQ(""); setSearchRes(null); }}>
                 <IconClose size={12} />
@@ -223,10 +228,10 @@ export function MemoryPage() {
 
         {showCreate && (
           <div className="card card-highlight">
-            <div className="card-title" style={{ marginBottom: 10 }}>新建记忆</div>
-            <input className="input" type="text" placeholder="标题" value={title} onChange={(e) => setTitle(e.target.value)} style={{ marginBottom: 8 }} />
-            <textarea className="input" placeholder="记忆内容..." value={content} onChange={(e) => setContent(e.target.value)} rows={3} style={{ marginBottom: 10 }} />
-            <div style={{ display: "flex", gap: 8 }}>
+            <div className="card-title memory-form-title">新建记忆</div>
+            <input className="input memory-form-input" type="text" placeholder="标题" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <textarea className="input memory-form-textarea" placeholder="记忆内容..." value={content} onChange={(e) => setContent(e.target.value)} rows={3} />
+            <div className="memory-form-actions">
               <button className="btn primary sm" onClick={handleCreate} disabled={!title || !content}>保存</button>
               <button className="btn sm" onClick={() => setShowCreate(false)}>取消</button>
             </div>
@@ -234,10 +239,10 @@ export function MemoryPage() {
         )}
 
         {err && (
-          <div className="card" style={{ borderLeft: "3px solid var(--danger)", marginBottom: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--danger)" }}>
-              <span style={{ fontWeight: 720 }}>⚠</span>
-              <span style={{ fontSize: "var(--fs-13)" }}>{err}</span>
+          <div className="card memory-error-card">
+            <div className="memory-error-row">
+              <span className="memory-error-icon">⚠</span>
+              <span className="memory-error-text">{err}</span>
             </div>
           </div>
         )}
@@ -270,7 +275,7 @@ export function MemoryPage() {
                         setChecked(next);
                       }}
                       onClick={(ev) => ev.stopPropagation()}
-                      style={{ accentColor: "var(--accent)", width: 14, height: 14, cursor: "pointer", flexShrink: 0 }} />
+                      className="memory-checkbox" />
 
                     <div className="memory-card-content">
                       <div className="memory-card-title">

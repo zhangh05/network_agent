@@ -222,16 +222,6 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
     onClose();
   };
 
-  // ── style ──
-  const inputStyle = (mono = true, extra: Record<string, string> = {}) => ({
-    padding: "5px 8px", fontSize: 12, borderRadius: 5,
-    border: "1px solid var(--line)", background: "var(--surface)",
-    color: "var(--text)", outline: "none",
-    fontFamily: mono ? "var(--font-mono)" : "var(--font-sans)",
-    transition: "border-color .15s",
-    ...extra,
-  } as const);
-
   // ── render a single editable list ──
   const renderCmdList = (
     items: string[],
@@ -246,74 +236,45 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
     addFn: () => void,
     addEnterFn?: () => void,
   ) => (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ fontWeight: 700, fontSize: 12, color: `var(--${color})`, marginBottom: 6 }}>
-        {label}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+    <div className="mb-3">
+      <div className={`script-modal-list-label ${color}`}>{label}</div>
+      <div className="script-modal-list">
         {items.map((cmd, i) => (
-          <div key={`${label}-${i}`} style={{
-            display: "flex", gap: 8, alignItems: "center", padding: "4px 0",
-            borderBottom: i < items.length - 1 ? "1px solid var(--line-2)" : "none",
-          }}>
-            <span style={{
-              fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--text-4)",
-              minWidth: 28, textAlign: "right", flexShrink: 0,
-            }}>{i + 1}</span>
+          <div key={`${label}-${i}`} className="script-modal-row">
+            <span className="script-modal-row-idx">{i + 1}</span>
             <input
+              className={`script-modal-input${isEnterAction(cmd) ? " readonly" : ""}`}
               value={displayCommand(cmd)}
               readOnly={isEnterAction(cmd)}
               onChange={e => editFn(i, e.target.value)}
-              style={{
-                ...inputStyle(true),
-                flex: 1,
-                fontStyle: isEnterAction(cmd) ? "italic" : "normal",
-                color: isEnterAction(cmd) ? "var(--text-4)" : "var(--text)",
-                background: isEnterAction(cmd) ? "var(--surface-2)" : "var(--surface)",
-              }}
-              onFocus={e => e.currentTarget.style.borderColor = "var(--accent)"}
-              onBlur={e => e.currentTarget.style.borderColor = "var(--line)"}
             />
-            <button className="btn sm ghost" onClick={() => delFn(i)}
-              style={{ fontSize: 11, padding: "2px 6px", color: "var(--text-4)", flexShrink: 0 }}
-              title="删除">×</button>
+            <button type="button" className="btn sm ghost script-modal-row-del" onClick={() => delFn(i)} title="删除">×</button>
           </div>
         ))}
         {items.length === 0 && (
-          <div style={{ textAlign: "center", padding: "10px", color: "var(--text-4)", fontSize: 12 }}>
-            暂无{label}，请添加。
-          </div>
+          <div className="script-modal-list-empty">暂无{label}，请添加。</div>
         )}
       </div>
-      {/* add row */}
       {addRow ? (
-        <div style={{
-          display: "flex", gap: 8, alignItems: "center", marginTop: 8,
-          padding: "8px 12px", background: "var(--surface-2)", borderRadius: 7,
-        }}>
+        <div className="script-modal-add-row">
           <input
+            className="script-modal-input"
             placeholder={`输入${label}${addEnterFn ? "，需要回车请点插入回车" : ""}`}
             value={newVal}
             onChange={e => setNewVal(e.target.value)}
-            style={{ ...inputStyle(true), flex: 1 }}
             onKeyDown={e => e.key === "Enter" && addFn()}
           />
-          <button className="btn sm primary" onClick={addFn}
-            style={{ fontSize: 11, padding: "3px 10px" }}>添加</button>
+          <button type="button" className="btn sm primary" onClick={addFn}>添加</button>
           {addEnterFn && (
-            <button className="btn sm" onClick={addEnterFn}
-              style={{ fontSize: 11, padding: "3px 8px" }}>插入回车</button>
+            <button type="button" className="btn sm" onClick={addEnterFn}>插入回车</button>
           )}
-          <button className="btn sm ghost" onClick={() => { setAddRow(false); setNewVal(""); setError(""); }}
-            style={{ fontSize: 11, padding: "3px 6px" }}>取消</button>
+          <button type="button" className="btn sm ghost" onClick={() => { setAddRow(false); setNewVal(""); setError(""); }}>取消</button>
         </div>
       ) : (
-        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-          <button className="btn sm" onClick={() => { setAddRow(true); setNewVal(""); }}
-            style={{ fontSize: 12, padding: "4px 12px" }}>+ 添加{label}</button>
+        <div className="script-modal-add-bar">
+          <button type="button" className="btn sm" onClick={() => { setAddRow(true); setNewVal(""); }}>+ 添加{label}</button>
           {addEnterFn && (
-            <button className="btn sm ghost" onClick={addEnterFn}
-              style={{ fontSize: 12, padding: "4px 10px" }}>插入回车</button>
+            <button type="button" className="btn sm ghost" onClick={addEnterFn}>插入回车</button>
           )}
         </div>
       )}
@@ -330,70 +291,50 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
   }, [handleClose]);
 
   return createPortal(
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 9999,
-      background: "var(--overlay)", backdropFilter: "blur(3px)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      padding: 18,
-    }} onClick={handleClose}>
-      <div onClick={e => e.stopPropagation()} style={{
-        width: "min(820px, 100%)", maxHeight: "92vh", overflow: "auto",
-        background: "var(--surface)", borderRadius: 10,
-        boxShadow: "var(--shadow-menu)", padding: 0,
-        display: "flex", flexDirection: "column",
-      }}>
+    <div className="modal-overlay" onClick={handleClose}>
+      <div className="script-modal-panel" onClick={e => e.stopPropagation()}>
         {/* ── header ── */}
-        <div style={{
-          display: "flex", justifyContent: "space-between", alignItems: "flex-start",
-          gap: 16, padding: "22px 24px 16px", borderBottom: "1px solid var(--line-2)",
-        }}>
+        <div className="modal-header">
           <div>
-            <div style={{ fontWeight: 800, fontSize: 18, color: "var(--text)" }}>{TYPE_LABELS[scriptType] || scriptType}脚本管理</div>
-            <div style={{ marginTop: 5, fontSize: 12, color: "var(--text-4)", lineHeight: 1.5 }}>
+            <div className="modal-title">{TYPE_LABELS[scriptType] || scriptType}脚本管理</div>
+            <div className="modal-subtitle">
               配置各厂商{TYPE_LABELS[scriptType] || scriptType}巡检命令列表。未配置则自动使用「通用」脚本；通用也未配置则该厂商将被跳过。
               前置/后置可插入显式回车动作，用于刷新欢迎横幅或发送确认。
             </div>
           </div>
-          <button className="btn sm ghost" onClick={handleClose}
-            style={{ fontSize: 18, padding: "2px 7px", color: "var(--text-4)", flexShrink: 0 }}>×</button>
+          <button type="button" className="btn sm ghost modal-close" onClick={handleClose}>×</button>
         </div>
 
         {/* ── vendor tabs ── */}
-        <div style={{ padding: "12px 24px", borderBottom: "1px solid var(--line-2)", display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {loading && <span style={{ fontSize: 12, color: "var(--text-4)" }}>加载中...</span>}
+        <div className="script-modal-tabs">
+          {loading && <span className="text-sm faint">加载中...</span>}
           {vendors.map(v => {
             const active = activeVendor === v;
             return (
-              <button key={v} type="button" onClick={() => switchVendor(v)} style={{
-                padding: "4px 14px", borderRadius: "var(--r-pill)", cursor: "pointer",
-                border: `1px solid ${active ? "var(--accent)" : "var(--line-2)"}`,
-                background: active ? "var(--accent-soft)" : "transparent",
-                color: active ? "var(--accent)" : "var(--text-3)",
-                fontSize: 12, fontWeight: 600, transition: "all .15s",
-              }}>{VENDOR_LABELS[v] || v}</button>
+              <button key={v} type="button" onClick={() => switchVendor(v)}
+                className={`script-modal-tab${active ? " active" : ""}`}>
+                {VENDOR_LABELS[v] || v}
+              </button>
             );
           })}
         </div>
 
         {/* ── body ── */}
         {!activeVendor ? (
-          <div style={{ padding: "60px 24px", textAlign: "center", color: "var(--text-4)", fontSize: 13 }}>
+          <div className="script-modal-empty">
             请选择一个厂商查看和编辑其巡检命令脚本。
           </div>
         ) : loading ? (
-          <div style={{ padding: "40px 24px", textAlign: "center", color: "var(--text-4)", fontSize: 13 }}>加载中...</div>
+          <div className="script-modal-empty">加载中...</div>
         ) : (
-          <div style={{ padding: "16px 24px", flex: 1, overflow: "auto" }}>
-            {/* source badge */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <span style={{
-                fontSize: 11, fontWeight: 600, padding: "2px 10px", borderRadius: "var(--r-pill)",
-                background: source === "file" ? "var(--ok-soft)" : "var(--warn-soft)",
-                color: source === "file" ? "var(--ok)" : "var(--warn)",
-              }}>{source === "file" ? "已配置" : "未配置"}</span>
-              {isModified && <span style={{ fontSize: 11, color: "var(--warn)" }}>已修改，请保存以生效</span>}
+          <div className="script-modal-body">
+            <div className="row-flex mb-2">
+              <span className={`script-modal-badge ${source === "file" ? "configured" : "unconfigured"}`}>
+                {source === "file" ? "已配置" : "未配置"}
+              </span>
+              {isModified && <span className="text-xs warning-text">已修改，请保存以生效</span>}
               {source === "builtin" && commands.length === 0 && preCommands.length === 0 && postCommands.length === 0 && (
-                <span style={{ fontSize: 11, color: "var(--text-4)" }}>该厂商尚无脚本，请添加或上传 .txt</span>
+                <span className="text-xs faint">该厂商尚无脚本，请添加或上传 .txt</span>
               )}
             </div>
 
@@ -425,36 +366,22 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
             )}
 
             {/* messages */}
-            {error && (
-              <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 6,
-                background: "var(--danger-soft)", color: "var(--danger)", fontSize: 12, fontWeight: 500 }}>{error}</div>
-            )}
-            {successMsg && (
-              <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 6,
-                background: "var(--ok-soft)", color: "var(--ok)", fontSize: 12, fontWeight: 500 }}>{successMsg}</div>
-            )}
+            {error && <div className="script-modal-error mt-2">{error}</div>}
+            {successMsg && <div className="script-modal-success mt-2">{successMsg}</div>}
           </div>
         )}
 
         {/* ── footer ── */}
         {activeVendor && !loading && (
-          <div style={{
-            display: "flex", gap: 8, justifyContent: "space-between",
-            padding: "14px 24px 20px", borderTop: "1px solid var(--line-2)",
-          }}>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input ref={fileInputRef} type="file" accept=".txt,.text"
-                style={{ display: "none" }} onChange={handleFileChange} />
-              <button className="btn" onClick={handleUpload}
-                style={{ padding: "7px 14px", fontSize: 12 }}>上传 .txt 脚本</button>
-              <button className="btn" onClick={handleReset}
-                style={{ padding: "7px 14px", fontSize: 12 }}>恢复默认</button>
+          <div className="script-modal-footer">
+            <div className="row-flex">
+              <input ref={fileInputRef} type="file" accept=".txt,.text" hidden onChange={handleFileChange} />
+              <button type="button" className="btn" onClick={handleUpload}>上传 .txt 脚本</button>
+              <button type="button" className="btn" onClick={handleReset}>恢复默认</button>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn" onClick={handleClose}
-                style={{ padding: "7px 16px", fontSize: 13 }}>关闭</button>
-              <button className="btn primary" onClick={handleSave} disabled={saving}
-                style={{ padding: "7px 22px", fontSize: 13 }}>
+            <div className="row-flex">
+              <button type="button" className="btn" onClick={handleClose}>关闭</button>
+              <button type="button" className="btn primary" onClick={handleSave} disabled={saving}>
                 {saving ? "保存中..." : "保存脚本"}
               </button>
             </div>

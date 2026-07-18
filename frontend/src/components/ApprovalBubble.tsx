@@ -49,12 +49,16 @@ export function ApprovalBubble({ onResolved }: { onResolved?: (decision: "approv
   // Inject component styles on mount
   useEffect(() => {
     const elId = "abp-style";
-    if (!document.getElementById(elId)) {
-      const el = document.createElement("style");
+    let el = document.getElementById(elId) as HTMLStyleElement | null;
+    if (!el) {
+      el = document.createElement("style");
       el.id = elId;
       el.textContent = STYLE;
       document.head.appendChild(el);
     }
+    return () => {
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    };
   }, []);
 
   // SSE gives immediate invalidation; low-frequency polling survives disconnects.
@@ -141,7 +145,7 @@ export function ApprovalBubble({ onResolved }: { onResolved?: (decision: "approv
       setSecondsLeft((prev) => {
         const next = prev - 1;
         if (next <= 0) {
-          if (!resolvingRef.current) resolveApproval("reject");
+          if (!resolvingRef.current) resolveApprovalRef.current("reject");
           return 0;
         }
         return next;
@@ -175,6 +179,9 @@ export function ApprovalBubble({ onResolved }: { onResolved?: (decision: "approv
       resolvingRef.current = false;
     }
   }, [pending, currentWorkspaceId]);
+
+  const resolveApprovalRef = useRef(resolveApproval);
+  resolveApprovalRef.current = resolveApproval;
 
   const resolving = resolvingRef.current;
 

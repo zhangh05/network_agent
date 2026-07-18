@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, memo } from "react";
 import { agentApi, knowledgeApi, memoryApi, sessionsApi, settingsApi, sseApi } from "../../api";
 import { apiRequest, getApiAccessToken } from "../../api/client";
 import { useSessionStore } from "../../stores/session";
-import { useWorkbenchStore } from "../../stores/workbench";
+import { useWorkbenchStore, type ChatMsg } from "../../stores/workbench";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { AgentResult, ToolCallResult, InlineToolCall, SourceSummary } from "../../types";
@@ -146,11 +146,35 @@ function trackingStats(result?: AgentResult) {
   };
 }
 
+// P0 fix: stage label table mirrors core.runtime_engine/stage_events.py
+// so we can translate backend events to friendly Chinese text.
+const STAGE_LABELS: Record<string, string> = {
+  turn_started:        "轮次开始",
+  planner_started:     "正在分析任务…",
+  planner_completed:   "已规划执行图",
+  graph_compiled:      "构建执行图…",
+  structural_validated:"图结构校验通过",
+  semantic_validated:  "语义校验通过",
+  semantic_invalid:    "语义校验发现问题",
+  pre_repair_started:  "自动修复阶段…",
+  pre_repair_completed:"已自动修复",
+  risk_assessed:       "风险评估完成",
+  budget_ok:           "预算检查通过",
+  execution_started:   "开始执行工具…",
+  execution_completed: "工具执行完成",
+  repair_attempt:      "重试节点",
+  merge_completed:     "汇总执行结果",
+  response_started:    "整理回复…",
+  response_completed:  "回复已就绪",
+  turn_completed:      "轮次完成",
+  heartbeat:           "仍在处理…",
+};
+
 
 // ── Memoized message row — skips re-render when store updates unrelated messages ──
 const MemoMessageRow = memo(function MemoMessageRow({ m, idx, total, renderFn }: {
-  m: any; idx: number; total: number;
-  renderFn: (m: any, idx: number, total: number) => React.ReactNode;
+  m: ChatMsg; idx: number; total: number;
+  renderFn: (m: ChatMsg, idx: number, total: number) => React.ReactNode;
 }) {
   return <>{renderFn(m, idx, total)}</>;
 }, (prev, next) => {
@@ -161,7 +185,8 @@ const MemoMessageRow = memo(function MemoMessageRow({ m, idx, total, renderFn }:
     && prev.m.result === next.m.result
     && prev.m.progressText === next.m.progressText
     && prev.m.progressElapsedMs === next.m.progressElapsedMs
-    && prev.idx === next.idx;
+    && prev.idx === next.idx
+    && prev.renderFn === next.renderFn;
 });
 
 export function TaskWorkbench() {
@@ -680,30 +705,6 @@ export function TaskWorkbench() {
       thinkFilter.current = { mode: "idle" };
       let resolvedSid: string = currentSessionId || "";
 
-      // P0 fix: stage label table mirrors core.runtime_engine/stage_events.py
-      // so we can translate backend events to friendly Chinese text.
-      const STAGE_LABELS: Record<string, string> = {
-        turn_started:        "轮次开始",
-        planner_started:     "正在分析任务…",
-        planner_completed:   "已规划执行图",
-        graph_compiled:      "构建执行图…",
-        structural_validated:"图结构校验通过",
-        semantic_validated:  "语义校验通过",
-        semantic_invalid:    "语义校验发现问题",
-        pre_repair_started:  "自动修复阶段…",
-        pre_repair_completed:"已自动修复",
-        risk_assessed:       "风险评估完成",
-        budget_ok:           "预算检查通过",
-        execution_started:   "开始执行工具…",
-        execution_completed: "工具执行完成",
-        repair_attempt:      "重试节点",
-        merge_completed:     "汇总执行结果",
-        response_started:    "整理回复…",
-        response_completed:  "回复已就绪",
-        turn_completed:      "轮次完成",
-        heartbeat:           "仍在处理…",
-      };
-
       // P2 fix: token batching — buffer tokens, flush every 50ms instead
       // of one setState per token. Also pause persist during streaming;
       // we flush the final text on `done` and let persist run once.
@@ -1100,7 +1101,7 @@ export function TaskWorkbench() {
   ]);
 
   // Message row renderer for the chat list
-  const renderMsg = useCallback((m: any, _idx: number, _total: number) => {
+  const renderMsg = useCallback((m: ChatMsg, _idx: number, _total: number) => {
     if (m.role === "user") {
       return (
         <div className="message-row user" data-testid="chat-user">
@@ -1116,7 +1117,7 @@ export function TaskWorkbench() {
           {/* Live tool call chips during streaming */}
           {m.status === "streaming" && m.toolCalls && m.toolCalls.length > 0 && (
             <div className="tool-calls-inline">
-              {m.toolCalls.map((tc: any, tci: number) => (
+              {m.toolCalls.map((tc: InlineToolCall, tci: number) => (
                 <span key={`${tc.tool_id}-${tci}`} className={`live-tool-chip ${tc.status || "running"}`}>
                   <span className={`live-tool-dot ${tc.status || "running"}`} />
                   {tc.tool_name || toolLabel(tc.tool_id)}
@@ -1128,7 +1129,7 @@ export function TaskWorkbench() {
           {/* Completed tool call cards */}
           {m.status !== "streaming" && m.toolCalls && m.toolCalls.length > 0 && (
             <div className="tool-calls-inline">
-              {m.toolCalls.map((tc: any, tci: number) => (
+              {m.toolCalls.map((tc: InlineToolCall, tci: number) => (
                 <InlineToolCallCard key={`${tc.tool_id}-${tci}`} toolCall={tc} seq={tci + 1} />
               ))}
             </div>
@@ -1146,10 +1147,10 @@ export function TaskWorkbench() {
                     <span className="typing-dot" />
                     <span className="typing-dot" />
                   </span>
-                  <span className="text-sm" style={{ marginLeft: 6 }}>
+                  <span className="text-sm wb-progress-text">
                     {m.progressText}
                     {m.progressElapsedMs != null && m.progressElapsedMs > 0 ? (
-                      <span className="muted" style={{ marginLeft: 6 }}>
+                      <span className="muted wb-progress-elapsed">
                         ({m.progressElapsedMs >= 1000
                           ? `${(m.progressElapsedMs / 1000).toFixed(1)}s`
                           : `${m.progressElapsedMs}ms`})
@@ -1161,9 +1162,9 @@ export function TaskWorkbench() {
               {m.text ? (
                 <StreamingContent text={m.text} />
               ) : !m.progressText ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <div className="wb-thinking-row">
                   <span className="typing-indicator"><span className="typing-dot" /><span className="typing-dot" /><span className="typing-dot" /></span>
-                  <span className="text-sm muted" style={{ marginLeft: 6 }}>思考中…</span>
+                  <span className="text-sm muted wb-thinking-label">思考中…</span>
                 </div>
               ) : null}
             </div>
@@ -1266,31 +1267,21 @@ export function TaskWorkbench() {
             onScroll={handleChatScroll}
           >
             {(visibleHistory ?? []).map((m, idx) => (
-              <MemoMessageRow key={m.message_id || m.run_id || `local-${m.id}`} m={m} idx={idx} total={(visibleHistory ?? []).length} renderFn={renderMsg} />
+              <MemoMessageRow key={m.message_id || m.id} m={m} idx={idx} total={(visibleHistory ?? []).length} renderFn={renderMsg} />
             ))}
           </div>
         )}
 
         {/* ── Inspection floating bubble (above input box) ── */}
         {inspectionTaskId && (
-          <div style={{
-            position: "fixed", bottom: 72, left: "50%", transform: "translateX(-50%)",
-            zIndex: 9999, padding: "10px 20px", borderRadius: 10,
-            background: "var(--surface)", boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
-            border: `1px solid ${inspectionStatus === "failed" || inspectionStatus === "cancelled" ? "var(--danger)" : "var(--line-2)"}`,
-            display: "flex", alignItems: "center", gap: 10,
-            fontSize: 13, fontWeight: 600, color: "var(--text)",
-          }}>
-            <span style={{ fontSize: 16 }}>{inspectionStatus === "failed" || inspectionStatus === "cancelled" ? "❌" : "⏳"}</span>
+          <div className={`wb-inspection-toast ${inspectionStatus === "failed" || inspectionStatus === "cancelled" ? "wb-inspection-toast--danger" : ""}`}>
+            <span className="wb-inspection-toast-icon">{inspectionStatus === "failed" || inspectionStatus === "cancelled" ? "❌" : "⏳"}</span>
             <span>{inspectionStatus === "failed" ? "巡检失败" : inspectionStatus === "cancelled" ? "巡检已取消" : "巡检进行中…"}</span>
-            <span style={{ fontSize: 11, fontWeight: 400, color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>
+            <span className="wb-inspection-toast-id">
               {inspectionTaskId}
             </span>
             {(inspectionStatus === "running" || inspectionStatus === "pending") && (
-              <span style={{
-                width: 8, height: 8, borderRadius: "50%",
-                background: "var(--accent)", animation: "pulse 1.2s infinite",
-              }} />
+              <span className="wb-inspection-toast-pulse" />
             )}
           </div>
         )}
@@ -1326,24 +1317,24 @@ export function TaskWorkbench() {
       {/* ── Input bar ── */}
       <div className="wb-input-bar" onDragOver={handleDragOver} onDrop={handleDrop}>
         {attachments.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 7 }}>
+          <div className="wb-attachments">
             {attachments.map((a) => (
-              <span key={a.id} className="tag" style={{ gap: 4, fontSize: "var(--fs-11)" }}>
-                {a.uploading ? <span className="spinner" style={{ width: 10, height: 10, borderWidth: 1 }} /> : "📄"}
-                <span style={{ maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
-                <button onClick={() => removeAttachment(a.id)} style={{ cursor: "pointer", marginLeft: 1, color: "var(--text-4)", fontSize: 13, lineHeight: 1, background: "none", border: "none", padding: 0 }} type="button">&times;</button>
+              <span key={a.id} className="tag wb-attachment-tag">
+                {a.uploading ? <span className="spinner wb-attachment-spinner" /> : "📄"}
+                <span className="wb-attachment-name">{a.name}</span>
+                <button onClick={() => removeAttachment(a.id)} className="wb-attachment-remove" type="button">&times;</button>
               </span>
             ))}
           </div>
         )}
         <div className="wb-input-row">
-            <input ref={fileInputRef} type="file" multiple accept=".txt,.pdf,.md,.json,.csv,.log,.conf,.cfg,.yaml,.yml,.png,.jpg,.jpeg,.gif,.webp" onChange={(e) => { if (e.target.files) { addFiles(e.target.files); e.target.value = ""; } }} style={{ display: "none" }} />
+            <input ref={fileInputRef} type="file" multiple accept=".txt,.pdf,.md,.json,.csv,.log,.conf,.cfg,.yaml,.yml,.png,.jpg,.jpeg,.gif,.webp" onChange={(e) => { if (e.target.files) { addFiles(e.target.files); e.target.value = ""; } }} className="wb-file-input" />
             <button className="wb-attach-btn" onClick={pickFile} disabled={sending} title="上传文件 (Ctrl+V 粘贴图片 / 拖拽)" type="button">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8.5 1.5v9M5 5l3.5-3.5L12 5M2.5 10v2.5a1 1 0 001 1h9a1 1 0 001-1V10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </button>
             <textarea
               ref={inputRef}
-              className="wb-input"
+              className="wb-input wb-input-content"
               placeholder="输入主机名、IP 或排查目标… (Enter 发送, Shift+Enter 换行)"
               value={input}
               onChange={(e) => handleInputChange(e.target.value)}
@@ -1352,7 +1343,6 @@ export function TaskWorkbench() {
               rows={1}
               data-testid="chat-input"
               spellCheck={false}
-              style={{ fieldSizing: "content" }}
             />
             {sending ? (
               <button className="wb-stop" onClick={stopGeneration} title="停止生成" type="button" data-testid="btn-stop">
@@ -1486,7 +1476,7 @@ function ThinkingBlock({ content, defaultOpen }: { content: string; defaultOpen?
       <div className={`thinking-header ${open ? "open" : ""}`} onClick={() => setOpen(!open)}>
         <span className="chev">▸</span>
         <span>💭 思考过程</span>
-        <span style={{ fontSize: 9, color: "var(--text-4)", marginLeft: "auto" }}>点击{open ? "收起" : "展开"}</span>
+        <span className="thinking-header-toggle">点击{open ? "收起" : "展开"}</span>
       </div>
       {open && <div className="thinking-body">{content}</div>}
     </div>
@@ -1690,19 +1680,19 @@ const ResultInline = React.memo(function ResultInline({
           {tracking.taskId && (
             <div className="action-trace-note">
               <b>任务跟踪 · {tracking.taskId}</b>
-              <span style={{ marginLeft: 8 }}>
+              <span className="tracking-status">
                 状态 {tracking.status || "unknown"}
                 {tracking.mode ? ` · ${tracking.mode}` : ""}
                 {tracking.progress?.percent != null ? ` · ${tracking.progress.percent}%` : ""}
               </span>
-              {tracking.stallRisk && <span className="action-trace-pill warn" style={{ marginLeft: 8 }}>可能停滞</span>}
+              {tracking.stallRisk && <span className="action-trace-pill warn tracking-stall-pill">可能停滞</span>}
               {!tracking.done && (
-                <div style={{ marginTop: 8 }}>
+                <div className="tracking-card-wrap">
                   <TaskTrackingCard tracking={tracking.summary} />
                 </div>
               )}
               {tracking.done && (
-                <div style={{ marginTop: 6 }}>
+                <div className="tracking-summary">
                   设备 {String(tracking.taskSummary.succeeded_devices ?? 0)} 成功 / {String(tracking.taskSummary.failed_devices ?? 0)} 失败 / {String(tracking.taskSummary.skipped_devices ?? 0)} 跳过；
                   发现 {String(tracking.taskSummary.findings_critical ?? 0)} critical · {String(tracking.taskSummary.findings_warning ?? 0)} warning · {String(tracking.taskSummary.findings_info ?? 0)} info。
                   {tracking.suggestedNextAction === "analyze_artifacts" ? " 下一步：读取原始采集制品并分析。" : ""}

@@ -224,17 +224,17 @@ export function PacketAnalysis() {
   const hasMore = result ? result.events.length > MAX_VISIBLE : false;
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <div className="packet-page">
       {/* Top bar */}
       <div className="packet-toolbar">
-        <div className="row-flex" style={{ flexWrap: "wrap" }}>
-          <span className="text-md" style={{ fontWeight: 700 }}>Packet Analysis</span>
+        <div className="row-flex packet-toolbar-row">
+          <span className="text-md packet-toolbar-title">Packet Analysis</span>
           {/* File upload */}
           <input
             ref={fileInputRef}
             type="file"
             accept=".pcap,.pcapng,.cap"
-            style={{ display: "none" }}
+            className="packet-file-input"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) { handleUpload(f); e.target.value = ""; } }}
           />
           <Button
@@ -285,7 +285,7 @@ export function PacketAnalysis() {
                 sessionStorage.setItem("pcap_ai_prompt", text);
                 navigate("/workbench");
               }}
-              style={{ marginLeft: "auto" }}>
+              className="packet-ask-ai-btn">
               Ask AI →
             </Button>
           )}
@@ -298,19 +298,19 @@ export function PacketAnalysis() {
         {/* ===== LEFT ===== */}
         <div className="packet-sidebar">
           <div className="packet-sidebar-filter">
-            <Select value={filterProto} onChange={e => setFilterProto(e.target.value)} style={{ padding: "3px 6px", fontSize: "var(--fs-12)", borderRadius: 4, width: "auto" }}>
+            <Select value={filterProto} onChange={e => setFilterProto(e.target.value)} className="packet-filter-select">
               <option value="">All</option><option value="TCP">TCP</option><option value="UDP">UDP</option>
             </Select>
             <Input placeholder="Filter…" value={filterText} onChange={e => setFilterText(e.target.value)}
-              style={{ flex: 1, padding: "3px 8px", fontSize: "var(--fs-12)", borderRadius: 4 }} />
+              className="packet-filter-input" />
           </div>
           <div className="packet-sidebar-scroll">
             {(connections || []).length === 0 && (
-              <div style={{ padding: "20px 16px" }}>
+              <div className="packet-sidebar-empty">
                 {/* Recent sessions */}
                 {recentSessions.length > 0 && (
                   <div className="mb-3">
-                    <div className="text-sm" style={{ fontWeight: 600, color: "var(--text-2)", marginBottom: 8 }}>
+                    <div className="packet-recent-title">
                       最近上传 {recentSessions.length} 个文件
                     </div>
                     {recentSessions.map((s) => (
@@ -361,26 +361,27 @@ export function PacketAnalysis() {
                 )}
               </div>
             )}
-            {filteredConnections.map((t, i) => {
+            {filteredConnections.map((t) => {
               const key = `${t.src}:${t.sport}-${t.dst}:${t.dport}`;
               const isActive = key === activeKey;
               return (
-                <div key={i} onClick={() => analyze(t)}
+                <button key={key} type="button" onClick={() => analyze(t)}
                   className={"packet-conn-row" + (isActive ? " active" : "")}
+                  aria-label={`分析连接 ${t.src}:${t.sport} 到 ${t.dst}:${t.dport}`}
                 >
                   <div className="packet-conn-head">
-                    <span className={"mono packet-conn-addr" + (isActive ? " active" : "")} style={{ fontSize: "var(--fs-12)" }}>
+                    <span className={"mono packet-conn-addr" + (isActive ? " active" : "")}>
                       {t.src}:{t.sport} ↔ {t.dst}:{t.dport}
                     </span>
                     <span className="badge text-xs">{t.proto_name}</span>
                   </div>
                   <div className="packet-conn-meta">
                     <span>→ <b className="accent-text">{t.packets_fwd}</b></span>
-                    <span>← <b style={{color:t.packets_rev===0?"var(--warn)":"var(--success)"}}>{t.packets_rev}</b></span>
-                    {!t.bidirectional && <span style={{color:"var(--warn)",fontWeight:600}}>no reply</span>}
-                    {isActive && summary && <span style={{color:"var(--text-2)"}}>{summary}</span>}
+                    <span>← <b className={t.packets_rev === 0 ? "packet-conn-count-rev-warn" : ""}>{t.packets_rev}</b></span>
+                    {!t.bidirectional && <span className="packet-conn-noreply">no reply</span>}
+                    {isActive && summary && <span className="packet-conn-summary">{summary}</span>}
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -403,18 +404,15 @@ export function PacketAnalysis() {
           {result && (
             <>
               {/* Header bar */}
-              <div style={{ padding: "6px 18px 4px", borderBottom: `2px solid ${gaps.length > 0 || result.rst_count > 0 ? "var(--warn)" : "var(--line)"}`,
-                display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", flexShrink: 0,
-                fontFamily: "var(--font-mono)", fontSize: "var(--fs-12)",
-              }}>
-                <span style={{ fontWeight: 700 }}>{result.conn}</span>
-                <span style={{ color: gaps.length || result.rst_count ? "var(--warn)" : "var(--text-3)" }}>{summary}</span>
-                <span style={{ color: "var(--text-4)", fontSize: "var(--fs-11)" }}>
+              <div className={"packet-detail-header " + (gaps.length > 0 || result.rst_count > 0 ? "has-warning" : "")}>
+                <span className="packet-detail-conn">{result.conn}</span>
+                <span className={"packet-detail-summary " + (gaps.length || result.rst_count ? "warn" : "")}>{summary}</span>
+                <span className="packet-detail-meta">
                   pkts {result.total_tcp_packets} · SYN {result.syn_count} · FIN {result.fin_count}
-                  {result.rst_count > 0 && <span style={{color:"var(--danger)"}}> · RST {result.rst_count}</span>}
+                  {result.rst_count > 0 && <span className="packet-detail-rst"> · RST {result.rst_count}</span>}
                 </span>
                 {gaps.length > 0 && (
-                  <span style={{color:"var(--warn)",fontWeight:600,fontSize:"var(--fs-11)"}}>
+                  <span className="packet-detail-gap">
                     {gaps.length === 1
                       ? `GAP \u2212${gaps[0].gap_size}B @rel_seq=${gaps[0].rel_seq ?? "?"}`
                       : `GAP \u00d7${gaps.length} (\u2212${gaps.reduce((s,g) => s+(g.gap_size||0), 0)}B total)`}
@@ -422,22 +420,16 @@ export function PacketAnalysis() {
                 )}
               </div>
               {/* Table fills remaining height */}
-              <div style={{ flex: 1, overflow: "auto" }}>
-                <table style={{
-                  width: "100%", borderCollapse: "collapse",
-                  fontFamily: "var(--font-mono)", fontSize: "var(--fs-12)",
-                }}>
+              <div className="packet-table-scroll">
+                <table className="packet-table">
                   <thead>
-                    <tr style={{ position: "sticky", top: 0, zIndex: 1,
-                      background: "var(--bg-soft)", borderBottom: "1px solid var(--line)",
-                      fontSize: "var(--fs-11)", color: "var(--text-3)", textAlign: "left",
-                    }}>
-                      <th style={{ padding: "5px 10px", width: 50, fontWeight: 600 }}>No.</th>
-                      <th style={{ padding: "5px 10px", width: 110, fontWeight: 600 }}>Time</th>
-                      <th style={{ padding: "5px 10px", width: 75, fontWeight: 600 }}>Delta</th>
-                      <th style={{ padding: "5px 10px", width: 30, fontWeight: 600 }}>Dir</th>
-                      <th style={{ padding: "5px 10px", width: 80, fontWeight: 600 }}>Flags</th>
-                      <th style={{ padding: "5px 10px", fontWeight: 600 }}>Info</th>
+                    <tr>
+                      <th className="packet-col-no">No.</th>
+                      <th className="packet-col-time">Time</th>
+                      <th className="packet-col-delta">Delta</th>
+                      <th className="packet-col-dir">Dir</th>
+                      <th className="packet-col-flags">Flags</th>
+                      <th>Info</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -448,11 +440,7 @@ export function PacketAnalysis() {
                       const dt = i > 0 ? evt.time - visibleEvents[i - 1].time : 0;
                       const dtStr = dt < 0.000001 ? "0" : dt < 0.01 ? `${(dt * 1000).toFixed(1)}ms` : `${dt.toFixed(3)}s`;
 
-                      const bg = isGap ? "#fff3cd" :
-                                 isRst ? "#fde8e8" :
-                                 isSyn ? "#e3f0fb" :
-                                 isFin ? "#e6f7e6" :
-                                 evt.payload_len > 0 ? "#fff" : "#fafafa";
+                      const rowClass = isGap ? "gap" : isRst ? "rst" : isSyn ? "syn" : isFin ? "fin" : evt.payload_len > 0 ? "payload" : "default";
 
                       const parts: string[] = [];
                       parts.push(humanEvent(evt, i, visibleEvents));
@@ -469,27 +457,22 @@ export function PacketAnalysis() {
                         ? fl.split("").map(c => flagMap[c] || c).join("+")
                         : "ACK";
 
+                      const flagClass = isRst ? "rst" : isSyn ? "syn" : isFin ? "fin" : isGap ? "gap" : "default";
+
                       return (
-                        <tr key={i} style={{ background: bg, borderBottom: "1px solid var(--line-2)" }}>
-                          <td style={{ padding: "3px 10px", color: "var(--text-4)", textAlign: "right" }}>{i + 1}</td>
-                          <td style={{ padding: "3px 10px", color: "var(--text-3)" }}>
+                        <tr key={i} className={`packet-table-row packet-table-row--${rowClass}`}>
+                          <td className="packet-table-cell-no">{i + 1}</td>
+                          <td className="packet-table-cell-time">
                             {evt.time.toFixed(6).replace(/0+$/, "").replace(/\.$/, ".0")}
                           </td>
-                          <td style={{ padding: "3px 10px", color: "var(--text-4)" }}>{dtStr}</td>
-                          <td style={{ padding: "3px 10px", fontWeight: 700, color: evt.dir === "→" ? "var(--accent)" : "var(--success)" }}>
+                          <td className="packet-table-cell-delta">{dtStr}</td>
+                          <td className={"packet-table-cell-dir " + (evt.dir === "→" ? "fwd" : "rev")}>
                             {evt.dir}
                           </td>
-                          <td style={{ padding: "3px 10px" }}>
-                            <span style={{
-                              fontWeight: 700, fontSize: "var(--fs-10)",
-                              padding: "1px 5px", borderRadius: 3,
-                              background: isRst ? "var(--danger)" : isSyn ? "var(--accent)" :
-                                          isFin ? "var(--success)" : isGap ? "var(--warn)" : "var(--text-4)",
-                              color: isRst || isSyn || isFin || isGap ? "#fff" : "var(--text)",
-                              display: "inline-block",
-                            }}>{flagText}</span>
+                          <td>
+                            <span className={`packet-flag-badge packet-flag-badge--${flagClass}`}>{flagText}</span>
                           </td>
-                          <td style={{ padding: "3px 10px", color: isGap ? "var(--warn)" : "var(--text-2)" }}>
+                          <td className={"packet-table-cell-info " + (isGap ? "warn" : "")}>
                             {parts.join("\u00a0 \u00a0")}
                           </td>
                         </tr>
@@ -498,9 +481,10 @@ export function PacketAnalysis() {
                   </tbody>
                   {hasMore && (
                     <tfoot>
-                      <tr><td colSpan={6} style={{ padding: "8px 12px", textAlign: "center", borderTop: "1px solid var(--line)", background: "var(--surface-2)", cursor: "pointer" }}
-                        onClick={() => setShowAll(true)}>
-                        显示前 {MAX_VISIBLE} / {result.events.length} 个报文 · 点击加载全部
+                      <tr><td colSpan={6} className="packet-load-more">
+                        <button type="button" onClick={() => setShowAll(true)}>
+                          显示前 {MAX_VISIBLE} / {result.events.length} 个报文 · 点击加载全部
+                        </button>
                       </td></tr>
                     </tfoot>
                   )}

@@ -33,10 +33,10 @@ const FILTER_LABELS: Record<EventFilter, string> = {
 export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
   const [filter, setFilter] = useState<EventFilter>("all");
   const [search, setSearch] = useState("");
-  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showMeta, setShowMeta] = useState(false);
 
-  const toggle = (idx: number) => setExpanded((p) => { const n = new Set(p); n.has(idx) ? n.delete(idx) : n.add(idx); return n; });
+  const toggle = (id: string) => setExpanded((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const filtered = useMemo(() => {
     if (!traceEvents) return [];
@@ -88,33 +88,33 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
   if (!selectedRun) return null;
   if (traceEvents === null && selectedRun.trace_id) {
     return (
-      <div className="card" style={{ padding: "24px", textAlign: "center", color: "var(--text-3)", fontSize: "var(--fs-12)" }}>
+      <div className="card trace-loading">
         正在加载 trace…
       </div>
     );
   }
 
   return (
-    <div style={{ marginTop: 0 }}>
+    <div className="trace-panel">
       {/* ── Summary bar ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-        <span style={{ fontSize: "var(--fs-14)", fontWeight: 720 }}>Trace · {traceEvents?.length ?? 0} events</span>
-        <span style={{ color: "var(--text-4)", fontSize: "var(--fs-11)", fontFamily: "var(--font-mono)" }}>
+      <div className="trace-summary-bar">
+        <span className="trace-summary-title">Trace · {traceEvents?.length ?? 0} events</span>
+        <span className="trace-summary-id">
           {String(selectedRun.trace_id || "-").substring(0, 12)}
         </span>
-        <div style={{ flex: 1 }} />
+        <div className="trace-spacer" />
         <button className="btn sm" onClick={() => { const t = JSON.stringify(traceEvents, null, 2); navigator.clipboard?.writeText(t).catch(() => {}); }}>
           📋 复制
         </button>
       </div>
 
       {/* ── Quick stats ── */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+      <div className="trace-stats-bar">
         <span className="badge info">{runStats.toolCallCount} 工具</span>
         <span className="badge warn">{runStats.warningCount} 警告</span>
         <span className="badge err">{runStats.errorCount} 错误</span>
         {runStats.startedAt && (
-          <span style={{ color: "var(--text-4)", fontSize: "var(--fs-11)", padding: "2px 0" }}>
+          <span className="trace-stats-time">
             {String(runStats.startedAt)}
           </span>
         )}
@@ -122,16 +122,16 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
 
       {/* ── Tool decision fold ── */}
       {selectedRun.tool_decision && (
-        <details style={{ marginBottom: 10, fontSize: "var(--fs-12)" }}>
-          <summary style={{ color: "var(--text-3)", cursor: "pointer" }}>tool_decision</summary>
-          <pre style={{ marginTop: 4, fontSize: "var(--fs-11)", maxHeight: 120, overflow: "auto", background: "var(--surface-2)", padding: 8, borderRadius: "var(--r-4)" }}>
+        <details className="trace-decision-fold">
+          <summary className="trace-decision-summary">tool_decision</summary>
+          <pre className="trace-decision-pre">
             {JSON.stringify(selectedRun.tool_decision, null, 2)}
           </pre>
         </details>
       )}
 
       {/* ── Filter bar ── */}
-      <div className="segmented" style={{ marginBottom: 12 }}>
+      <div className="segmented trace-filter-bar">
         {(Object.entries(FILTER_LABELS) as [EventFilter, string][]).map(([k, v]) => (
           <button key={k} className={filter === k ? "active" : ""} onClick={() => setFilter(k)} type="button">
             {v}{counts[k] ? ` ${counts[k]}` : ""}
@@ -140,72 +140,68 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
       </div>
 
       <input
-        className="input" type="text" placeholder="搜索 event…" value={search}
+        className="input trace-search-input" type="text" placeholder="搜索 event…" value={search}
         onChange={(e) => setSearch(e.target.value)}
-        style={{ marginBottom: 12, height: 30, fontSize: "var(--fs-12)" }}
       />
 
       {/* ── Event list ── */}
-      <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r-8)", overflow: "hidden" }}>
+      <div className="trace-event-list">
         {filtered.length === 0 ? (
-          <div style={{ padding: "32px 16px", textAlign: "center", color: "var(--text-3)", fontSize: "var(--fs-13)" }}>
+          <div className="trace-empty-state">
             {search ? "无匹配事件" : "暂无事件"}
           </div>
         ) : (
           filtered.map((e, idx) => {
-            const open = expanded.has(idx);
+            const open = expanded.has(e.event_id);
             const rawType = e.event_type || e.type || e.name || "";
             const et = evTypeLabel(rawType, e);
             const badge = evBadge(e);
             const tId = e.tool_id || eventToolId(e);
             return (
-              <div key={idx} style={{ borderBottom: "1px solid var(--line-2)", fontSize: "var(--fs-12)" }}>
+              <div key={e.event_id} className="trace-event-item">
                 <div
-                  onClick={() => toggle(idx)}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", cursor: "pointer",
-                    background: open ? "var(--surface-3)" : "var(--surface)",
-                    transition: "background var(--dur-2) var(--ease)",
-                  }}>
-                  <span style={{ color: "var(--text-4)", fontSize: "var(--fs-10)", fontFamily: "var(--font-mono)", minWidth: 22 }}>{idx + 1}</span>
+                  className={`trace-event-header${open ? " open" : ""}`}
+                  onClick={() => toggle(e.event_id)}
+                >
+                  <span className="trace-event-index">{idx + 1}</span>
                   <Badge kind={badge} withDot>{et}</Badge>
-                  {tId && <code style={{ fontSize: "var(--fs-10)", color: "var(--accent)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 140 }}>{tId}</code>}
-                  {e.name && !tId && <span style={{ color: "var(--text-3)", fontSize: "var(--fs-11)" }}>{e.name}</span>}
+                  {tId && <code className="trace-event-tool-id">{tId}</code>}
+                  {e.name && !tId && <span className="trace-event-name">{e.name}</span>}
                   {e.status && <Badge kind={e.status === "error" || e.status === "failed" ? "err" : "ok"}>{e.status}</Badge>}
-                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-2)" }}>
+                  <span className="trace-event-summary">
                     {e.summary || e.message || ""}
                   </span>
-                  <span style={{ color: "var(--text-4)", fontSize: "var(--fs-10)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>
+                  <span className="trace-event-time">
                     {e.occurred_at ? String(e.occurred_at).substring(11, 19) : e.timestamp ? String(e.timestamp).substring(11, 19) : ""}
                   </span>
-                  <span style={{ color: "var(--text-3)", fontSize: "var(--fs-10)" }}>{open ? "▲" : "▼"}</span>
+                  <span className="trace-event-toggle">{open ? "▲" : "▼"}</span>
                 </div>
                 {open && (
-                  <div style={{ padding: "8px 12px 8px 48px", background: "var(--surface-2)" }}>
-                    {e.summary && !e.message && <div style={{ marginBottom: 4, color: "var(--text)" }}>{e.summary}</div>}
-                    {e.message && <div style={{ marginBottom: 4, color: "var(--warn)" }}>{e.message}</div>}
-                    {e.error && <div style={{ marginBottom: 4, color: "var(--danger)" }}>{e.error}</div>}
-                    {e.duration_ms && <div style={{ color: "var(--text-3)", fontSize: "var(--fs-11)" }}>耗时: {e.duration_ms}ms</div>}
-                    {e.approval_id && <div style={{ color: "var(--warn)", fontSize: "var(--fs-11)" }}>审批: {e.approval_id} ({e.approval_status || "pending"})</div>}
+                  <div className="trace-event-detail">
+                    {e.summary && !e.message && <div className="trace-detail-summary">{e.summary}</div>}
+                    {e.message && <div className="trace-detail-message">{e.message}</div>}
+                    {e.error && <div className="trace-detail-error">{e.error}</div>}
+                    {e.duration_ms && <div className="trace-detail-duration">耗时: {e.duration_ms}ms</div>}
+                    {e.approval_id && <div className="trace-detail-approval">审批: {e.approval_id} ({e.approval_status || "pending"})</div>}
                     {e.input_preview && (
-                      <details style={{ marginTop: 4 }}>
-                        <summary style={{ cursor: "pointer", color: "var(--text-3)", fontSize: "var(--fs-11)" }}>input</summary>
-                        <pre style={{ maxHeight: 80, overflow: "auto", marginTop: 4, fontSize: "var(--fs-10)", background: "var(--surface)", padding: 6, borderRadius: "var(--r-4)" }}>
+                      <details className="trace-detail-fold">
+                        <summary className="trace-detail-fold-summary">input</summary>
+                        <pre className="trace-detail-pre">
                           {typeof e.input_preview === "string" ? e.input_preview : JSON.stringify(e.input_preview, null, 2)}
                         </pre>
                       </details>
                     )}
                     {e.output_preview && (
-                      <details style={{ marginTop: 4 }}>
-                        <summary style={{ cursor: "pointer", color: "var(--text-3)", fontSize: "var(--fs-11)" }}>output</summary>
-                        <pre style={{ maxHeight: 80, overflow: "auto", marginTop: 4, fontSize: "var(--fs-10)", background: "var(--surface)", padding: 6, borderRadius: "var(--r-4)" }}>
+                      <details className="trace-detail-fold">
+                        <summary className="trace-detail-fold-summary">output</summary>
+                        <pre className="trace-detail-pre">
                           {typeof e.output_preview === "string" ? e.output_preview : JSON.stringify(e.output_preview, null, 2)}
                         </pre>
                       </details>
                     )}
-                    <details style={{ marginTop: 4 }}>
-                      <summary style={{ cursor: "pointer", color: "var(--text-3)", fontSize: "var(--fs-11)" }}>JSON</summary>
-                      <pre style={{ maxHeight: 150, overflow: "auto", marginTop: 4, fontSize: "var(--fs-10)", background: "var(--surface)", padding: 6, borderRadius: "var(--r-4)" }}>
+                    <details className="trace-detail-fold">
+                      <summary className="trace-detail-fold-summary">JSON</summary>
+                      <pre className="trace-detail-pre-large">
                         {JSON.stringify(e, null, 2)}
                       </pre>
                     </details>
@@ -218,13 +214,13 @@ export function TraceDetailPanel({ traceEvents, selectedRun }: Props) {
       </div>
 
       {/* ── Full metadata ── */}
-      <div style={{ marginTop: 12 }}>
+      <div className="trace-metadata-section">
         <button className="btn sm" onClick={() => setShowMeta(!showMeta)}>
           {showMeta ? "收起 metadata" : "完整 metadata"}
         </button>
         {showMeta && (
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <pre style={{ flex: 1, fontSize: "var(--fs-10)", maxHeight: 280, overflow: "auto", background: "var(--surface-2)", padding: 10, borderRadius: "var(--r-6)", border: "1px solid var(--line-2)" }}>
+          <div className="trace-metadata-actions">
+            <pre className="trace-metadata-pre">
               {JSON.stringify({
                 run_id: selectedRun.run_id, turn_id: selectedRun.turn_id, trace_id: selectedRun.trace_id,
                 session_id: selectedRun.session_id, status: selectedRun.status, intent: selectedRun.intent,
@@ -252,7 +248,7 @@ function evBadge(e: RuntimeEvent): "ok" | "err" | "warn" | "info" | "muted" {
 }
 
 /** Map raw event_type to a human-readable Chinese label. */
-function evTypeLabel(rawType: string, ev: any): string {
+function evTypeLabel(rawType: string, ev: RuntimeEvent): string {
   if (!rawType) return "event";
   const t = rawType.toLowerCase();
   // Tool call events

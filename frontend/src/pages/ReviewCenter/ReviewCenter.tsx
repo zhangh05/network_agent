@@ -184,7 +184,7 @@ export function ReviewCenter() {
         open={!!editing}
         onClose={() => setEditing(null)}
         testId="review-modal"
-        style={{ minWidth: "min(460px, calc(100vw - 32px))" }}
+        className="review-modal"
       >
         {editing && (
           <>
@@ -194,7 +194,7 @@ export function ReviewCenter() {
                 {STATUS_LABEL[editing.status]}
               </Badge>
             </div>
-            <div className="text-sm muted mb-3" style={{ padding: 10, background: "var(--bg-soft)", borderRadius: "var(--r-sm)" }}>
+            <div className="text-sm muted mb-3 review-reason-box">
               {editing.reason ||
                 (editing as ReviewItem & { category?: string }).category ||
                 "(无说明)"}
@@ -207,15 +207,14 @@ export function ReviewCenter() {
               placeholder="user_note（可选）"
               data-testid="review-note-input"
             />
-            <div className="row-flex mt-3" style={{ gap: 8 }}>
+            <div className="row-flex mt-3 review-modal-actions">
               <select
-                className="input"
+                className="input review-status-select"
                 value={editing.status}
                 onChange={(e) =>
                   setEditing({ ...editing, status: e.target.value as ReviewStatus })
                 }
                 data-testid="review-status-select"
-                style={{ width: 180 }}
               >
                 {(["pending", "accepted", "ignored", "modified"] as ReviewStatus[]).map(
                   (s) => (
@@ -226,7 +225,7 @@ export function ReviewCenter() {
                 )}
               </select>
               <span className="spacer" />
-              <div className="modal-actions" style={{ marginTop: 0 }}>
+              <div className="modal-actions review-modal-footer">
                 <button
                   type="button"
                   className="btn"
@@ -277,7 +276,7 @@ function ReviewEmptyState({
         <span>2. 有风险的制品会自动进入这里</span>
         <span>3. 人工接受、忽略或备注后再继续</span>
       </div>
-      <div className="row-flex" style={{ justifyContent: "center", flexWrap: "wrap" }}>
+      <div className="row-flex review-empty-actions">
         <button className="btn primary" type="button" onClick={onReload}>
           <IconRefresh size={12} /> 刷新
         </button>

@@ -58,6 +58,7 @@ export function FileManager() {
   const [uploading, setUploading] = useState(false);
   const [pcapUploading, setPcapUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const contentAbortRef = useRef<AbortController | null>(null);
 
   const files = activeType === "all" ? allFiles : allFiles.filter(f => matchesType(f, activeType));
 
@@ -110,9 +111,13 @@ export function FileManager() {
   const selectFile = (f: FileItem) => {
     setSelected(f);
     setDetailContent(null);
-    artifactsApi.content(ws, f.artifact_id)
-      .then((r: any) => { if (r?.ok) setDetailContent(r.content || null); })
+    contentAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    contentAbortRef.current = ctrl;
+    artifactsApi.content(ws, f.artifact_id, ctrl.signal)
+      .then((r) => { if (!ctrl.signal.aborted) setDetailContent(r.content || null); })
       .catch((e: unknown) => {
+        if (ctrl.signal.aborted) return;
         toast({ kind: "error", title: "读取文件内容失败", body: isApiError(e) ? e.message : String(e) });
       });
   };
@@ -158,10 +163,10 @@ export function FileManager() {
       </PageHeader>
 
       {showUpload && (
-        <div className="card card-highlight" style={{ padding: "12px 16px", margin: "0 0 12px" }}>
+        <div className="card card-highlight file-upload-card">
           <div className="card-title">上传文件</div>
           <div className="row-flex mt-2">
-            <input ref={fileRef} type="file" style={{ display: "none" }}
+            <input ref={fileRef} type="file" className="file-upload-input"
               onChange={e => {
                 const f = e.target.files?.[0];
                 if (f) {
@@ -177,16 +182,15 @@ export function FileManager() {
         </div>
       )}
 
-      <div className="split-shell" style={{ flex: 1 }}>
-        <aside style={{ display: "flex", flexDirection: "column" }}>
+      <div className="split-shell">
+        <aside className="file-manager-sidebar">
           <FilterBar>
             {TYPE_TABS.map(t => {
               const count = t.key === "all" ? allFiles.length : allFiles.filter(f => matchesType(f, t.key)).length;
               return (
                 <button key={t.key} onClick={() => { setActiveType(t.key); setSelected(null); }}
-                  className={`btn sm ${t.key === activeType ? "primary" : "ghost"}`}
-                  style={{ padding: "4px 8px", fontSize: "var(--fs-11)", fontWeight: t.key === activeType ? 700 : 500 }}>
-                  {t.label} <span style={{ marginLeft: 4, opacity: .7 }}>{count}</span>
+                  className={`btn sm file-type-tab ${t.key === activeType ? "primary active" : "ghost"}`}>
+                  {t.label} <span className="file-type-count">{count}</span>
                 </button>
               );
             })}
@@ -195,7 +199,7 @@ export function FileManager() {
           <div className="file-list">
             {loading && <div className="empty-sm">加载中…</div>}
             {!loading && files.length === 0 && (
-              <div className="empty" style={{ padding: 40 }}>
+              <div className="empty file-empty-state">
                 <div className="empty-text">暂无文件</div>
               </div>
             )}
@@ -245,7 +249,7 @@ export function FileManager() {
                   <pre>{detailContent.slice(0, 8000)}{detailContent.length > 8000 ? "\n\n..." : ""}</pre>
                 </div>
               ) : (
-                <div className="empty" style={{ flex: 1 }}><div className="empty-text">无文本内容</div></div>
+                <div className="empty file-empty-detail"><div className="empty-text">无文本内容</div></div>
               )}
             </>
           )}

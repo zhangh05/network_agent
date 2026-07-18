@@ -1,14 +1,33 @@
 import type { ReactNode } from "react";
-import { useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useUIStore } from "../stores/session";
 import { Sidebar } from "./Sidebar";
 import { NAV_ITEMS } from "../config/nav";
 import { preloadRoute } from "../routes";
+import type { NavItem } from "../config/nav";
 
 interface AppLayoutProps {
   children: ReactNode;
 }
+
+const MobileNavItem = memo(function MobileNavItem({ to, label, testid, Icon }: NavItem) {
+  const handleEnter = useCallback(() => preloadRoute(to), [to]);
+  const handleFocus = useCallback(() => preloadRoute(to), [to]);
+  return (
+    <NavLink
+      key={to}
+      to={to}
+      data-testid={`mobile-${testid}`}
+      className={({ isActive }) => "mobile-nav-item" + (isActive ? " active" : "")}
+      onMouseEnter={handleEnter}
+      onFocus={handleFocus}
+    >
+      <Icon size={15} />
+      <span>{label}</span>
+    </NavLink>
+  );
+});
 
 /**
  * Two-column app layout using CSS grid.
@@ -74,21 +93,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         {(sidebarOpen || mobileNavOpen) && (
           <div className="sidebar-scroll">
             <nav className="mobile-nav" aria-label="页面导航">
-              {NAV_ITEMS.map(({ to, label, testid, Icon }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  data-testid={`mobile-${testid}`}
-                  className={({ isActive }) =>
-                    "mobile-nav-item" + (isActive ? " active" : "")
-                  }
-                  onMouseEnter={() => preloadRoute(to)}
-                  onFocus={() => preloadRoute(to)}
-                >
-                  <Icon size={15} />
-                  <span>{label}</span>
-                </NavLink>
-              ))}
+              {NAV_ITEMS.map((item) => <MobileNavItem key={item.to} {...item} />)}
             </nav>
             <Sidebar />
           </div>

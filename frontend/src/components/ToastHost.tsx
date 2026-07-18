@@ -14,7 +14,7 @@ export function ToastHost() {
     >
       {messages.map((m) => (
         <div key={m.id} className={`toast ${m.kind}`} role="alert">
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="toast-content">
             <div className="toast-title">{m.title}</div>
             {m.body && <div className="toast-body">{m.body}</div>}
             {m.request_id && (
@@ -25,17 +25,7 @@ export function ToastHost() {
             onClick={() => dismiss(m.id)}
             aria-label="关闭通知"
             type="button"
-            style={{
-              background: "none",
-              border: "none",
-              padding: 2,
-              cursor: "pointer",
-              color: "var(--ink-mute)",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
+            className="toast-close"
           >
             <IconClose size={12} />
           </button>

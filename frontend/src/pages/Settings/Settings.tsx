@@ -68,39 +68,39 @@ export function Settings() {
 
   // ── Load workspace settings on mount ──
   useEffect(() => {
-    let alive = true;
+    const ctrl = new AbortController();
     if (!currentWorkspaceId) {
       setMemoryGatingLoaded(true);
-      return () => { alive = false; };
+      return () => ctrl.abort();
     }
     setMemoryGatingLoaded(false);
-    settingsApi.workspaceSettings(currentWorkspaceId)
+    settingsApi.workspaceSettings(currentWorkspaceId, ctrl.signal)
       .then((res) => {
-        if (!alive) return;
+        if (ctrl.signal.aborted) return;
         const mode = String(res?.workspace?.memory_gating ?? "rule_only");
         setMemoryGating(mode === "llm_first");
         setMemoryGatingLoaded(true);
       })
       .catch(() => {
-        if (alive) setMemoryGatingLoaded(true);
+        if (ctrl.signal.aborted) return;
+        setMemoryGatingLoaded(true);
       });
-    return () => { alive = false; };
+    return () => ctrl.abort();
   }, [currentWorkspaceId]);
 
   // ── Load on mount ──
   useEffect(() => {
     aliveRef.current = true;
+    const ctrl = new AbortController();
     setLoading(true);
-    settingsApi.providersList()
+    settingsApi.providersList(ctrl.signal)
       .then((res) => {
-        if (!aliveRef.current) return;
+        if (ctrl.signal.aborted) return;
 
         const list = Array.isArray(res?.providers) ? res.providers : [];
         const active = res?.active ?? "";
 
         if (list.length === 0) {
-          // Fallback: build provider list from presets if API returns empty/malformed
-          // Don't throw — show empty state with presets available for adding.
           setProviders([]);
           setActiveId("");
           setSelectedId("");
@@ -117,13 +117,16 @@ export function Settings() {
         }
       })
       .catch((e: unknown) => {
-        if (!aliveRef.current) return;
+        if (ctrl.signal.aborted) return;
         setError(isApiError(e) ? e.message : String(e));
       })
       .finally(() => {
-        if (aliveRef.current) setLoading(false);
+        if (!ctrl.signal.aborted) setLoading(false);
       });
-    return () => { aliveRef.current = false; };
+    return () => {
+      aliveRef.current = false;
+      ctrl.abort();
+    };
   }, []);
 
   // ── Select provider → load its config ──
@@ -332,7 +335,7 @@ export function Settings() {
       <div className="page" data-testid="page-settings">
         <PageHeader />
         <div className="page-body">
-          <div className="card card-danger-border" style={{ color: "var(--danger)" }}>{error}</div>
+          <div className="card card-danger-border settings-error-text">{error}</div>
         </div>
       </div>
     );
@@ -351,9 +354,9 @@ export function Settings() {
     <div className="page" data-testid="page-settings">
       <PageHeader activeId={activeId} />
       <div className="page-body no-pad">
-        <details style={{ margin: "0 0 4px", fontSize: "var(--fs-12)", color: "var(--text-3)", padding: "0 16px" }}>
-          <summary style={{ cursor: "pointer", fontWeight: 680 }}>💡 使用帮助</summary>
-          <div style={{ marginTop: 4, padding: "8px 12px", background: "var(--surface-2)", borderRadius: "var(--r-6)", lineHeight: 1.6 }}>
+        <details className="settings-help">
+          <summary>💡 使用帮助</summary>
+          <div className="settings-help-body">
             左侧选择 LLM 厂商 → 填写 API Key 和参数 → 保存生效。支持 DeepSeek、OpenAI、Claude 等。
           </div>
         </details>
@@ -446,7 +449,7 @@ export function Settings() {
                   <NumberField label="max_tokens" value={draft.max_tokens ?? 4096} min={1} max={128000} step={100} onChange={(v) => setDraft({ ...draft, max_tokens: v })} testid="field-max_tokens" />
                 </div>
 
-                <div className="settings-row" style={{ paddingTop: 4 }}>
+                <div className="settings-row settings-row-compact">
                   <ToggleField
                     label="safe_mode"
                     hint="阻止生成/修改 deployable_config"
@@ -459,8 +462,7 @@ export function Settings() {
                 {/* Test result */}
                 {testResult && (
                   <div
-                    className={"card mt-3 " + (testResult.llm_used ? "card-ok-border" : "card-warn-border")}
-                    style={{ fontSize: 12, padding: 12, marginTop: 12 }}
+                    className={"card mt-3 settings-test-result " + (testResult.llm_used ? "card-ok-border" : "card-warn-border")}
                     data-testid="test-result"
                   >
                     <div className="mb-1">
@@ -644,16 +646,16 @@ function MemoryGatingCard({
   enabled: boolean; loading: boolean; loaded: boolean; onToggle: (v: boolean) => void;
 }) {
   return (
-    <div className="card mt-3" style={{ padding: "20px 24px" }}>
-      <div className="row-flex" style={{ alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 16 }}>
+    <div className="card mt-3 memory-gating-card">
+      <div className="row-flex memory-gating-header">
         <div className="flex-1">
-          <div className="text-md" style={{ fontWeight: 700, marginBottom: 2 }}>记忆门控 Memory Gating</div>
-          <div className="muted text-xs" style={{ lineHeight: 1.5 }}>
+          <div className="text-md memory-gating-title-text">记忆门控 Memory Gating</div>
+          <div className="muted text-xs memory-gating-desc">
             选择每轮对话后，系统如何生成长期记忆
           </div>
         </div>
         <div className="row-flex-sm">
-          <span className="text-xs" style={{ fontWeight: 600, color: enabled ? "var(--ok)" : "var(--ink-mute)" }}>
+          <span className={`text-xs memory-gating-status ${enabled ? "memory-gating-status-on" : "memory-gating-status-off"}`}>
             {enabled ? "LLM 优先" : "规则门控"}
           </span>
           <button type="button" className={"toggle" + (enabled ? " on" : "")} onClick={() => onToggle(!enabled)}

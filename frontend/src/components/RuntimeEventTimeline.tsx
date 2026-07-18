@@ -37,16 +37,16 @@ function timeStr(evt: RuntimeEvent): string {
 function stepLabel(evt: RuntimeEvent): string {
   return evt.name || evt.event_type || evt.type || "步骤";
 }
-function stepColor(evt: RuntimeEvent): string {
+function stepColorClass(evt: RuntimeEvent): string {
   const t = (evt.event_type || evt.type || "").toLowerCase();
-  if (t.includes("error")) return "var(--danger)";
-  if (t.includes("retry")) return "var(--accent)";
-  if (t.includes("warn"))  return "var(--warn)";
-  if (t.includes("tool"))  return "var(--warn)";
-  if (t.includes("model")) return "var(--accent)";
-  if (t.includes("final") || t.includes("response")) return "var(--accent)";
-  if (t.includes("complete") || t.includes("ok")) return "var(--ok)";
-  return "var(--text-4)";
+  if (t.includes("error")) return "danger";
+  if (t.includes("retry")) return "accent";
+  if (t.includes("warn"))  return "warn";
+  if (t.includes("tool"))  return "warn";
+  if (t.includes("model")) return "accent";
+  if (t.includes("final") || t.includes("response")) return "accent";
+  if (t.includes("complete") || t.includes("ok")) return "ok";
+  return "muted";
 }
 
 /* ── tiny tool chip ── */
@@ -56,9 +56,9 @@ const ToolChip: React.FC<{ tc: ToolCallResult }> = React.memo(({ tc }) => {
   const hasBody = !!(tc.summary || tc.errors?.length || tc.artifacts?.length);
   return (
     <div className="rt-step rt-step-tool">
-      <span className="rt-dot" style={{ background: "var(--warn)" }} />
+      <span className="rt-dot rt-dot-warn" />
       <div className="rt-step-body">
-        <div className="rt-step-head" onClick={() => hasBody && setOpen(!open)} style={{ cursor: hasBody ? "pointer" : "default" }}>
+        <div className={`rt-step-head ${hasBody ? "rt-step-head--interactive" : ""}`} onClick={() => hasBody && setOpen(!open)}>
           <span className="rt-step-ok">{tc.ok ? "✓" : "✗"}</span>
           <code className="rt-step-name">{toolLabel(tc.tool_id)}</code>
           <span className="rt-tag">{tc.ok ? "完成" : "失败"}</span>
@@ -66,7 +66,7 @@ const ToolChip: React.FC<{ tc: ToolCallResult }> = React.memo(({ tc }) => {
           {hasBody && <span className="rt-chev">{open ? "▲" : "▼"}</span>}
         </div>
         {open && tc.summary && <div className="rt-step-detail">{tc.summary}</div>}
-        {open && tc.errors?.map((e, i) => <div key={i} className="rt-step-err">{e}</div>)}
+        {open && tc.errors?.map((e, i) => <div key={`${tc.call_id}-err-${i}-${e.slice(0, 32)}`} className="rt-step-err">{e}</div>)}
         {open && tc.artifacts?.length ? (
           <div className="rt-chips">
             {tc.artifacts.map((a) => <span key={a.artifact_id} className="rt-chip">{a.title || a.artifact_id.slice(0, 8)}</span>)}
@@ -80,12 +80,12 @@ const ToolChip: React.FC<{ tc: ToolCallResult }> = React.memo(({ tc }) => {
 /* ── step row ── */
 
 const StepRow: React.FC<{ evt: RuntimeEvent }> = React.memo(({ evt }) => {
-  const color = stepColor(evt);
+  const colorClass = stepColorClass(evt);
   const label = stepLabel(evt);
   const msg = evt.summary || evt.message || evt.error || "";
   return (
     <div className="rt-step">
-      <span className="rt-dot" style={{ background: color }} />
+      <span className={`rt-dot rt-dot-${colorClass}`} />
       <div className="rt-step-body">
         <div className="rt-step-line">
           <span className="rt-step-label">{label}</span>
@@ -124,21 +124,21 @@ const ResultBody: React.FC<{ result: AgentResult }> = React.memo(({ result }) =>
       {/* diagnostics */}
       {hasDiag && (
         <div className="rt-diag">
-          {result.errors?.map((e, i) => <div key={`e-${i}`} className="rt-diag-e">{e}</div>)}
-          {result.warnings?.map((w, i) => <div key={`w-${i}`} className="rt-diag-w">{w}</div>)}
+          {result.errors?.map((e, i) => <div key={`e-${i}-${e.slice(0, 32)}`} className="rt-diag-e">{e}</div>)}
+          {result.warnings?.map((w, i) => <div key={`w-${i}-${w.slice(0, 32)}`} className="rt-diag-w">{w}</div>)}
         </div>
       )}
 
       {/* steps */}
       <div className="rt-timeline">
-        {events.map((evt, i) => {
+        {events.map((evt) => {
           const t = (evt.event_type || evt.type || "").toLowerCase();
           const isTool = t.startsWith("tool_call") || evt.tool_id;
           if (isTool) {
             const match = toolMap.get(evt.tool_id || "") || toolMap.get(evt.event_id || "");
-            if (match) return <ToolChip key={`tc-${i}`} tc={match} />;
+            if (match) return <ToolChip key={`tc-${match.call_id || match.tool_id}`} tc={match} />;
           }
-          return <StepRow key={`ev-${i}`} evt={evt} />;
+          return <StepRow key={`ev-${evt.event_id || evt.tool_id || evt.type || evt.name}`} evt={evt} />;
         })}
         {/* tools without matching events */}
         {tools.filter((tc) => !events.some((e) => e.event_id === tc.call_id || e.tool_id === tc.call_id)).map((tc) => (
@@ -342,7 +342,14 @@ const RunCard: React.FC<{ group: RunGroup; runIdx: number }> = React.memo(({ gro
   return (
     <div className="rt-card">
       {/* ── collapsed header ── */}
-      <div className="rt-card-bar" onClick={() => setOpen(!open)}>
+      <div
+        className="rt-card-bar"
+        onClick={() => setOpen(!open)}
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(!open); } }}
+      >
         <span className={`rt-card-dot ${ok ? "ok" : "err"}`} />
         <span className="rt-card-id">{cardId || `#${runIdx + 1}`}</span>
         {workspaceId && <span className="rt-card-ws">{workspaceId}</span>}

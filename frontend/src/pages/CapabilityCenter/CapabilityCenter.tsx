@@ -37,31 +37,31 @@ export function CapabilityCenter() {
 
   return (
     <div className="page" data-testid="page-capabilities">
-      <div className="page-header" style={{ background: "var(--surface)" }}>
+      <div className="page-header cc-page-header">
         <div>
-          <h1>能力矩阵<span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14, marginLeft: 6 }}>· Capabilities</span></h1>
+          <h1>能力矩阵<span className="cc-title-aux">· Capabilities</span></h1>
           <p className="subtitle">查看当前可用能力、风险边界和人工复核要求；规划中能力不提供调用入口</p>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-          <span className="status-pill"><span className="dot" style={{ background: "var(--accent)" }} />{counts.tot} 项</span>
+        <div className="cc-pill-row">
+          <span className="status-pill"><span className="dot accent" />{counts.tot} 项</span>
           {counts.dep > 0 && <span className="status-pill"><IconBolt size={10} />{counts.dep} 涉及产物</span>}
         </div>
       </div>
 
       <div className="page-body">
         {/* Tool Catalog */}
-        <div className="card" style={{ marginBottom: 18 }}>
+        <div className="card cc-card-mb">
           <div className="card-title">
             工具目录
             {catalog.state.kind === "success" && <span className="count">{catalog.state.data.count ?? 0}</span>}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
-            <span style={{ fontSize: "var(--fs-12)", color: "var(--text-3)", flex: 1, minWidth: 0 }}>
+          <div className="cc-controls">
+            <span className="cc-controls-desc">
               {catalog.state.kind === "success" && <>Planner 可见 {catalog.state.data.planner_visible_count ?? 0} 个工具</>}
             </span>
-            <input className="input" value={tq} onChange={(e) => setTq(e.target.value)} placeholder="搜索 canonical / action…" style={{ maxWidth: 240, height: 30, fontSize: "var(--fs-12)" }} />
+            <input className="input cc-search-input" value={tq} onChange={(e) => setTq(e.target.value)} placeholder="搜索 canonical / action…" />
           </div>
-          <div className="segmented" style={{ marginBottom: 12, flexWrap: "wrap" }}>
+          <div className="segmented cc-segmented">
             {T_FILTERS.map((f) => (
               <button key={f.id} className={tf === f.id ? "active" : ""} onClick={() => setTf(f.id)} type="button">{f.label}</button>
             ))}
@@ -74,7 +74,7 @@ export function CapabilityCenter() {
         {/* Capability cards */}
         <AsyncView state={list.state} onRetry={list.reload} emptyText="无业务能力" emptyHint="agent.capabilities.catalog 未返回能力">
           {(d) => (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))", gap: 14 }} data-testid="capability-list">
+            <div className="capability-grid" data-testid="capability-list">
               {(d.capabilities ?? []).map((cap) => <CapCard key={cap.capability_id} cap={cap} />)}
             </div>
           )}
@@ -97,14 +97,14 @@ function ToolTree({ cats, query, filter }: { cats: ToolCatalogCategory[]; query:
     })).filter((c) => c.groups.length > 0);
   }, [cats, query, filter]);
 
-  if (!cats.length) return <div style={{ padding: 20, textAlign: "center", color: "var(--text-3)", fontSize: "var(--fs-12)" }}>暂无目录数据</div>;
+  if (!cats.length) return <div className="cc-empty-state">暂无目录数据</div>;
 
   return (
     <div className="tool-tree">
       {filtered.map((c) => (
         <details key={c.id} className="tool-category" open={!query}>
-          <summary><span style={{ fontWeight: 720 }}>{c.name}</span><span className="tool-count">{c.count}</span></summary>
-          {c.description && <div style={{ fontSize: "var(--fs-11)", color: "var(--text-3)", marginBottom: 6 }}>{c.description}</div>}
+          <summary><span className="cc-category-name">{c.name}</span><span className="tool-count">{c.count}</span></summary>
+          {c.description && <div className="cc-category-desc">{c.description}</div>}
           <div className="tool-groups">
             {c.groups.map((g) => (
               <details key={g.id} className="tool-group" open={Boolean(query)}>
@@ -141,7 +141,7 @@ function TRow({ tool }: { tool: ToolCatalogItem }) {
   return (
     <details className="tool-row">
       <summary>
-        <span style={{ fontWeight: 680, fontSize: "var(--fs-12)" }}>{tool.display_name}</span>
+        <span className="cc-tool-name">{tool.display_name}</span>
         <InlineCode>{tool.canonical_tool_id}</InlineCode>
         <Badge kind={G_KIND[(tool.governance_status ?? "active")] ?? "muted"}>{govLabel}</Badge>
         <Badge kind={R_KIND[tool.risk_level] ?? "muted"}>{riskBadge}</Badge>
@@ -202,9 +202,9 @@ function TRow({ tool }: { tool: ToolCatalogItem }) {
         )}
 
         {/* 技术细节（折叠） */}
-        <details className="collapse tool-tech-details" style={{ marginTop: 8 }}>
-          <summary style={{ fontSize: "var(--fs-11)", color: "var(--text-4)", cursor: "pointer" }}>技术详情</summary>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 6 }}>
+        <details className="collapse tool-tech-details cc-tech-collapse">
+          <summary className="cc-tech-summary">技术详情</summary>
+          <div className="cc-tech-grid">
             <D label="命名空间"><InlineCode>{tool.category}/{tool.group}/{tool.action}</InlineCode></D>
             {canonicalRefs.length > 0 && <D label="关联能力">{canonicalRefs.map((a) => <InlineCode key={a}>{a}</InlineCode>)}</D>}
             {tool.permission_action && <D label="权限动作"><InlineCode>{tool.permission_action}</InlineCode></D>}
@@ -217,7 +217,7 @@ function TRow({ tool }: { tool: ToolCatalogItem }) {
 }
 
 function D({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="tool-detail"><span style={{ fontSize: "var(--fs-10)", color: "var(--text-4)" }}>{label}</span><div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{children}</div></div>;
+  return <div className="tool-detail"><span className="cc-tech-label">{label}</span><div className="cc-tech-chips">{children}</div></div>;
 }
 
 /* ── Capability card ── */
@@ -229,28 +229,28 @@ function CapCard({ cap }: { cap: BusinessCapability }) {
   return (
     <div className="card" data-testid={`cap-${cap.capability_id}`}>
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-        <div style={{ minWidth: 0 }}>
-          <h4 style={{ fontSize: "var(--fs-15)", fontWeight: 740, margin: 0 }}>{title}</h4>
-          <div style={{ fontSize: "var(--fs-11)", color: "var(--text-4)", marginTop: 3 }}>{outcome}</div>
+      <div className="cap-header-row">
+        <div className="cap-title-block">
+          <h4 className="cap-title-h4">{title}</h4>
+          <div className="cap-outcome">{outcome}</div>
         </div>
         <Badge kind="ok" withDot>已启用</Badge>
       </div>
 
-      {cap.description && <div style={{ marginTop: 12, fontSize: "var(--fs-13)", color: "var(--text-2)", lineHeight: 1.6 }}>{cap.description}</div>}
+      {cap.description && <div className="cap-desc">{cap.description}</div>}
 
       {/* Safety */}
-      <div className="card-title" style={{ marginTop: 14 }}><IconShield size={11} /> 使用边界</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 20px" }}>
+      <div className="card-title cap-safety-title"><IconShield size={11} /> 使用边界</div>
+      <div className="cap-info-grid">
         <SR label="风险等级">{<Badge kind={R_KIND[cap.risk_level]}>{R_LABEL[cap.risk_level]}</Badge>}</SR>
         <SR label="配置产物">{cap.can_generate_deployable ? <Badge kind="warn">需复核</Badge> : <Badge kind="ok" withDot>不产生</Badge>}</SR>
         <SR label="评审要求">{cap.requires_verification ? <Badge kind="warn">需要</Badge> : <Badge kind="ok" withDot>无需</Badge>}</SR>
         <SR label="LLM 调用"><Badge kind="ok" withDot>可</Badge></SR>
       </div>
 
-      <details className="collapse" style={{ marginTop: 10 }}>
-        <summary style={{ fontSize: "var(--fs-11)", color: "var(--text-4)", cursor: "pointer" }}>技术详情</summary>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+      <details className="collapse cap-collapse">
+        <summary className="cap-collapse-summary">技术详情</summary>
+        <div className="cap-tech-chips">
           <InlineCode>{cap.capability_id}</InlineCode>
           <InlineCode>{cap.intent}</InlineCode>
           <InlineCode>{cap.module}</InlineCode>
@@ -262,7 +262,7 @@ function CapCard({ cap }: { cap: BusinessCapability }) {
 }
 
 function SR({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--fs-12)" }}><span style={{ color: "var(--text-3)", flexShrink: 0, minWidth: 56 }}>{label}</span>{children}</div>;
+  return <div className="cap-sr-row"><span className="cap-row-label">{label}</span>{children}</div>;
 }
 
 /* ── Tool filter/matcher ── */

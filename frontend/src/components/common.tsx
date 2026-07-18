@@ -106,11 +106,7 @@ function sk(w: string, h: number) {
   return (
     <span
       className="skeleton"
-      style={{
-        width: w, height: h, borderRadius: 4,
-        background: "var(--surface-2)", display: "inline-block",
-        animation: "sk-pulse 1.4s ease-in-out infinite",
-      }}
+      style={{ width: w, height: h }}
     />
   );
 }
@@ -125,11 +121,11 @@ export function SkeletonBlock({ h = 120, w = "100%" }: { h?: number; w?: string 
 
 export function SkeletonList({ rows = 5, gap = 10 }: { rows?: number; gap?: number }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap }}>
+    <div className="skeleton-list" style={{ gap }}>
       {Array.from({ length: rows }, (_, i) => (
-        <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <span className="skeleton" style={{ width: 28, height: 28, borderRadius: 6, background: "var(--surface-2)", animation: "sk-pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.1}s` }} />
-          <span className="skeleton" style={{ flex: 1, height: 14, borderRadius: 4, background: "var(--surface-2)", animation: "sk-pulse 1.4s ease-in-out infinite", animationDelay: `${i * 0.1}s` }} />
+        <div key={i} className="skeleton-list-row">
+          <span className="skeleton skeleton-avatar" style={{ animationDelay: `${i * 0.1}s` }} />
+          <span className="skeleton skeleton-line" style={{ animationDelay: `${i * 0.1}s` }} />
         </div>
       ))}
     </div>
@@ -138,11 +134,11 @@ export function SkeletonList({ rows = 5, gap = 10 }: { rows?: number; gap?: numb
 
 export function SkeletonTable({ rows = 4, cols = 3 }: { rows?: number; cols?: number }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    <div className="skeleton-table">
       {Array.from({ length: rows }, (_, r) => (
-        <div key={r} style={{ display: "flex", gap: 8 }}>
+        <div key={r} className="skeleton-table-row">
           {Array.from({ length: cols }, (_, c) => (
-            <span key={c} className="skeleton" style={{ flex: 1, height: 14, borderRadius: 4, background: "var(--surface-2)", animation: "sk-pulse 1.4s ease-in-out infinite", animationDelay: `${(r * cols + c) * 0.08}s` }} />
+            <span key={c} className="skeleton skeleton-cell" style={{ animationDelay: `${(r * cols + c) * 0.08}s` }} />
           ))}
         </div>
       ))}
@@ -249,22 +245,16 @@ export function Field({
   htmlFor?: string;
 }) {
   return (
-    <div className="col-flex" style={{ gap: 6 }}>
+    <div className="col-flex field-col">
       <label
         htmlFor={htmlFor}
-        style={{
-          fontSize: 11,
-          color: "var(--ink-mute)",
-          textTransform: "uppercase",
-          letterSpacing: "0.08em",
-          fontWeight: 500,
-        }}
+        className="field-label"
       >
         {label}
       </label>
       {children}
       {hint && (
-        <span style={{ fontSize: 11, color: "var(--ink-faint)" }}>{hint}</span>
+        <span className="field-hint">{hint}</span>
       )}
     </div>
   );
@@ -289,40 +279,22 @@ export function Collapsible({
   return (
     <div className="inspector-section" data-testid={testid}>
       <button
-        className={"inspector-section-title" + (open ? "" : " collapsed")}
-        style={{
-          width: "100%",
-          background: "none",
-          border: "none",
-          padding: 0,
-        }}
+        className={"inspector-section-title collapsible-toggle" + (open ? "" : " collapsed")}
         onClick={() => setOpen((o) => !o)}
         data-testid="collapsible-toggle"
         type="button"
       >
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span className="collapsible-title">
           <span className="chev">▾</span>
           {title}
           {typeof count === "number" && count > 0 && (
-            <span
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: 10,
-                color: "var(--ink-mute)",
-                background: "var(--bg-soft)",
-                padding: "1px 6px",
-                borderRadius: 8,
-                fontWeight: 400,
-                letterSpacing: 0,
-                textTransform: "none",
-              }}
-            >
+            <span className="collapsible-count">
               {count}
             </span>
           )}
         </span>
       </button>
-      {open && <div style={{ marginTop: 4 }}>{children}</div>}
+      {open && <div className="collapsible-body">{children}</div>}
     </div>
   );
 }

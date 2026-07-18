@@ -162,9 +162,20 @@ export async function apiRequest<T = unknown>(
         throw ae;
       }
       lastError = ae;
-      // Exponential backoff: 500ms, 1000ms, 2000ms
+      // Exponential backoff: 500ms, 1000ms, 2000ms — honour abort while waiting
       const delay = Math.min(500 * (2 ** attempt), 3000);
-      await new Promise(r => setTimeout(r, delay));
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, delay);
+        const onAbort = () => {
+          clearTimeout(timer);
+          reject(mkError("aborted", 0, "请求已取消", (err as AxiosError)?.config?.url, undefined));
+        };
+        if (signal?.aborted) {
+          onAbort();
+        } else {
+          signal?.addEventListener("abort", onAbort, { once: true });
+        }
+      });
     }
   }
   throw lastError!;

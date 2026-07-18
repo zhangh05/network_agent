@@ -60,15 +60,6 @@ interface Snapshot {
   error: string;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  succeeded: "#16a34a",
-  partial: "#d97706",
-  failed: "#b91c1c",
-  cancelled: "#475569",
-  running: "#2563eb",
-  pending: "#64748b",
-};
-
 export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props) {
   const currentWorkspaceId = useSessionStore((s) => s.currentWorkspaceId);
   const [snap, setSnap] = useState<Snapshot | null>(null);
@@ -180,8 +171,8 @@ export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props
 
   if (!snap) {
     return (
-      <div style={cardStyle}>
-        <div style={{ fontSize: 12, color: "var(--text-4)" }}>
+      <div className="inspection-progress-card">
+        <div className="inspection-progress-note">
           正在拉取巡检 {taskId} 状态…
         </div>
       </div>
@@ -194,32 +185,28 @@ export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props
         ((snap.succeeded + snap.failed + snap.partial + snap.skipped) / snap.total_assets) * 100,
       ))
     : 0;
-  const styleWithFade = phase === "fading" ? { ...cardStyle, opacity: 0.55 } : cardStyle;
+  const statusClass = snap.status || "pending";
 
   return (
-    <div style={styleWithFade}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{
-          ...chip,
-          background: STATUS_COLORS[snap.status] || "#64748b",
-        }}>{snap.status}</span>
-        <strong style={{ fontSize: 13 }}>巡检任务 {taskId}</strong>
-        <span style={{ flex: 1 }} />
+    <div className={`inspection-progress-card ${phase === "fading" ? "inspection-progress-card--fading" : ""}`}>
+      <div className="inspection-progress-card-header">
+        <span
+          className={`inspection-progress-chip inspection-progress-chip--${statusClass}`}
+        >{snap.status}</span>
+        <strong className="inspection-progress-title">巡检任务 {taskId}</strong>
+        <span className="inspection-progress-spacer" />
         {live && (
           <button
             type="button"
             onClick={onCancel}
             disabled={cancelling}
-            style={{
-              background: "transparent", color: "#b91c1c", border: "1px solid #b91c1c",
-              padding: "4px 12px", borderRadius: 4, fontSize: 11, cursor: cancelling ? "not-allowed" : "pointer",
-            }}
+            className="inspection-cancel-btn"
           >
             {cancelling ? "取消中…" : "取消"}
           </button>
         )}
       </div>
-      <div style={{ marginTop: 8, fontSize: 12, color: "var(--text-4)" }}>
+      <div className="inspection-progress-meta">
         设备: {snap.succeeded}✓ / {snap.failed}✗ / {snap.partial}½ / {snap.skipped}· / {snap.total_assets}
         {"  "}
         发现: {snap.criticals} critical · {snap.warnings} warning · {snap.infos} info
@@ -227,27 +214,24 @@ export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props
           <>{"  "}· 耗时 {Math.round(snap.duration_ms / 1000)}s</>
         )}
       </div>
-      <div style={barBg}>
+      <div className="inspection-progress-bar-bg">
         <div
-          style={{
-            ...barFill,
-            width: `${progressPct}%`,
-            background: STATUS_COLORS[snap.status] || "#2563eb",
-          }}
+          className={`inspection-progress-bar-fill inspection-progress-bar-fill--${statusClass}`}
+          style={{ width: `${progressPct}%` }}
         />
       </div>
       {snap.cancel_requested_at && (
-        <div style={{ fontSize: 11, color: "var(--text-4)", marginTop: 4 }}>
+        <div className="inspection-progress-note">
           已请求取消 @ {snap.cancel_requested_at}
         </div>
       )}
       {cancelError && (
-        <div style={{ fontSize: 11, color: "#b91c1c", marginTop: 4 }}>
+        <div className="inspection-progress-error">
           {cancelError}
         </div>
       )}
       {snap.error && phase !== "live" && (
-        <div style={{ fontSize: 11, color: "var(--text-4)", marginTop: 4 }}>
+        <div className="inspection-progress-note">
           error: {snap.error}
         </div>
       )}
@@ -255,33 +239,3 @@ export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props
   );
 }
 
-const cardStyle: React.CSSProperties = {
-  background: "var(--surface)",
-  border: "1px solid var(--line)",
-  borderLeft: "4px solid #2563eb",
-  borderRadius: 8,
-  padding: "10px 14px",
-  margin: "8px 0",
-  fontSize: 12,
-};
-const chip: React.CSSProperties = {
-  display: "inline-block",
-  padding: "2px 8px",
-  borderRadius: 999,
-  fontSize: 11,
-  fontWeight: 600,
-  color: "white",
-};
-const barBg: React.CSSProperties = {
-  marginTop: 6,
-  height: 4,
-  width: "100%",
-  background: "var(--line)",
-  borderRadius: 999,
-  overflow: "hidden",
-};
-const barFill: React.CSSProperties = {
-  height: "100%",
-  borderRadius: 999,
-  transition: "width .5s",
-};

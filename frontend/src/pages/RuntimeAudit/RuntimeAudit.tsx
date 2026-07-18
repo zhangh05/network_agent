@@ -77,7 +77,7 @@ export function RuntimeAudit() {
         <div>
           <h1>
             运行审计{" "}
-            <span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14 }}>
+            <span className="ra-title-suffix">
               · Runtime Audit
             </span>
           </h1>
@@ -86,22 +86,10 @@ export function RuntimeAudit() {
           </div>
         </div>
       </div>
-      <div
-        className="split-shell"
-        style={{
-          flex: 1,
-          minHeight: 0,
-        }}
-      >
-        <aside
-          style={{
-            borderRight: "1px solid var(--line)",
-            overflowY: "auto",
-            background: "var(--bg-elev)",
-          }}
-        >
-          <div style={{ padding: 12 }}>
-            <div className="section-head" style={{ paddingLeft: 4, marginBottom: 8 }}>
+      <div className="split-shell">
+        <aside className="ra-aside">
+          <div className="ra-sidebar-card">
+            <div className="section-head ra-section-head-sm">
               <IconClock size={11} /> 最近 turn
             </div>
             <AsyncView
@@ -121,23 +109,16 @@ export function RuntimeAudit() {
                         key={runId}
                         type="button"
                         className={
-                          "list-item" +
+                          "list-item ra-turn-item" +
                           (selectedRunId === runId ? " active" : "")
                         }
                         onClick={() => setSelectedRunId(runId)}
                         data-testid={`turn-${runId}`}
-                        style={{
-                          flexDirection: "column",
-                          alignItems: "flex-start",
-                          gap: 4,
-                          height: "auto",
-                          padding: "8px 10px",
-                        }}
                       >
-                        <span className="title text-sm" style={{ lineHeight: 1.3 }}>
+                        <span className="title text-sm ra-turn-title">
                           问题摘要：{label}
                         </span>
-                        <span className="row-flex" style={{ gap: 6, flexWrap: "wrap" }}>
+                        <span className="row-flex ra-badge-row">
                           <Badge
                             kind={
                               t.status === "ok"
@@ -151,9 +132,9 @@ export function RuntimeAudit() {
                           </Badge>
                           <span className="text-xs muted">时间：{auditTime(t)}</span>
                         </span>
-                        <details className="collapse" style={{ width: "100%" }}>
+                        <details className="collapse w-full">
                           <summary className="text-xs muted">技术详情</summary>
-                          <div className="text-xs muted mono" style={{ marginTop: 2 }}>
+                          <div className="text-xs muted mono ra-mt-2px">
                             {runId}
                           </div>
                         </details>
@@ -166,12 +147,11 @@ export function RuntimeAudit() {
           </div>
         </aside>
         <section
-          className="split-detail"
-          style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}
+          className="split-detail ra-detail-override"
           data-testid="audit-detail"
         >
           {!selectedRunId ? (
-            <div className="hero" style={{ minHeight: "auto", padding: 60 }}>
+            <div className="hero ra-hero-sm">
               <div className="hero-mark">审</div>
               <h1 className="hero-title">未选择 turn</h1>
               <p className="hero-sub">在左侧选择一个 turn，查看 trace 事件流</p>
@@ -179,26 +159,23 @@ export function RuntimeAudit() {
           ) : (
             <>
               {trace.state.kind === "loading" && (
-                <div className="row-flex" style={{ gap: 8 }}>
+                <div className="row-flex">
                   <span className="spinner" /> 加载 trace…
                 </div>
               )}
               {trace.state.kind === "error" && (
-                <div
-                  className="text-sm row-flex"
-                  style={{ color: "var(--danger)", gap: 6 }}
-                >
+                <div className="text-sm row-flex ra-error-msg">
                   <IconAlert size={11} /> {trace.state.error.message}
                 </div>
               )}
               {trace.state.kind === "success" && (
                 <>
                   <div className="row-flex mb-3">
-                    <span className="text-sm" style={{ fontWeight: 600 }}>运行详情</span>
+                    <span className="text-sm ra-semibold">运行详情</span>
                     <span className="muted text-sm">
                       {trace.state.data.events.length} 个事件
                     </span>
-                    <details className="collapse" style={{ marginLeft: "auto" }}>
+                    <details className="collapse ml-auto">
                       <summary className="text-xs muted">技术详情</summary>
                       <InlineCode>{selectedRunId}</InlineCode>
                     </details>
@@ -236,21 +213,15 @@ export function RuntimeAudit() {
                         })();
                         return failedEv ? (
                           <div
-                            className="card mb-3"
-                            style={{
-                              borderColor: "var(--danger)",
-                              padding: 10,
-                              color: "var(--danger)",
-                              flexShrink: 0,
-                            }}
+                            className="card mb-3 ra-failure-card"
                             data-testid="audit-failure-summary"
                           >
                             <strong>失败原因</strong>
-                            <span className="text-sm" style={{ marginLeft: 8 }}>
+                            <span className="text-sm ml-2">
                               {String(error).slice(0, 200)}
                             </span>
                             {timeoutSecs != null && (
-                              <span className="text-sm" style={{ marginLeft: 8 }}>
+                              <span className="text-sm ml-2">
                                 · 耗时 {timeoutSecs}s
                               </span>
                             )}
@@ -259,11 +230,15 @@ export function RuntimeAudit() {
                       })()}
                       <div
                         ref={parentRef}
-                        className="list-scroll"
+                        className="list-scroll ra-events-scroll"
                         data-testid="audit-events"
-                        style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
                       >
-                        <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+                        <div
+                          ref={(el) => {
+                            if (el) el.style.setProperty("--ra-h", `${virtualizer.getTotalSize()}px`);
+                          }}
+                          className="ra-virtual-inner"
+                        >
                           {virtualizer.getVirtualItems().map((vi) => {
                             const ev = events[vi.index];
                             const eventType = ev.event_type || ev.type || "unknown";
@@ -274,27 +249,21 @@ export function RuntimeAudit() {
                               <div
                                 key={ev.event_id}
                                 data-index={vi.index}
-                                ref={virtualizer.measureElement}
-                                className="card"
-                                style={{
-                                  padding: 12,
-                                  marginBottom: 8,
-                                  position: "absolute",
-                                  top: 0,
-                                  left: 0,
-                                  width: "100%",
-                                  transform: `translateY(${vi.start}px)`,
+                                ref={(node) => {
+                                  virtualizer.measureElement(node);
+                                  if (node) node.style.setProperty("--ra-t", `translateY(${vi.start}px)`);
                                 }}
+                                className="card ra-event-card"
                               >
-                                <div className="row-flex" style={{ justifyContent: "space-between" }}>
-                                  <span className="row-flex" style={{ minWidth: 0, gap: 8 }}>
-                                    <span className={"status-dot " + (isOk ? "ok" : "err")} style={{ width: 8, height: 8 }} />
+                                <div className="row-flex ra-justify-between">
+                                  <span className="row-flex min-w-0">
+                                    <span className={"status-dot ra-dot-sm " + (isOk ? "ok" : "err")} />
                                     <span className="text-sm">{label}</span>
                                   </span>
                                   <span className="muted text-xs mono">{formatEventTime(ev)}</span>
                                 </div>
                                 <details className="collapse mt-2">
-                                  <summary style={{ fontSize: 11, color: "var(--ink-mute)" }}>开发诊断 · {eventType}</summary>
+                                  <summary className="ra-collapse-summary">开发诊断 · {eventType}</summary>
                                   <CodeBlock language="json">
                                     {JSON.stringify(details, null, 2)}
                                   </CodeBlock>

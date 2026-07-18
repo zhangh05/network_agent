@@ -50,10 +50,8 @@ export function DataTable<T>({
             {columns.map((col) => (
               <th
                 key={col.key}
-                style={{
-                  width: col.width,
-                  textAlign: col.align ?? "left",
-                }}
+                className={col.align ? `text-${col.align}` : "text-left"}
+                style={{ width: col.width }}
               >
                 {col.header}
               </th>
@@ -71,10 +69,8 @@ export function DataTable<T>({
               {columns.map((col) => (
                 <td
                   key={col.key}
-                  style={{
-                    textAlign: col.align ?? "left",
-                    width: col.width,
-                  }}
+                  className={col.align ? `text-${col.align}` : "text-left"}
+                  style={{ width: col.width }}
                 >
                   {col.render ? col.render(row, i) : null}
                 </td>

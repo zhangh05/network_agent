@@ -270,7 +270,7 @@ describe("Settings — LLM Provider configuration v2", () => {
       fireEvent.click(screen.getByTestId("toggle-memory-gating"));
     });
 
-    expect(spy.workspaceSettings).toHaveBeenCalledWith("ws-settings");
+    expect(spy.workspaceSettings).toHaveBeenCalledWith("ws-settings", expect.any(AbortSignal));
     expect(spy.updateWorkspaceSettings).toHaveBeenCalledWith(
       { memory_gating: "llm_first" },
       "ws-settings",

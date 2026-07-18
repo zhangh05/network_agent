@@ -22,15 +22,46 @@ type UsageStats = {
   output_tokens: number; estimated_cost: number; last_updated: string;
 };
 
+type HealthComponent = {
+  name: string;
+  status: "ok" | "warning" | "error";
+  message?: string;
+};
+
+type HealthData = {
+  summary?: { ok?: number; warning?: number; error?: number };
+  components?: HealthComponent[];
+};
+
+type SelfcheckIssue = {
+  severity: "error" | "warning";
+  message: string;
+  suggested_action?: string;
+};
+
+type SelfcheckData = {
+  status?: string;
+  issues?: SelfcheckIssue[];
+};
+
+type PromptItem = {
+  prompt_id: string;
+  description?: string;
+  task?: string;
+  version?: string;
+};
+
+type PolicyData = { policy?: Record<string, unknown> };
+
 type DiagnosticsCache = {
   ts: string;
-  health: any;
-  selfcheck: any;
+  health: HealthData | null;
+  selfcheck: SelfcheckData | null;
   usage: UsageStats | null;
   contextOk: boolean | null;
-  prompts: any[] | null;
-  retention: any;
-  archive: any;
+  prompts: PromptItem[] | null;
+  retention: PolicyData;
+  archive: PolicyData;
 };
 
 /* ── 内部组件名 → 用户友好名称 ── */
@@ -77,23 +108,26 @@ export function Diagnostics() {
   const cache = readCache();
 
   // State: init from cache or null
-  const [health, setHealth] = useState<any>(cache?.health ?? null);
-  const [selfcheck, setSelfcheck] = useState<any>(cache?.selfcheck ?? null);
+  const [health, setHealth] = useState<HealthData | null>(cache?.health ?? null);
+  const [selfcheck, setSelfcheck] = useState<SelfcheckData | null>(cache?.selfcheck ?? null);
   const [usage, setUsage] = useState<UsageStats | null>(cache?.usage ?? null);
   const [contextOk, setContextOk] = useState<boolean | null>(cache?.contextOk ?? null);
-  const [prompts, setPrompts] = useState<any[] | null>(cache?.prompts ?? null);
-  const [retention, setRetention] = useState<any>(cache?.retention ?? null);
-  const [archive, setArchive] = useState<any>(cache?.archive ?? null);
+  const [prompts, setPrompts] = useState<PromptItem[] | null>(cache?.prompts ?? null);
+  const [retention, setRetention] = useState<PolicyData>(cache?.retention ?? {});
+  const [archive, setArchive] = useState<PolicyData>(cache?.archive ?? {});
   const [lastCheck, setLastCheck] = useState<string | null>(cache?.ts ?? null);
 
   const [detecting, setDetecting] = useState(false);
   const mountedRef = useRef(true);
   const seqRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const runDetection = useCallback(async () => {
     const seq = ++seqRef.current;
     setDetecting(true);
+    abortRef.current?.abort();
     const ctrl = new AbortController();
+    abortRef.current = ctrl;
     const wsId = currentWorkspaceId;
     if (!wsId) {
       setDetecting(false);
@@ -113,8 +147,8 @@ export function Diagnostics() {
     let newHealth = health, newSelfcheck = selfcheck, newUsage = usage;
     let newContextOk = contextOk, newPrompts = prompts, newRetention = retention, newArchive = archive;
 
-    if (rh.status === "fulfilled") { newHealth = rh.value; setHealth(rh.value); }
-    if (sc.status === "fulfilled") { newSelfcheck = sc.value; setSelfcheck(sc.value); }
+    if (rh.status === "fulfilled") { newHealth = rh.value as HealthData; setHealth(newHealth); }
+    if (sc.status === "fulfilled") { newSelfcheck = sc.value as SelfcheckData; setSelfcheck(newSelfcheck); }
     if (us.status === "fulfilled") {
       const raw = us.value;
       newUsage = {
@@ -128,9 +162,9 @@ export function Diagnostics() {
       newContextOk = (cs.value).context_runtime_enabled;
       setContextOk(newContextOk);
     }
-    if (pr.status === "fulfilled") { newPrompts = (pr.value).prompts ?? []; setPrompts(newPrompts); }
-    if (rp.status === "fulfilled") { newRetention = rp.value; setRetention(rp.value); }
-    if (ap.status === "fulfilled") { newArchive = ap.value; setArchive(ap.value); }
+    if (pr.status === "fulfilled") { newPrompts = ((pr.value).prompts ?? []) as PromptItem[]; setPrompts(newPrompts); }
+    if (rp.status === "fulfilled") { newRetention = rp.value as PolicyData; setRetention(newRetention); }
+    if (ap.status === "fulfilled") { newArchive = ap.value as PolicyData; setArchive(newArchive); }
 
     // Save to cache
     writeCache({
@@ -145,7 +179,10 @@ export function Diagnostics() {
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      abortRef.current?.abort();
+    };
   }, []);
 
   const hs = health?.summary ?? {};
@@ -156,9 +193,9 @@ export function Diagnostics() {
   const summaryStats = useMemo(() => {
     if (!health && !usage) return null;
     const comps = health?.components ?? [];
-    const okCount = comps.filter((c: any) => c.status === "ok").length;
-    const warnCount = comps.filter((c: any) => c.status === "warning").length;
-    const errCount = comps.filter((c: any) => c.status === "error").length;
+    const okCount = comps.filter((c: HealthComponent) => c.status === "ok").length;
+    const warnCount = comps.filter((c: HealthComponent) => c.status === "warning").length;
+    const errCount = comps.filter((c: HealthComponent) => c.status === "error").length;
     return {
       totalComps: comps.length,
       okCount, warnCount, errCount,
@@ -193,10 +230,9 @@ export function Diagnostics() {
         }
       >
         <button
-          className="btn sm"
+          className="btn sm diag-run-btn"
           onClick={runDetection}
           disabled={detecting}
-          style={{ fontWeight: 680, minWidth: 100, justifyContent: "center" }}
         >
           {detecting ? (
             <>⏳ 检测中…</>
@@ -239,14 +275,14 @@ export function Diagnostics() {
           <div>
             <Section title="运行时健康" badge={
               health ? (
-                <span style={{ fontSize: 12 }}>
-                  {allOk ? <span style={{ color: "var(--ok, #2e7d32)" }}>● 全部正常</span> : `${hs.ok} 正常` + (hs.warning ? ` / ${hs.warning} 警告` : "") + (hs.error ? ` / ${hs.error} 异常` : "")}
+                <span className="diag-section-badge">
+                  {allOk ? <span className="diag-section-badge diag-text-ok">● 全部正常</span> : `${hs.ok} 正常` + (hs.warning ? ` / ${hs.warning} 警告` : "") + (hs.error ? ` / ${hs.error} 异常` : "")}
                 </span>
               ) : null
             }>
               {health ? (
                 <div className="diag-health-grid">
-                  {(health.components ?? []).map((c: any) => {
+                  {(health.components ?? []).map((c: HealthComponent) => {
                     const label = COMP_LABELS[c.name] || c.name;
                     const desc = COMP_DESC[c.name] || "";
                     return (
@@ -278,8 +314,8 @@ export function Diagnostics() {
                   <div className="diag-usage-rows">
                     <Row label="Token 总量" value={usage.total_tokens.toLocaleString()} />
                     <Row label="输入 / 输出" value={`${usage.input_tokens.toLocaleString()} / ${usage.output_tokens.toLocaleString()}`} dim />
-                    <div style={{ borderTop: "1px solid var(--line-2)", paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                      <span style={{ fontSize: 11, color: "var(--text-4)" }}>预估费用</span>
+                    <div className="diag-cost-row">
+                      <span className="diag-cost-label">预估费用</span>
                       <b className="diag-cost">¥{Number(usage.estimated_cost ?? 0).toFixed(4)}</b>
                     </div>
                   </div>
@@ -287,11 +323,11 @@ export function Diagnostics() {
               ) : <Dim>暂无数据</Dim>}
             </Section>
 
-            <Section title="自检结果" badge={selfcheck?.status === "healthy" ? <span style={{ color: "var(--ok, #2e7d32)", fontSize: 12 }}>通过</span> : selfcheck?.issues?.length > 0 ? <span style={{ color: "var(--warn, #ed6c02)", fontSize: 12 }}>{selfcheck.issues.length} 项问题</span> : null}>
+            <Section title="自检结果" badge={selfcheck?.status === "healthy" ? <span className="diag-section-badge diag-text-ok">通过</span> : (selfcheck?.issues?.length ?? 0) > 0 ? <span className="diag-section-badge diag-text-warn">{(selfcheck?.issues?.length ?? 0)} 项问题</span> : null}>
               {selfcheck ? (
-                selfcheck.issues?.length > 0 ? (
+                selfcheck.issues && selfcheck.issues.length > 0 ? (
                   <div className="diag-issues-list">
-                    {selfcheck.issues.map((iss: any, i: number) => (
+                    {selfcheck.issues.map((iss: SelfcheckIssue, i: number) => (
                       <div key={i} className={`diag-issue-item diag-issue-${iss.severity}`}>
                         <span className="diag-issue-sev">{iss.severity === "error" ? "错误" : "警告"}</span>
                         <div className="diag-issue-body">
@@ -307,8 +343,8 @@ export function Diagnostics() {
 
             <Section title="提示词库" badge={prompts?.length != null ? <span className="faint">{prompts.length} 条</span> : null}>
               {prompts && prompts.length > 0 ? (
-                <div style={{ maxHeight: 260, overflowY: "auto" }}>
-                  <DataTable
+                <div className="diag-prompt-list">
+                  <DataTable<PromptItem>
                     rows={prompts}
                     keyExtractor={(p) => p.prompt_id}
                     columns={[
@@ -341,7 +377,7 @@ export function Diagnostics() {
             </Section>
 
             <Section title="数据策略">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div className="diag-policy-grid">
                 {retention?.policy && (
                   <div className="diag-policy-block">
                     <div className="diag-policy-title">📥 数据保留</div>

@@ -65,6 +65,8 @@ function renderInline(raw: string): string {
 
   // Protect code and links before emphasis parsing. Otherwise identifiers such
   // as `ins_abc` and URLs with underscores are incorrectly split into <em>.
+  // Note: callers escape HTML before invoking renderInline, so we preserve the
+  // protected inline-code content as-is to avoid double-escaping.
   text = text.replace(/`([^`]+)`/g, (_: string, code: string) =>
     protect(`<code>${code}</code>`)
   );

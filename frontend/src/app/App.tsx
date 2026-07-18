@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, memo, useCallback, useEffect, useState } from "react";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { SkeletonList, SkeletonTable } from "../components/common";
 import { AppLayout } from "../layouts/AppLayout";
@@ -36,6 +36,24 @@ import {
 function formatVersion(version: string): string {
   return version.startsWith("v") ? version : `v${version}`;
 }
+
+const NavItem = memo(function NavItem({ to, label, testid, Icon }: import("../config/nav").NavItem) {
+  const handleEnter = useCallback(() => preloadRoute(to), [to]);
+  const handleFocus = useCallback(() => preloadRoute(to), [to]);
+  return (
+    <NavLink
+      key={to}
+      to={to}
+      data-testid={testid}
+      className={({ isActive }) => "app-nav-item" + (isActive ? " active" : "")}
+      onMouseEnter={handleEnter}
+      onFocus={handleFocus}
+    >
+      <Icon size={14} />
+      <span>{label}</span>
+    </NavLink>
+  );
+});
 
 /** Per-route skeleton shown while a lazily-loaded page chunk is fetched, so
  *  navigation feels instant instead of flashing an empty spinner. */
@@ -126,21 +144,7 @@ function AppShell() {
         </a>
 
         <nav className="app-nav" aria-label="主导航">
-          {NAV_ITEMS.map(({ to, label, testid, Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              data-testid={testid}
-              className={({ isActive }) =>
-                "app-nav-item" + (isActive ? " active" : "")
-              }
-              onMouseEnter={() => preloadRoute(to)}
-              onFocus={() => preloadRoute(to)}
-            >
-              <Icon size={14} />
-              <span>{label}</span>
-            </NavLink>
-          ))}
+          {NAV_ITEMS.map((item) => <NavItem key={item.to} {...item} />)}
         </nav>
 
         <div className="app-spacer" />

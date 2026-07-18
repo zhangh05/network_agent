@@ -258,10 +258,9 @@ export function KnowledgeLibrary() {
       header: "文档名",
       render: (s: KnowledgeSource) =>
         editingId === s.source_id ? (
-          <div className="row-flex" style={{ gap: 4 }}>
+          <div className="row-flex-xs">
             <input
-              className="input"
-              style={{ width: 180, height: 26, fontSize: 13 }}
+              className="input kl-rename-input"
               value={editingTitle}
               onChange={(e) => setEditingTitle(e.target.value)}
               onKeyDown={(e) => {
@@ -270,8 +269,8 @@ export function KnowledgeLibrary() {
               }}
               autoFocus
             />
-            <button className="btn sm" style={{ height: 26, padding: "0 8px" }} onClick={() => void saveRename(s.source_id)} type="button">保存</button>
-            <button className="btn sm ghost" style={{ height: 26, padding: "0 6px" }} onClick={cancelRename} type="button">×</button>
+            <button className="btn sm kl-rename-save" onClick={() => void saveRename(s.source_id)} type="button">保存</button>
+            <button className="btn sm ghost kl-rename-cancel" onClick={cancelRename} type="button">×</button>
           </div>
         ) : (
           <>
@@ -293,7 +292,7 @@ export function KnowledgeLibrary() {
       key: "summary",
       header: "简要",
       render: (s: KnowledgeSource) => (
-        <div className="text-xs truncate" style={{ maxWidth: 260 }}>
+        <div className="text-xs truncate kl-summary-cell">
           {s.summary || <span className="muted">—</span>}
         </div>
       ),
@@ -334,16 +333,14 @@ export function KnowledgeLibrary() {
             <IconRefresh size={11} /> 整理
           </button>
           <button
-            className="btn sm"
-            style={{ marginLeft: 4 }}
+            className="btn sm kl-btn-gap"
             onClick={() => void onToggleEnabled(s)}
             type="button"
           >
             {s.enabled === false ? "启用" : "停用"}
           </button>
           <button
-            className="btn sm"
-            style={{ marginLeft: 4 }}
+            className="btn sm kl-btn-gap"
             onClick={() => void onViewDetail(s.source_id)}
             disabled={detailLoading}
             type="button"
@@ -351,8 +348,7 @@ export function KnowledgeLibrary() {
             详情
           </button>
           <button
-            className="btn sm danger"
-            style={{ marginLeft: 4 }}
+            className="btn sm danger kl-btn-gap"
             onClick={() => void onDelete(s.source_id, s.title || s.source_id)}
             data-testid={`btn-delete-${s.source_id}`}
             type="button"
@@ -391,9 +387,9 @@ export function KnowledgeLibrary() {
       </PageHeader>
 
       <div className="page-body">
-        <details style={{ marginBottom: 16, fontSize: "var(--fs-12)", color: "var(--text-3)" }}>
-          <summary style={{ cursor: "pointer", fontWeight: 680 }}>💡 使用帮助</summary>
-          <div style={{ marginTop: 6, padding: "10px 14px", background: "var(--surface-2)", borderRadius: "var(--r-6)", lineHeight: 1.6 }}>
+        <details className="kl-help-details">
+          <summary className="kl-help-summary">💡 使用帮助</summary>
+          <div className="kl-help-content">
             <strong>搜索</strong> — 输入关键词检索已导入的文档和知识片段；<br />
             <strong>上传</strong> — 支持 TXT / PDF / Markdown / JSON，也可从制品中心导入已有制品；<br />
             <strong>知识源</strong> — 列表中展示已导入的文档，可预览内容或重新索引。
@@ -469,14 +465,13 @@ export function KnowledgeLibrary() {
           <div className="text-xs muted mb-3">
             选择一个制品建立可检索知识源。只索引安全摘录，机密内容不会进入搜索结果。
           </div>
-          <div className="row-flex" style={{ gap: 8 }}>
+          <div className="row-flex kl-import-row">
             <select
-              className="input"
+              className="input kl-import-select"
               value={importArtifactId}
               onChange={(e) => setImportArtifactId(e.target.value)}
               data-testid="knowledge-import-select"
               disabled={artifacts.state.kind === "loading"}
-              style={{ flex: 1 }}
             >
               <option value="">选择 artifact…</option>
               {(artifacts.state.kind === "success" ? artifacts.state.data.artifacts : []).map(
@@ -570,15 +565,15 @@ export function KnowledgeLibrary() {
           </FilterBar>
 
           {search.state.kind === "loading" && (
-            <div className="text-sm muted row-flex" style={{ gap: 8 }}>
+            <div className="text-sm muted row-flex kl-detail-loading">
               <span className="spinner" /> 搜索中…
             </div>
           )}
           {search.state.kind === "error" && (
-            <div className="text-sm" style={{ color: "var(--danger)" }} data-testid="knowledge-search-error">
+            <div className="text-sm kl-search-error" data-testid="knowledge-search-error">
               {search.state.error.message}
               {search.state.error.request_id && (
-                <span className="text-xs muted" style={{ marginLeft: 8 }}>
+                <span className="text-xs muted kl-req-id">
                   req_id: {search.state.error.request_id}
                 </span>
               )}
@@ -593,38 +588,38 @@ export function KnowledgeLibrary() {
       <PortalModal
         open={!!detailSource}
         onClose={() => setDetailSource(null)}
-        style={{ maxWidth: 640, maxHeight: "80vh", overflow: "auto" }}
+        className="kl-detail-modal"
       >
         {detailSource && (
           <>
             <div className="modal-title">
               知识源详情
-              <button className="btn sm ghost" style={{ marginLeft: "auto" }} onClick={() => setDetailSource(null)} type="button">关闭</button>
+              <button className="btn sm ghost kl-detail-close" onClick={() => setDetailSource(null)} type="button">关闭</button>
             </div>
-            <div style={{ marginTop: 14 }}>
+            <div className="kl-modal-detail">
               <div className="text-sm"><strong>文档名：</strong>{detailSource.title || "—"}</div>
               <div className="text-xs muted mt-2"><strong>ID：</strong><InlineCode>{detailSource.source_id}</InlineCode></div>
-              {detailSource.artifact_id && <div className="text-xs muted mt-1"><strong>Artifact：</strong><InlineCode>{detailSource.artifact_id}</InlineCode></div>}
-              <div className="text-xs muted mt-1"><strong>类型：</strong>{sourceTypeLabel(detailSource.source_type)}</div>
-              <div className="text-xs muted mt-1"><strong>状态：</strong>{detailSource.status || "—"}</div>
-              <div className="text-xs muted mt-1"><strong>片段数：</strong>{detailSource.chunk_count ?? "—"}</div>
-              <div className="text-xs muted mt-1"><strong>大小：</strong>{detailSource.total_size_bytes ? `${detailSource.total_size_bytes} B` : "—"}</div>
+              {detailSource.artifact_id && <div className="text-xs muted kl-modal-row"><strong>Artifact：</strong><InlineCode>{detailSource.artifact_id}</InlineCode></div>}
+              <div className="text-xs muted kl-modal-row"><strong>类型：</strong>{sourceTypeLabel(detailSource.source_type)}</div>
+              <div className="text-xs muted kl-modal-row"><strong>状态：</strong>{detailSource.status || "—"}</div>
+              <div className="text-xs muted kl-modal-row"><strong>片段数：</strong>{detailSource.chunk_count ?? "—"}</div>
+              <div className="text-xs muted kl-modal-row"><strong>大小：</strong>{detailSource.total_size_bytes ? `${detailSource.total_size_bytes} B` : "—"}</div>
               {detailSource.summary && (
                 <div className="mt-3">
-                  <div className="text-sm" style={{ fontWeight: 500, marginBottom: 4 }}>摘要</div>
-                  <div className="text-sm" style={{ whiteSpace: "pre-wrap", color: "var(--ink-soft)", background: "var(--bg-soft)", padding: 10, borderRadius: "var(--r)" }}>{detailSource.summary}</div>
+                  <div className="text-sm kl-summary-label">摘要</div>
+                  <div className="text-sm kl-summary-box">{detailSource.summary}</div>
                 </div>
               )}
               {detailSource.chunks && detailSource.chunks.length > 0 && (
                 <div className="mt-3">
-                  <div className="text-sm" style={{ fontWeight: 500, marginBottom: 8 }}>知识片段 ({detailSource.chunks.length})</div>
+                  <div className="text-sm kl-chunks-title">知识片段 ({detailSource.chunks.length})</div>
                   {detailSource.chunks.map((c: KnowledgeChunkDetail, i: number) => (
-                    <div key={c.chunk_id || i} className="card" style={{ padding: 10, marginBottom: 6, boxShadow: "none" }}>
-                      <div className="row-flex" style={{ justifyContent: "space-between", marginBottom: 4 }}>
+                    <div key={c.chunk_id || i} className="card kl-chunk-card">
+                      <div className="row-flex kl-chunk-header">
                         <InlineCode>{c.chunk_id || `#${i + 1}`}</InlineCode>
                         <span className="text-xs muted">{c.token_count ?? c.size ?? ""}</span>
                       </div>
-                      <div className="text-xs" style={{ whiteSpace: "pre-wrap", color: "var(--ink-soft)" }}>
+                      <div className="text-xs kl-chunk-text">
                         {c.safe_text || c.text || c.content || c.safe_excerpt || "(空)"}
                       </div>
                     </div>
@@ -649,7 +644,7 @@ function SearchResults({
   if (results.length === 0) {
     return (
       <div className="empty">
-        <div className="empty-icon"><span style={{ fontSize: 18, color: "var(--ink-faint)" }}>○</span></div>
+        <div className="empty-icon"><span className="kl-search-icon">○</span></div>
         <div className="empty-text">无命中</div>
         <div className="empty-hint">尝试调整 scope 或关键词</div>
       </div>
@@ -657,22 +652,21 @@ function SearchResults({
   }
   return (
     <div data-testid="knowledge-search-results">
-      <div className="text-sm muted mb-2 row-flex" style={{ gap: 8 }}>
+      <div className="text-sm muted mb-2 row-flex kl-results-title">
         <span>命中 {results.length} 个</span>
         {data.note && <span>· {data.note}</span>}
       </div>
       {results.slice(0, 10).map((r, i) => (
         <div
-          className="card"
+          className="card kl-result-card"
           key={r.chunk_id}
-          style={{ padding: 12, marginBottom: 8, boxShadow: "none" }}
           data-testid={`search-result-${i}`}
         >
-          <div className="row-flex" style={{ justifyContent: "space-between" }}>
+          <div className="row-flex kl-result-header">
             <InlineCode>{r.title || r.source_id}</InlineCode>
             <Badge kind="accent">score {Number(r.score).toFixed(2)}</Badge>
           </div>
-          <div className="text-sm mt-2" style={{ color: "var(--ink-soft)" }}>
+          <div className="text-sm mt-2 kl-result-text">
             {r.safe_excerpt || r.summary || <span className="muted">(无摘录)</span>}
           </div>
           {r.artifact_id && (
