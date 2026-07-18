@@ -5,13 +5,11 @@ No third-party tokenizer required.
 """
 from __future__ import annotations
 
-import json
-import os
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Optional
 
 from agent.runtime.utils import now_iso
+from storage.records import append_jsonl, delete_json_record, read_jsonl
 
 
 def _is_cjk(c: str) -> bool:
@@ -92,10 +90,7 @@ _MODEL_PRICE_PER_1K: dict[str, tuple[float, float]] = {
 }
 
 
-def _record_path(workspace_id: str) -> Path:
-    """Return the path for token usage JSONL."""
-    from storage.usage_store import token_usage_path
-    return token_usage_path(workspace_id)
+_USAGE_PARTS = ("usage", "token_usage.jsonl")
 
 
 def record_llm_call(
@@ -128,22 +123,20 @@ def record_llm_call(
         created_at=now_iso(),
     )
     try:
-        path = _record_path(workspace_id)
-        with open(path, "a") as f:
-            f.write(json.dumps({
-                "workspace_id": record.workspace_id,
-                "session_id": record.session_id,
-                "run_id": record.run_id,
-                "turn_id": record.turn_id,
-                "provider": record.provider,
-                "model": record.model,
-                "input_tokens": record.input_tokens,
-                "output_tokens": record.output_tokens,
-                "total_tokens": record.total_tokens,
-                "estimated_cost": record.estimated_cost,
-                "source": "estimated",
-                "created_at": record.created_at,
-            }, ensure_ascii=False) + "\n")
+        append_jsonl(workspace_id, _USAGE_PARTS, {
+            "workspace_id": record.workspace_id,
+            "session_id": record.session_id,
+            "run_id": record.run_id,
+            "turn_id": record.turn_id,
+            "provider": record.provider,
+            "model": record.model,
+            "input_tokens": record.input_tokens,
+            "output_tokens": record.output_tokens,
+            "total_tokens": record.total_tokens,
+            "estimated_cost": record.estimated_cost,
+            "source": "estimated",
+            "created_at": record.created_at,
+        })
     except Exception:
         pass
     return {
@@ -156,28 +149,21 @@ def record_llm_call(
 
 def get_usage(workspace_id: str = "default", session_id: str = "") -> dict:
     """Get aggregated usage stats."""
-    path = _record_path(workspace_id)
-    if not path.exists():
+    rows = read_jsonl(workspace_id, _USAGE_PARTS)
+    if not rows:
         return _empty_usage(workspace_id, session_id)
 
     input_t, output_t, total_t, cost, count = 0, 0, 0, 0.0, 0
     latest = ""
     try:
-        with open(path) as f:
-            for line in f:
-                if not line.strip():
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if session_id and rec.get("session_id") != session_id:
-                    continue
-                input_t += rec.get("input_tokens", 0)
-                output_t += rec.get("output_tokens", 0)
-                cost += rec.get("estimated_cost", 0)
-                count += 1
-                latest = rec.get("created_at", "")
+        for rec in rows:
+            if session_id and rec.get("session_id") != session_id:
+                continue
+            input_t += rec.get("input_tokens", 0)
+            output_t += rec.get("output_tokens", 0)
+            cost += rec.get("estimated_cost", 0)
+            count += 1
+            latest = rec.get("created_at", "")
     except Exception:
         pass
 
@@ -210,6 +196,4 @@ def _empty_usage(workspace_id: str, session_id: str) -> dict:
 
 def reset_usage_for_tests(workspace_id: str = "default"):
     """Remove usage data for tests."""
-    path = _record_path(workspace_id)
-    if path.exists():
-        path.unlink()
+    delete_json_record(workspace_id, _USAGE_PARTS)

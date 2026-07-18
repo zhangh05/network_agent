@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from storage import paths as storage_paths
-from storage.atomic_io import atomic_write_json
+from storage.atomic_io import atomic_write_json, atomic_write_text
 from storage.ids import validate_workspace_id
 
 _LOCKS: dict[str, threading.RLock] = {}
@@ -55,6 +55,28 @@ def workspace_record_file(workspace_id: str, *parts: str) -> Path:
     return parent / _safe_part(parts[-1], allow_ext=True)
 
 
+def runtime_record_dir(*parts: str) -> Path:
+    """Return a storage-owned runtime record directory."""
+    if not parts:
+        raise ValueError("runtime record directory requires at least one path part")
+    safe_parts = [_safe_part(part, allow_ext=False) for part in parts]
+    path = storage_paths.runtime_root().joinpath(*safe_parts)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def runtime_record_file(*parts: str) -> Path:
+    """Return a storage-owned runtime record file."""
+    if not parts:
+        raise ValueError("runtime record file requires at least one path part")
+    if len(parts) == 1:
+        parent = storage_paths.runtime_root()
+        parent.mkdir(parents=True, exist_ok=True)
+    else:
+        parent = runtime_record_dir(*parts[:-1])
+    return parent / _safe_part(parts[-1], allow_ext=True)
+
+
 @contextmanager
 def jsonl_transaction(workspace_id: str, parts: Iterable[str]):
     """Hold the adapter lock for a JSONL record file."""
@@ -75,8 +97,37 @@ def append_jsonl(workspace_id: str, parts: Iterable[str], record: dict[str, Any]
     return payload
 
 
+def append_jsonl_path(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    """Append one JSONL record to an explicit storage-owned path."""
+    payload = dict(record)
+    with _lock_for(path):
+        with _file_lock(path):
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+    return payload
+
+
 def read_jsonl(workspace_id: str, parts: Iterable[str]) -> list[dict[str, Any]]:
     path = workspace_record_file(workspace_id, *tuple(parts))
+    if not path.exists():
+        return []
+    with _lock_for(path), _file_lock(path):
+        raw = path.read_text(encoding="utf-8")
+    rows: list[dict[str, Any]] = []
+    for line in raw.splitlines():
+        if not line.strip():
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            rows.append(data)
+    return rows
+
+
+def read_jsonl_path(path: Path) -> list[dict[str, Any]]:
+    """Read JSONL records from an explicit storage-owned path."""
     if not path.exists():
         return []
     with _lock_for(path), _file_lock(path):
@@ -108,11 +159,32 @@ def rewrite_jsonl(
         else:
             lines.append(json.dumps(dict(row), ensure_ascii=False, default=str))
     with _lock_for(path), _file_lock(path):
-        path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+        atomic_write_text(path, "\n".join(lines) + ("\n" if lines else ""))
+
+
+def rewrite_jsonl_path(path: Path, rows: Iterable[dict[str, Any] | str]) -> None:
+    """Rewrite JSONL records at an explicit storage-owned path."""
+    lines: list[str] = []
+    for row in rows:
+        if isinstance(row, str):
+            if row.strip():
+                lines.append(row)
+        else:
+            lines.append(json.dumps(dict(row), ensure_ascii=False, default=str))
+    with _lock_for(path), _file_lock(path):
+        atomic_write_text(path, "\n".join(lines) + ("\n" if lines else ""))
 
 
 def atomic_save_json(workspace_id: str, parts: Iterable[str], value: Any) -> dict[str, Any]:
     path = workspace_record_file(workspace_id, *tuple(parts))
+    payload = asdict(value) if is_dataclass(value) else dict(value)
+    with _lock_for(path), _file_lock(path):
+        atomic_write_json(path, payload)
+    return payload
+
+
+def atomic_save_json_path(path: Path, value: Any) -> dict[str, Any]:
+    """Atomically save a dict-like JSON record at an explicit storage-owned path."""
     payload = asdict(value) if is_dataclass(value) else dict(value)
     with _lock_for(path), _file_lock(path):
         atomic_write_json(path, payload)
@@ -129,6 +201,27 @@ def read_json_record(workspace_id: str, parts: Iterable[str]) -> dict[str, Any] 
     except (OSError, json.JSONDecodeError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def read_json_record_path(path: Path) -> dict[str, Any] | None:
+    """Read a dict JSON record from an explicit storage-owned path."""
+    if not path.is_file():
+        return None
+    try:
+        with _lock_for(path), _file_lock(path):
+            data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def delete_record_path(path: Path) -> bool:
+    """Delete an explicit storage-owned record path."""
+    with _lock_for(path), _file_lock(path):
+        if not path.is_file():
+            return False
+        path.unlink()
+    return True
 
 
 def list_json_records(

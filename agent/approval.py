@@ -12,9 +12,7 @@ Key guarantees:
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import threading
 import time
 import uuid
@@ -46,10 +44,7 @@ def _now_iso_offset(delta_seconds: float) -> str:
 # Constants
 # ════════════════════════════════════════════════════
 
-# Resolve data directory relative to project root
-_ROOT = Path(__file__).resolve().parent.parent
-_DATA_DIR = _ROOT / "data"
-_APPROVALS_FILE = _DATA_DIR / "tool_approvals.jsonl"
+_APPROVALS_FILE: Optional[Path] = None
 _RETENTION_DAYS = 90
 _GC_INTERVAL_SECONDS = 600  # 10 minutes
 
@@ -158,7 +153,7 @@ class ApprovalStore:
     def __init__(self, persist_path: Optional[Path] = None) -> None:
         self._pending: dict[str, ApprovalRequest] = {}
         self._lock = threading.Lock()
-        self._persist_path = Path(persist_path) if persist_path else _APPROVALS_FILE
+        self._persist_path = Path(persist_path) if persist_path else _default_persist_path()
         self._last_gc_at: float = 0.0
         self._load_history()
 
@@ -166,58 +161,50 @@ class ApprovalStore:
 
     def _load_history(self) -> None:
         """Reload recent unresolved approvals from disk on startup."""
-        if not self._persist_path.exists():
-            return
         try:
+            from storage.approval_record_store import read_approval_records
+
             cutoff_iso = _now_iso_offset(-_RETENTION_DAYS * 86400)
-            with self._persist_path.open("r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        rec = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    # Only restore still-pending records (resolved are history)
-                    if rec.get("resolved"):
-                        continue
-                    try:
-                        from storage.ids import validate_workspace_id
-                        workspace_id = validate_workspace_id(str(rec.get("workspace_id") or ""))
-                    except (ValueError, TypeError):
-                        continue
-                    except Exception:
-                        logger.debug(
-                            "approval: validate_workspace_id raised unexpected "
-                            "exception for record",
-                            exc_info=True,
-                        )
-                        continue
-                    raw_created = rec.get("created_at") or ""
-                    try:
-                        from_iso(raw_created)
-                    except (ValueError, TypeError):
-                        continue
-                    created_iso = str(raw_created)
-                    if (created_iso or "") < cutoff_iso:
-                        continue
-                    req = ApprovalRequest(
-                        approval_id=rec["approval_id"],
-                        session_id=rec.get("session_id", ""),
-                        tool_id=rec.get("tool_id", ""),
-                        arguments=rec.get("arguments", {}),
-                        description=rec.get("description", ""),
-                        risk_level=rec.get("risk_level", "high"),
-                        workspace_id=workspace_id,
-                        run_id=rec.get("run_id", ""),
-                        job_id=rec.get("job_id", ""),
-                        metadata=rec.get("metadata", {}),
-                        created_at=created_iso,
-                        resolved=False,
+            for rec in read_approval_records(path=self._persist_path):
+                # Only restore still-pending records (resolved are history)
+                if rec.get("resolved"):
+                    continue
+                try:
+                    from storage.ids import validate_workspace_id
+                    workspace_id = validate_workspace_id(str(rec.get("workspace_id") or ""))
+                except (ValueError, TypeError):
+                    continue
+                except Exception:
+                    logger.debug(
+                        "approval: validate_workspace_id raised unexpected "
+                        "exception for record",
+                        exc_info=True,
                     )
-                    self._pending[req.approval_id] = req
-        except (OSError, ValueError, json.JSONDecodeError):
+                    continue
+                raw_created = rec.get("created_at") or ""
+                try:
+                    from_iso(raw_created)
+                except (ValueError, TypeError):
+                    continue
+                created_iso = str(raw_created)
+                if (created_iso or "") < cutoff_iso:
+                    continue
+                req = ApprovalRequest(
+                    approval_id=rec["approval_id"],
+                    session_id=rec.get("session_id", ""),
+                    tool_id=rec.get("tool_id", ""),
+                    arguments=rec.get("arguments", {}),
+                    description=rec.get("description", ""),
+                    risk_level=rec.get("risk_level", "high"),
+                    workspace_id=workspace_id,
+                    run_id=rec.get("run_id", ""),
+                    job_id=rec.get("job_id", ""),
+                    metadata=rec.get("metadata", {}),
+                    created_at=created_iso,
+                    resolved=False,
+                )
+                self._pending[req.approval_id] = req
+        except (OSError, ValueError):
             # v3.9.9: file IO / JSON corruption are not unexpected —
             # surface them at WARNING so audit ingest failures are
             # visible instead of silently losing approved actions.
@@ -228,8 +215,8 @@ class ApprovalStore:
         """Append a record (pending or resolved) to the JSONL audit log."""
         try:
             from core.tools.redaction import redact_tool_output
+            from storage.approval_record_store import append_approval_record
 
-            self._persist_path.parent.mkdir(parents=True, exist_ok=True)
             rec = {
                 "approval_id": req.approval_id,
                 "session_id": req.session_id,
@@ -248,8 +235,7 @@ class ApprovalStore:
                 "resolver": req.resolver,
                 "reason": req.reason,
             }
-            with self._persist_path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            append_approval_record(rec, path=self._persist_path)
         except (OSError, TypeError, ValueError):
             # v3.9.9: ApprovalStore._append_record silently losing
             # every audit row is a real failure — silently skipping
@@ -262,8 +248,6 @@ class ApprovalStore:
         now_epoch = time.time()
         if now_epoch - self._last_gc_at < _GC_INTERVAL_SECONDS:
             return
-        if not self._persist_path.exists():
-            return
         self._last_gc_at = now_epoch
         # v3.9.8: cutoff is now ISO-8601 str (matches the on-disk shape).
         # Earlier versions compared an epoch float to str created_at;
@@ -272,27 +256,21 @@ class ApprovalStore:
         # the retention cutoff (also ISO).
         cutoff_iso = _now_iso_offset(-_RETENTION_DAYS * 86400)
         try:
-            kept: List[str] = []
-            with self._persist_path.open("r", encoding="utf-8") as f:
-                for line in f:
-                    try:
-                        rec = json.loads(line.strip())
-                    except json.JSONDecodeError:
-                        continue
-                    raw_created = rec.get("created_at") or ""
-                    if not raw_created:
-                        continue
-                    try:
-                        from_iso(raw_created)
-                    except (TypeError, ValueError):
-                        continue
-                    if raw_created < cutoff_iso:
-                        continue
-                    kept.append(line if line.endswith("\n") else line + "\n")
-            tmp = self._persist_path.with_suffix(".jsonl.tmp")
-            with tmp.open("w", encoding="utf-8") as f:
-                f.writelines(kept)
-            tmp.replace(self._persist_path)
+            from storage.approval_record_store import read_approval_records, rewrite_approval_records
+
+            kept: list[dict] = []
+            for rec in read_approval_records(path=self._persist_path):
+                raw_created = rec.get("created_at") or ""
+                if not raw_created:
+                    continue
+                try:
+                    from_iso(raw_created)
+                except (TypeError, ValueError):
+                    continue
+                if raw_created < cutoff_iso:
+                    continue
+                kept.append(rec)
+            rewrite_approval_records(kept, path=self._persist_path)
         except OSError:
             logger.warning("approval: GC history compaction failed for %s",
                            self._persist_path, exc_info=True)
@@ -445,34 +423,26 @@ class ApprovalStore:
                     workspace_id: str = "",
                     limit: int = 100, since_ts: float = 0.0) -> list[dict]:
         """Return resolved approvals from the audit log."""
-        if not self._persist_path.exists():
-            return []
         records: list[dict] = []
         try:
-            with self._persist_path.open("r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
+            from storage.approval_record_store import read_approval_records
+
+            for rec in read_approval_records(path=self._persist_path):
+                if not rec.get("resolved"):
+                    continue
+                if workspace_id and rec.get("workspace_id") != workspace_id:
+                    continue
+                if session_id and rec.get("session_id") != session_id:
+                    continue
+                if tool_id and rec.get("tool_id") != tool_id:
+                    continue
+                if since_ts:
                     try:
-                        rec = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if not rec.get("resolved"):
-                        continue
-                    if workspace_id and rec.get("workspace_id") != workspace_id:
-                        continue
-                    if session_id and rec.get("session_id") != session_id:
-                        continue
-                    if tool_id and rec.get("tool_id") != tool_id:
-                        continue
-                    if since_ts:
-                        try:
-                            if from_iso(str(rec.get("created_at") or "")) < since_ts:
-                                continue
-                        except (TypeError, ValueError):
+                        if from_iso(str(rec.get("created_at") or "")) < since_ts:
                             continue
-                    records.append(rec)
+                    except (TypeError, ValueError):
+                        continue
+                records.append(rec)
         except OSError:
             logger.warning("approval: get_history read failed for %s",
                            self._persist_path, exc_info=True)
@@ -579,6 +549,14 @@ def _summarize_args(args: dict) -> str:
     return ", ".join(items[:5])
 
 
+def _default_persist_path() -> Path:
+    if _APPROVALS_FILE is not None:
+        return Path(_APPROVALS_FILE)
+    from storage.approval_record_store import approval_log_path
+
+    return approval_log_path()
+
+
 # Singleton
 _approval_store: Optional[ApprovalStore] = None
 
@@ -607,9 +585,11 @@ def reset_approval_store_for_tests(remove_persisted: bool = False) -> None:
             _approval_store._pending.clear()
     if remove_persisted:
         try:
-            (_approval_store._persist_path if _approval_store else _APPROVALS_FILE).unlink(missing_ok=True)
+            from storage.approval_record_store import delete_approval_log
+
+            delete_approval_log(path=_approval_store._persist_path if _approval_store else _default_persist_path())
         except OSError:
             logger.debug("approval: test reset could not unlink %s",
-                         _approval_store._persist_path if _approval_store else _APPROVALS_FILE,
+                         _approval_store._persist_path if _approval_store else _default_persist_path(),
                          exc_info=True)
     _approval_store = None

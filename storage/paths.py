@@ -19,6 +19,16 @@ def get_workspace_root() -> Path:
     return Path(env if env else REPO_ROOT / "workspaces").resolve()
 
 
+def runtime_root() -> Path:
+    """Return the storage-owned runtime root.
+
+    Runtime state is durable application state but not a user workspace. Keep it
+    under the workspace root so there is one data plane root to clean, back up,
+    or relocate.
+    """
+    return get_workspace_root() / "_runtime"
+
+
 def workspace_root(workspace_id: str) -> Path:
     """Return the root directory for a specific workspace."""
     from storage.ids import validate_workspace_id

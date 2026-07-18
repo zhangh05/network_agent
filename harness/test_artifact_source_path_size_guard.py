@@ -27,9 +27,8 @@ class TestSourcePathSizeGuard:
         # Create a large file in an allowed location
         ws = "sz_test"
         ensure_workspace(ws)
-        from storage.paths import get_workspace_root
-        ws_root = get_workspace_root()
-        uploads = ws_root / "runtime" / "uploads"
+        from storage.paths import runtime_root
+        uploads = runtime_root() / "uploads"
         uploads.mkdir(parents=True, exist_ok=True)
         big_file = uploads / "big_config.cfg"
         big_file.write_text("x" * (_get_max_size() + 100))
@@ -45,7 +44,7 @@ class TestSourcePathSizeGuard:
                 return super().read_text(*a, **kw)
 
         # The Path object in store is Path(source_path) which resolves to the temp path.
-        # Use source_path=str(big_file) which should pass validation since it's under runtime/uploads.
+        # Use source_path=str(big_file) which should pass validation since it's under runtime uploads.
         rec = save_artifact(workspace_id=ws, source_path=str(big_file))
         # Oversized → should return None
         assert rec is None
@@ -53,11 +52,11 @@ class TestSourcePathSizeGuard:
     def test_oversized_not_in_index(self, temp_dirs):
         from artifacts.store import save_artifact, list_artifacts, _get_max_size
         from storage.workspace_store import ensure_workspace
-        from storage.paths import get_workspace_root
+        from storage.paths import runtime_root
 
         ws = "sz_idx"
         ensure_workspace(ws)
-        uploads = get_workspace_root() / "runtime" / "uploads"
+        uploads = runtime_root() / "uploads"
         uploads.mkdir(parents=True, exist_ok=True)
         big_file = uploads / "big2.cfg"
         big_file.write_text("y" * (_get_max_size() + 100))
@@ -73,8 +72,9 @@ class TestSourcePathSizeGuard:
         ws = "sz_small"
         ensure_workspace(ws)
 
-        # Create file in project runtime/uploads (which passes validation)
-        up_dir = PROJECT_ROOT / "runtime" / "uploads"
+        # Create file in runtime uploads (which passes validation)
+        from storage.paths import runtime_root
+        up_dir = runtime_root() / "uploads"
         up_dir.mkdir(parents=True, exist_ok=True)
         small_file = up_dir / "small.cfg"
         small_file.write_text("hostname R1\ninterface Gi0/1\n ip address 10.1.1.1 255.255.255.0")
@@ -87,11 +87,11 @@ class TestSourcePathSizeGuard:
     def test_source_path_directory_rejected(self, temp_dirs):
         from artifacts.store import save_artifact
         from storage.workspace_store import ensure_workspace
-        from storage.paths import get_workspace_root
+        from storage.paths import runtime_root
 
         ws = "sz_dir"
         ensure_workspace(ws)
-        uploads = get_workspace_root() / "runtime" / "uploads"
+        uploads = runtime_root() / "uploads"
         uploads.mkdir(parents=True, exist_ok=True)
         # source_path is a directory, not a file
         rec = save_artifact(workspace_id=ws, source_path=str(uploads))
@@ -100,11 +100,11 @@ class TestSourcePathSizeGuard:
     def test_source_path_missing_returns_none(self, temp_dirs):
         from artifacts.store import save_artifact
         from storage.workspace_store import ensure_workspace
-        from storage.paths import get_workspace_root
+        from storage.paths import runtime_root
 
         ws = "sz_miss"
         ensure_workspace(ws)
-        uploads = get_workspace_root() / "runtime" / "uploads"
+        uploads = runtime_root() / "uploads"
         uploads.mkdir(parents=True, exist_ok=True)
         rec = save_artifact(workspace_id=ws, source_path=str(uploads / "nonexistent.cfg"))
         assert rec is None

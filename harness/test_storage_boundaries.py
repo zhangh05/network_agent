@@ -119,3 +119,54 @@ def test_jsonl_transaction_is_reentrant(monkeypatch, tmp_path):
         rewrite_jsonl("lock_ws", parts, rows)
 
     assert [row["asset_id"] for row in read_jsonl("lock_ws", parts)] == ["a1", "a2"]
+
+
+def test_runtime_records_live_under_runtime_root(monkeypatch, tmp_path):
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
+    from storage.records import runtime_record_file
+
+    path = runtime_record_file("approvals", "tool_approvals.jsonl")
+
+    assert path == tmp_path / "workspaces" / "_runtime" / "approvals" / "tool_approvals.jsonl"
+
+
+def test_approval_default_store_does_not_use_root_data(monkeypatch, tmp_path):
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
+    import agent.approval as approval_module
+    from agent.approval import ApprovalStore
+
+    monkeypatch.setattr(approval_module, "_APPROVALS_FILE", None)
+    store = ApprovalStore()
+    store.create(
+        session_id="sess_1",
+        tool_id="exec.run",
+        arguments={"cmd": "rm -rf /tmp/nope"},
+        description="dangerous",
+        risk_level="high",
+        workspace_id="approval_ws",
+    )
+
+    assert store._persist_path == tmp_path / "workspaces" / "_runtime" / "approvals" / "tool_approvals.jsonl"
+    assert store._persist_path.is_file()
+    assert not (Path(__file__).resolve().parents[1] / "data" / "tool_approvals.jsonl").exists()
+
+
+def test_consolidated_modules_do_not_reintroduce_ad_hoc_jsonl_io():
+    project_root = Path(__file__).resolve().parents[1]
+    targets = [
+        "agent/approval.py",
+        "agent/runtime/token_tracker.py",
+        "core/context/context_store.py",
+        "observability/store.py",
+        "storage/reference_index.py",
+        "storage/session_snapshot.py",
+    ]
+    forbidden = ("with open(", ".open(\"a", ".open('a", "write_text(", "os.replace(")
+    violations = []
+    for rel in targets:
+        text = (project_root / rel).read_text(encoding="utf-8")
+        for marker in forbidden:
+            if marker in text:
+                violations.append(f"{rel}: {marker}")
+
+    assert violations == []

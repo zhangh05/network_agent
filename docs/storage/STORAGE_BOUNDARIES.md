@@ -5,8 +5,7 @@
 | Path | Purpose | Git |
 | --- | --- | --- |
 | `workspaces/<workspace_id>/` | User workspace files and app data | ignored |
-| `workspaces/_runtime/` | Durable task/runtime state | ignored |
-| `data/` | Local JSON/JSONL runtime stores | ignored unless explicitly tracked |
+| `workspaces/_runtime/` | Durable application/runtime records that are not owned by one user workspace | ignored |
 | `logs/` | Local logs | ignored |
 | `config/providers/` | Provider config and secrets | ignored |
 | `artifacts/` | Source code for artifact store, not artifact payload data | tracked |
@@ -14,6 +13,7 @@
 ## Boundary Rules
 
 - Workspace data is scoped by validated `workspace_id`.
+- Non-workspace runtime records are scoped under `workspaces/_runtime/`.
 - Store functions should not invent a workspace for caller mistakes.
 - Deletion must be scoped and explicit.
 - Redacted summaries may be returned in list APIs; raw secret-bearing payloads must not.

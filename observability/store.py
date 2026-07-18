@@ -1,50 +1,9 @@
 # observability/store.py
 """Trace store — write/read trace records to workspace runs directory."""
 
-import json
-import threading
-from contextlib import contextmanager
-from pathlib import Path
 from typing import Optional
 
-from storage.records import atomic_save_json, workspace_record_dir, workspace_record_file
-
-
-_trace_locks: dict[str, threading.RLock] = {}
-_trace_locks_guard = threading.Lock()
-
-
-def _thread_lock_for(path: Path) -> threading.RLock:
-    key = str(path.resolve())
-    with _trace_locks_guard:
-        lock = _trace_locks.get(key)
-        if lock is None:
-            lock = threading.RLock()
-            _trace_locks[key] = lock
-        return lock
-
-
-@contextmanager
-def _locked_trace(path: Path):
-    """Serialize trace read-modify-write across threads and POSIX workers."""
-    lock_path = path.with_name(path.name + ".lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with _thread_lock_for(path):
-        lock_file = lock_path.open("a+")
-        try:
-            try:
-                import fcntl
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            except (ImportError, OSError):
-                pass
-            yield
-        finally:
-            try:
-                import fcntl
-                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            except (ImportError, OSError):
-                pass
-            lock_file.close()
+from storage.records import atomic_save_json, list_json_records, read_json_record
 
 
 def write_trace(trace, ws_id: str = "default") -> str:
@@ -59,9 +18,7 @@ def write_trace(trace, ws_id: str = "default") -> str:
     from observability.redaction import redact_trace
     data = redact_trace(trace.as_dict())
 
-    path = workspace_record_file(ws_id, "runs", f"{run_id}.trace.json")
-    with _locked_trace(path):
-        atomic_save_json(ws_id, ("runs", f"{run_id}.trace.json"), data)
+    atomic_save_json(ws_id, ("runs", f"{run_id}.trace.json"), data)
 
     return trace_id
 
@@ -70,27 +27,16 @@ def get_trace(run_id: str, ws_id: str = "default") -> Optional[dict]:
     """Get a trace record by run_id."""
     from storage.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
-    path = workspace_record_file(ws_id, "runs", f"{run_id}.trace.json")
-    if not path.is_file():
-        return None
-    try:
-        return json.loads(path.read_text())
-    except Exception:
-        return None
+    return read_json_record(ws_id, ("runs", f"{run_id}.trace.json"))
 
 
 def list_traces(ws_id: str = "default", limit: int = 50) -> list:
     """List trace records for a workspace."""
     from storage.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
-    runs_dir = workspace_record_dir(ws_id, "runs")
-    if not runs_dir.is_dir():
-        return []
-
     traces = []
-    for f in sorted(runs_dir.glob("*.trace.json"), reverse=True):
+    for trace in list_json_records(ws_id, ("runs",), limit=limit):
         try:
-            trace = json.loads(f.read_text())
             traces.append({
                 "trace_id": trace.get("trace_id", ""),
                 "run_id": trace.get("run_id", ""),
@@ -112,48 +58,36 @@ def append_event(trace_id: str, event, ws_id: str = "default"):
 
     Performs an O(n) lookup via filename-derived hint first, falling
     back to a single directory scan if the hint path is missing.
-    Atomic via tmp + os.replace().
+    Writes are serialized by the storage record adapter.
     """
     from storage.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
-    runs_dir = workspace_record_dir(ws_id, "runs")
-    if not runs_dir.is_dir():
-        return
-
     # Cheap filename-derived hint: most callers know run_id, so
     # try that path first to avoid scanning the whole runs dir.
-    target = None
+    data = None
     if hasattr(event, "run_id") and getattr(event, "run_id", None):
-        candidate = runs_dir / f"{event.run_id}.trace.json"
-        if candidate.is_file():
-            try:
-                d = json.loads(candidate.read_text())
-                if d.get("trace_id") == trace_id:
-                    target = candidate
-            except Exception:
-                target = None
+        candidate = read_json_record(ws_id, ("runs", f"{event.run_id}.trace.json"))
+        if candidate and candidate.get("trace_id") == trace_id:
+            data = candidate
 
-    if target is None:
-        for path in sorted(runs_dir.glob("*.trace.json"), reverse=True):
-            try:
-                d = json.loads(path.read_text())
-                if d.get("trace_id") == trace_id:
-                    target = path
-                    break
-            except Exception:
-                continue
+    if data is None:
+        for trace in list_json_records(ws_id, ("runs",), limit=500):
+            if trace.get("trace_id") == trace_id:
+                data = trace
+                break
 
-    if target is None:
+    if data is None:
         return
 
     try:
-        with _locked_trace(target):
-            data = json.loads(target.read_text())
-            from observability.redaction import redact_trace_event
-            events = data.get("events", [])
-            event_data = event.as_dict() if hasattr(event, "as_dict") else event
-            events.append(redact_trace_event(event_data))
-            data["events"] = events
-            atomic_save_json(ws_id, ("runs", target.name), data)
+        from observability.redaction import redact_trace_event
+        events = data.get("events", [])
+        event_data = event.as_dict() if hasattr(event, "as_dict") else event
+        events.append(redact_trace_event(event_data))
+        data["events"] = events
+        run_id = data.get("run_id") or getattr(event, "run_id", "")
+        if not run_id:
+            return
+        atomic_save_json(ws_id, ("runs", f"{run_id}.trace.json"), data)
     except Exception:
         pass

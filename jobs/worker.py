@@ -8,21 +8,29 @@ providing crash-safe mutual exclusion without stale lock detection.
 
 import os
 import time
-from pathlib import Path
 
 from storage.time_utils import now_iso
-
-ROOT = Path(__file__).resolve().parent.parent
-RUNTIME = ROOT / "runtime" / "jobs"
-LOCK_PATH = RUNTIME / "worker.lock"
+from storage.atomic_io import atomic_write_text
 
 _worker_active = False
+
+
+def _runtime_dir():
+    from storage.paths import runtime_root
+
+    path = runtime_root() / "jobs"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _lock_path():
+    return _runtime_dir() / "worker.lock"
 
 
 def start_worker(poll_interval=1.0):
     global _worker_active
     _worker_active = True
-    RUNTIME.mkdir(parents=True, exist_ok=True)
+    _runtime_dir()
     while _worker_active:
         try:
             run_once()
@@ -41,12 +49,12 @@ def run_once() -> dict:
     from jobs.store import get_next_queued_job
     from jobs.runner import run_job
 
-    RUNTIME.mkdir(parents=True, exist_ok=True)
+    lock_path = _lock_path()
 
     # Acquire lock: fcntl.flock on POSIX, mtime-based fallback on Windows
     try:
         import fcntl
-        lock_fd = os.open(LOCK_PATH, os.O_CREAT | os.O_RDWR)
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR)
         try:
             fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -54,14 +62,14 @@ def run_once() -> dict:
             return {"status": "locked", "message": "Another worker is running"}
         _release_lock = lambda: (fcntl.flock(lock_fd, fcntl.LOCK_UN), os.close(lock_fd))
     except (ImportError, OSError):
-        lock_fd = LOCK_PATH
-        if LOCK_PATH.exists():
-            age = time.time() - LOCK_PATH.stat().st_mtime
+        lock_fd = lock_path
+        if lock_path.exists():
+            age = time.time() - lock_path.stat().st_mtime
             if age < 30:
                 return {"status": "locked", "message": "Another worker is running"}
-            LOCK_PATH.unlink()
-        LOCK_PATH.write_text(str(os.getpid()))
-        _release_lock = lambda: LOCK_PATH.unlink(missing_ok=True) if LOCK_PATH.exists() else None
+            lock_path.unlink()
+        atomic_write_text(lock_path, str(os.getpid()))
+        _release_lock = lambda: lock_path.unlink(missing_ok=True) if lock_path.exists() else None
 
     try:
         job = get_next_queued_job()

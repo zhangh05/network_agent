@@ -24,6 +24,7 @@ from storage.schemas import FileRecord
 from storage.atomic_io import atomic_write_json, atomic_write_text
 import logging
 from storage.time_utils import now_iso
+from storage.paths import runtime_root
 
 # Per-workspace locks for artifact record writes (read-modify-write protection)
 _AREC_LOCKS: dict[str, threading.Lock] = {}
@@ -220,24 +221,17 @@ def _validate_source_path(source_path: str, workspace_id: str = "") -> bool:
     except Exception:
         return False
 
-    banned = ["/etc/", "/var/", "/tmp/", "config/LLM", ".git/", "memory/data/"]
-    p_str = str(resolved)
-    for bp in banned:
-        if bp in p_str:
-            return False
-
     allowed_parents = []
     root_path = ROOT.resolve()
     ws_root = _get_ws_root().resolve()
 
     allowed_parents.extend([
-        root_path / "runtime" / "uploads",
+        runtime_root() / "uploads",
         root_path / "shared" / "knowledge",
         root_path / "shared" / "templates",
         root_path / "shared" / "vendor_docs",
         root_path / "shared" / "samples",
     ])
-    allowed_parents.append(ws_root / "runtime" / "uploads")
     if workspace_id:
         ws = ws_root / workspace_id
         for rel in ALLOWED_SOURCE_DIRS:

@@ -1,5 +1,5 @@
 # agent/llm/provider_store.py
-"""Per-provider config file management.
+"""Per-provider config management.
 
 Each LLM provider stores its configuration independently:
   config/providers/<provider_id>.json
@@ -9,14 +9,18 @@ Active provider selection is tracked in:
 
 """
 
-import json
-import os
-import stat
 from pathlib import Path
 from typing import Optional
 
 from agent.runtime.utils import now_iso
-from storage.atomic_io import atomic_write_json, atomic_write_text
+from storage.provider_config_store import (
+    delete_provider_config as delete_provider_config_record,
+    ensure_provider_dir,
+    read_active_provider,
+    read_provider_config,
+    write_active_provider,
+    write_provider_config,
+)
 ROOT = Path(__file__).resolve().parent.parent.parent
 PROVIDERS_DIR = ROOT / "config" / "providers"
 ACTIVE_FILE = PROVIDERS_DIR / "_active"
@@ -77,11 +81,7 @@ PROVIDER_PRESETS: dict = {
 
 
 def _ensure_dir():
-    PROVIDERS_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def _provider_path(provider_id: str) -> Path:
-    return PROVIDERS_DIR / f"{provider_id}.json"
+    ensure_provider_dir(PROVIDERS_DIR)
 
 
 def _build_provider_config(provider_id: str, data: Optional[dict] = None) -> dict:
@@ -110,19 +110,13 @@ def _build_provider_config(provider_id: str, data: Optional[dict] = None) -> dic
     return cfg
 
 
-def _write_json(path: Path, data: dict):
-    _ensure_dir()
+def _write_json(provider_id: str, data: dict):
     data["updated_at"] = now_iso()
-    atomic_write_json(path, data)
-    try:
-        os.chmod(str(path), stat.S_IRUSR | stat.S_IWUSR)
-    except Exception:
-        pass
+    write_provider_config(PROVIDERS_DIR, provider_id, data)
 
 
 def _write_active(provider_id: str):
-    _ensure_dir()
-    atomic_write_text(ACTIVE_FILE, provider_id)
+    write_active_provider(PROVIDERS_DIR, provider_id)
 
 
 def _sanitize(data: dict) -> dict:
@@ -164,14 +158,9 @@ def list_providers() -> list[dict]:
 def load_provider_config(provider_id: str) -> dict:
     """Load one provider's config. Falls back to preset defaults if no file exists."""
     _ensure_dir()
-    path = _provider_path(provider_id)
-
-    if path.is_file():
-        try:
-            stored = json.loads(path.read_text(encoding="utf-8"))
-            return _build_provider_config(provider_id, stored)
-        except Exception:
-            pass
+    stored = read_provider_config(PROVIDERS_DIR, provider_id)
+    if stored:
+        return _build_provider_config(provider_id, stored)
 
     return _build_provider_config(provider_id, None)
 
@@ -192,20 +181,16 @@ def save_provider_config(provider_id: str, data: dict) -> dict:
     elif data.get("clear_api_key"):
         existing["api_key"] = ""
 
-    _write_json(_provider_path(provider_id), existing)
+    _write_json(provider_id, existing)
     return existing
 
 
 def get_active_provider() -> str:
     """Return the currently active provider id. Defaults to 'custom'."""
     _ensure_dir()
-    if ACTIVE_FILE.is_file():
-        try:
-            pid = ACTIVE_FILE.read_text(encoding="utf-8").strip()
-            if pid in PROVIDER_PRESETS:
-                return pid
-        except Exception:
-            pass
+    pid = read_active_provider(PROVIDERS_DIR)
+    if pid in PROVIDER_PRESETS:
+        return pid
     return "custom"
 
 
@@ -225,8 +210,4 @@ def get_active_config() -> dict:
 
 def delete_provider_config(provider_id: str) -> bool:
     """Delete a provider's config file (reset to preset defaults)."""
-    path = _provider_path(provider_id)
-    if path.is_file():
-        path.unlink()
-        return True
-    return False
+    return delete_provider_config_record(PROVIDERS_DIR, provider_id)

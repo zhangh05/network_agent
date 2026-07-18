@@ -7,9 +7,7 @@ from typing import Any
 import json
 
 from storage.atomic_io import atomic_write_json
-from storage.paths import get_workspace_root
-
-_RUNTIME_WS = "_runtime"
+from storage.records import runtime_record_file
 
 
 def save_runtime_record(name: str, value: dict[str, Any]) -> None:
@@ -36,9 +34,7 @@ def delete_runtime_record(name: str) -> bool:
 
 
 def _runtime_path(name: str):
-    directory = get_workspace_root() / _RUNTIME_WS
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory / f"{_safe_name(name)}.json"
+    return runtime_record_file(f"{_safe_name(name)}.json")
 
 
 def _safe_name(name: str) -> str:

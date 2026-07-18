@@ -14,29 +14,18 @@ v3.1.0: Created as part of P1-P5 refactoring.
 
 from __future__ import annotations
 
-import json
-import os
-import time
 import threading
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional, Iterator
 
 from storage.ids import validate_workspace_id
-from storage.paths import workspace_root
+from storage.records import append_jsonl, read_jsonl, rewrite_jsonl, workspace_record_file
 
 
 def _now_iso() -> str:
     """UTC ISO 8601 timestamp — matches storage.session_store."""
     return datetime.now(timezone.utc).isoformat()
-
-# ---------------------------------------------------------------------------
-# Workspace root helper (shared with knowledge/index.py)
-# ---------------------------------------------------------------------------
-def _ws_root(workspace_id: str = "default") -> Path:
-    return workspace_root(validate_workspace_id(workspace_id)) / "context"
-
 
 # ---------------------------------------------------------------------------
 # Locks
@@ -60,9 +49,8 @@ class ContextStore:
 
     def __init__(self, workspace_id: str = "default"):
         self.workspace_id = validate_workspace_id(workspace_id)
-        self._root = _ws_root(self.workspace_id)
-        self._root.mkdir(parents=True, exist_ok=True)
-        self._items_path = self._root / "items.jsonl"
+        self._items_path = workspace_record_file(self.workspace_id, "context", "items.jsonl")
+        self._root = self._items_path.parent
         self._lock = _get_lock(self.workspace_id)
 
     # ---- Write ----
@@ -83,8 +71,7 @@ class ContextStore:
         item.setdefault("deleted", False)
 
         with self._lock:
-            with open(self._items_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps(item, ensure_ascii=False, default=str) + "\n")
+            append_jsonl(self.workspace_id, ("context", "items.jsonl"), item)
         return item_id
 
     def put_many(self, items: list[dict]) -> list[str]:
@@ -107,21 +94,19 @@ class ContextStore:
 
         ids = []
         with self._lock:
-            with open(self._items_path, "a", encoding="utf-8") as f:
-                for item in prepared:
-                    f.write(json.dumps(item, ensure_ascii=False, default=str) + "\n")
-                    ids.append(item["item_id"])
+            for item in prepared:
+                append_jsonl(self.workspace_id, ("context", "items.jsonl"), item)
+                ids.append(item["item_id"])
         return ids
 
     def delete(self, item_id: str) -> bool:
         """Tombstone-delete an item."""
         with self._lock:
-            with open(self._items_path, "a", encoding="utf-8") as f:
-                f.write(json.dumps({
-                    "item_id": item_id,
-                    "deleted": True,
-                    "deleted_at": _now_iso(),
-                }, ensure_ascii=False) + "\n")
+            append_jsonl(self.workspace_id, ("context", "items.jsonl"), {
+                "item_id": item_id,
+                "deleted": True,
+                "deleted_at": _now_iso(),
+            })
         return True
 
     # ---- Read ----
@@ -213,47 +198,7 @@ class ContextStore:
                     continue
                 kept.append(item)
 
-            # Atomic rewrite (same pattern as compact)
-            tmp = self._items_path.with_name(
-                self._items_path.name + f".tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}"
-            )
-            fd = os.open(
-                str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644
-            )
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    for item in kept:
-                        f.write(json.dumps(item, ensure_ascii=False, default=str) + "\n")
-                    f.flush()
-                    try:
-                        os.fsync(f.fileno())
-                    except OSError:
-                        pass
-            except Exception:
-                try:
-                    tmp.unlink()
-                except OSError:
-                    pass
-                raise
-
-            if self._items_path.exists():
-                bak = self._items_path.with_suffix(
-                    f".bak.{time.strftime('%Y%m%d%H%M%S')}"
-                )
-                try:
-                    import shutil
-                    shutil.copy2(self._items_path, bak)
-                except OSError:
-                    pass
-
-            try:
-                os.replace(tmp, self._items_path)
-            except Exception:
-                try:
-                    tmp.unlink()
-                except OSError:
-                    pass
-                raise
+            rewrite_jsonl(self.workspace_id, ("context", "items.jsonl"), kept)
         return removed
 
     def compact(self) -> dict:
@@ -272,67 +217,13 @@ class ContextStore:
                     # tombstone (for example, a rebuilt knowledge chunk).
                     live[iid] = item
 
-            # Atomic rewrite: write to a sibling tmp file, fsync, then
-            # os.replace() into place. On failure the original file is
-            # untouched, so we never lose data.
-            bak = self._items_path.with_suffix(
-                f".bak.{time.strftime('%Y%m%d%H%M%S')}"
-            )
-            # P1 fix (round 7): unique tmp name per call (pid + uuid) and
-            # O_EXCL prevents concurrent compact() calls from clobbering
-            # each other's tmp file. Without O_EXCL, two concurrent
-            # compacts could race in os.open() with O_TRUNC and end up
-            # with mixed content in the final items.jsonl.
-            tmp = self._items_path.with_name(
-                self._items_path.name + f".tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}"
-            )
-            fd = os.open(
-                str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644
-            )
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    for item in live.values():
-                        f.write(json.dumps(item, ensure_ascii=False, default=str) + "\n")
-                    f.flush()
-                    try:
-                        os.fsync(f.fileno())
-                    except OSError:
-                        pass
-            except Exception:
-                # Remove partial tmp file on failure
-                try:
-                    tmp.unlink()
-                except OSError:
-                    pass
-                raise
-
-            # Copy a backup before the atomic swap. Renaming the primary
-            # first would leave items.jsonl missing if os.replace failed.
-            if self._items_path.exists():
-                try:
-                    import shutil
-                    shutil.copy2(self._items_path, bak)
-                except OSError as e:
-                    import logging
-                    logging.getLogger(__name__).warning(
-                        "compact: backup copy failed (path=%s bak=%s err=%s) — proceeding without backup",
-                        self._items_path, bak, e,
-                    )
-
-            try:
-                os.replace(tmp, self._items_path)
-            except Exception:
-                try:
-                    tmp.unlink()
-                except OSError:
-                    pass
-                raise
+            rewrite_jsonl(self.workspace_id, ("context", "items.jsonl"), live.values())
 
         return {
             "before": raw_count,
             "after": len(live),
             "removed": max(0, raw_count - len(live)),
-            "backup": str(bak),
+            "backup": "",
         }
 
     def cleanup_expired(self, dry_run: bool = False) -> dict:
@@ -370,33 +261,19 @@ class ContextStore:
             return
         with self._lock:
             ts = _now_iso()
-            with open(self._items_path, "a", encoding="utf-8") as f:
-                for iid in item_ids:
-                    tombstone = {
-                        "item_id": iid,
-                        "deleted": True,
-                        "deleted_at": ts,
-                    }
-                    f.write(json.dumps(tombstone, ensure_ascii=False) + "\n")
+            for iid in item_ids:
+                append_jsonl(self.workspace_id, ("context", "items.jsonl"), {
+                    "item_id": iid,
+                    "deleted": True,
+                    "deleted_at": ts,
+                })
 
     # ---- Internal ----
 
     def _iter_raw(self) -> Iterator[dict]:
         """Yield every line from items.jsonl."""
-        if not self._items_path.exists():
-            # Ensure directory exists for future writes
-            self._root.mkdir(parents=True, exist_ok=True)
-            return
         with self._lock:
-            with open(self._items_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        yield json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
+            yield from read_jsonl(self.workspace_id, ("context", "items.jsonl"))
 
 
 # ---------------------------------------------------------------------------

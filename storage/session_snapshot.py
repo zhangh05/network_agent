@@ -5,30 +5,16 @@ Rewind restores messages from a snapshot, optionally in dry_run mode
 that previews what would happen without making changes.
 """
 
-import json
-import os
-import time
 import uuid
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from storage.paths import get_workspace_root
-
-def _ws_root() -> Path:
-    return get_workspace_root()
+from storage.ids import validate_session_id, validate_workspace_id
+from storage.records import atomic_save_json, list_json_records, read_json_record
 
 
 def _now_iso() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
-
-
-def _session_dir(workspace_id: str, session_id: str) -> Path:
-    return _ws_root() / workspace_id / "sessions" / session_id
-
-
-def _snapshots_dir(workspace_id: str, session_id: str) -> Path:
-    return _session_dir(workspace_id, session_id) / "snapshots"
 
 
 def _safe_id(value: str) -> str:
@@ -52,8 +38,8 @@ def create_snapshot(workspace_id: str, session_id: str, reason: str = "") -> dic
         {"ok": True, "snapshot_id": "...", "message_count": N}
     """
     try:
-        ws_id = _safe_id(workspace_id)
-        sid = _safe_id(session_id)
+        ws_id = validate_workspace_id(workspace_id)
+        sid = validate_session_id(session_id)
 
         # Read current session messages
         from storage.session_store import get_session
@@ -64,10 +50,6 @@ def create_snapshot(workspace_id: str, session_id: str, reason: str = "") -> dic
         from storage.message_store import SessionMessageStore
         store = SessionMessageStore(session_id=sid, ws_id=ws_id)
         messages = store.get_messages()
-
-        # Create snapshot
-        snap_dir = _snapshots_dir(ws_id, sid)
-        snap_dir.mkdir(parents=True, exist_ok=True)
 
         snap_id = uuid.uuid4().hex[:12]
         snapshot = {
@@ -80,11 +62,7 @@ def create_snapshot(workspace_id: str, session_id: str, reason: str = "") -> dic
             "messages": messages,
         }
 
-        snap_path = snap_dir / f"{snap_id}.json"
-        snap_path.write_text(
-            json.dumps(snapshot, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        atomic_save_json(ws_id, ("sessions", sid, "snapshots", f"{snap_id}.json"), snapshot)
 
         return {
             "ok": True,
@@ -106,17 +84,12 @@ def list_snapshots(workspace_id: str, session_id: str) -> list:
         List of snapshot summary dicts.
     """
     try:
-        ws_id = _safe_id(workspace_id)
-        sid = _safe_id(session_id)
-
-        snap_dir = _snapshots_dir(ws_id, sid)
-        if not snap_dir.is_dir():
-            return []
+        ws_id = validate_workspace_id(workspace_id)
+        sid = validate_session_id(session_id)
 
         results = []
-        for f in sorted(snap_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        for data in list_json_records(ws_id, ("sessions", sid, "snapshots"), limit=500):
             try:
-                data = json.loads(f.read_text(encoding="utf-8"))
                 results.append({
                     "snapshot_id": data.get("snapshot_id", ""),
                     "reason": data.get("reason", ""),
@@ -145,16 +118,15 @@ def rewind_session(workspace_id: str, session_id: str,
         {"ok": True, "message_count": N, "dry_run": bool}
     """
     try:
-        ws_id = _safe_id(workspace_id)
-        sid = _safe_id(session_id)
+        ws_id = validate_workspace_id(workspace_id)
+        sid = validate_session_id(session_id)
         snap_id = _safe_id(snapshot_id)
 
         # Load snapshot
-        snap_path = _snapshots_dir(ws_id, sid) / f"{snap_id}.json"
-        if not snap_path.is_file():
+        snapshot = read_json_record(ws_id, ("sessions", sid, "snapshots", f"{snap_id}.json"))
+        if not snapshot:
             return {"ok": False, "error": f"snapshot not found: {snap_id}"}
 
-        snapshot = json.loads(snap_path.read_text(encoding="utf-8"))
         messages = snapshot.get("messages", [])
 
         if dry_run:
