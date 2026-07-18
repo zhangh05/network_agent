@@ -62,7 +62,12 @@ Approval requests are durable interrupts. Approval is required only when policy 
 | `GET` | `/api/cmdb/assets?workspace_id=<ws>` | Device assets |
 | `POST` | `/api/cmdb/assets` | Save device asset |
 | `GET` | `/api/remote/devices?workspace_id=<ws>` | Remote devices |
-| `POST` | `/api/remote/connect` | Connect to remote device |
+| `POST` | `/api/remote/devices` | Save remote device |
+| `DELETE` | `/api/remote/devices/<device_id>?workspace_id=<ws>` | Delete remote device |
+| `GET` | `/api/remote/vendors` | Remote terminal vendor profiles |
+
+Interactive SSH/Telnet connection, terminal input, resize, and disconnect use
+the `/ws/remote/terminal` WebSocket exclusively.
 
 Inspection artifacts form immutable evidence streams keyed by CMDB asset and
 script profile. The newest complete observation is the current authoritative

@@ -65,34 +65,13 @@ def test_cmdb_invalid_workspace_and_port_return_400(app):
     assert invalid_port.get_json()["error"] == "invalid_port"
 
 
-def test_remote_invalid_workspace_and_port_return_400(app):
+def test_remote_devices_invalid_workspace_returns_400(app):
     client = app.test_client()
 
     invalid_ws = client.get("/api/remote/devices?workspace_id=../x")
-    missing_sessions_ws = client.get("/api/remote/sessions")
-    missing_exec_ws = client.post(
-        "/api/remote/exec",
-        json={"session_id": "sid", "command": "display version"},
-    )
-    missing_disconnect_ws = client.post(
-        "/api/remote/disconnect",
-        json={"session_id": "sid"},
-    )
-    invalid_port = client.post(
-        "/api/remote/connect",
-        json={"workspace_id": "default", "host": "127.0.0.1", "port": "bad"},
-    )
 
     assert invalid_ws.status_code == 400
     assert invalid_ws.get_json()["error"] == "invalid_workspace_id"
-    assert missing_sessions_ws.status_code == 400
-    assert missing_sessions_ws.get_json()["error"] == "invalid_workspace_id"
-    assert missing_exec_ws.status_code == 400
-    assert missing_exec_ws.get_json()["error"] == "invalid_workspace_id"
-    assert missing_disconnect_ws.status_code == 400
-    assert missing_disconnect_ws.get_json()["error"] == "invalid_workspace_id"
-    assert invalid_port.status_code == 400
-    assert invalid_port.get_json()["error"] == "invalid_port"
 
 
 def test_exec_run_is_not_policy_forbidden_with_approval():

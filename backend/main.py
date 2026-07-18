@@ -275,7 +275,7 @@ def create_app():
     register_review_routes(app)       # /api/review-items/*, /api/workspaces/<ws>/review-items
     register_pcap_routes(app)        # /api/pcap/* (parse, filter, align)
     register_workspace_status_routes(app)  # /api/workspaces/<ws>/status, /storage/health
-    register_remote_routes(app)     # /api/remote/* (SSH/Telnet)
+    register_remote_routes(app)     # /api/remote/* (saved devices and vendor profiles)
     register_cmdb_routes(app)      # /api/cmdb/* (Device Assets)
     register_state_routes(app)     # /api/runtime/tasks/* (Phase 2 Durable State)
     register_inspection_routes(app)  # /api/inspection/* (CMDB-driven device health)

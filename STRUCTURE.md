@@ -7,8 +7,7 @@ network_agent/
 │   ├── capabilities/           # Business capability catalog only
 │   ├── core/                   # Turn/session core types
 │   ├── llm/                    # Provider config, runtime calls, key resolver
-│   ├── modules/                # Domain implementations used by canonical tools
-│   ├── prompts/                # Prompt templates
+│   ├── modules/                # Domain implementations used by canonical tools; per-module prompt_templates/
 │   ├── runtime/                # SSOT Runtime adapter, result projection, durable state
 │   └── tools/                  # Agent-facing router/registry adapter
 ├── artifacts/                  # Artifact records and content store

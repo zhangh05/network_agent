@@ -6,7 +6,7 @@ This file is the handoff contract for AI coding agents working in this repositor
 
 1. Keep the current architecture only. Do not add compatibility branches, old tool names, fallback APIs, or historical docs.
 2. All tool invocation goes through the SSOT QueryLoop runtime and registered canonical handlers. Do not add alternate planner, dispatch, or compatibility paths.
-3. All tools must be one of the 24 network-agent canonical IDs in `core/tools/tool_namespace.py`.
+3. All tools must be one of the 24 network-agent canonical IDs in `core/tools/canonical_registry.py` (single source of truth).
 4. `workspace_id` must be explicit and validated at API boundaries. Empty values return 400.
 5. Approval is for high-risk/destructive actions, not for ordinary read/list/query operations.
 6. Memory writes go through `workspace.memory_governance.MemoryWriteGate`.

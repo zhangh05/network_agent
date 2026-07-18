@@ -294,10 +294,6 @@ def test_remote_session_followup_requires_matching_workspace(monkeypatch):
 
     monkeypatch.setattr(remote_service, "get_session", lambda sid: FakeSession())
 
-    assert remote_service.run_command("sid", "display version", workspace_id="ws_b") == {
-        "ok": False,
-        "error": "session_workspace_mismatch",
-    }
     assert remote_service.interactive_input("sid", "\r", workspace_id="ws_b") == {
         "ok": False,
         "error": "session_workspace_mismatch",
@@ -310,19 +306,6 @@ def test_remote_session_followup_requires_matching_workspace(monkeypatch):
         "ok": False,
         "error": "session_workspace_mismatch",
     }
-
-
-def test_remote_active_sessions_are_workspace_scoped(monkeypatch):
-    from agent.modules.remote import service as remote_service
-
-    monkeypatch.setattr(remote_service, "list_sessions", lambda: [
-        {"session_id": "sid_a", "workspace_id": "ws_a"},
-        {"session_id": "sid_b", "workspace_id": "ws_b"},
-    ])
-
-    assert remote_service.get_active_sessions("ws_a") == [
-        {"session_id": "sid_a", "workspace_id": "ws_a"},
-    ]
 
 
 def test_telnet_connect_allows_no_username_or_password(monkeypatch):
@@ -463,6 +446,17 @@ def test_remote_ws_keeps_xterm_enter_as_carriage_return():
 
     assert _terminal_input_data("\r") == "\r"
     assert _terminal_input_data("display version\r") == "display version\r"
+
+
+def test_remote_ws_validates_terminal_port():
+    from backend.ws.remote_ws import _parse_port
+
+    assert _parse_port(None) == 22
+    assert _parse_port(23) == 23
+    assert _parse_port("830") == 830
+    for value in ("bad", 0, 65536):
+        with pytest.raises(ValueError, match="invalid_port"):
+            _parse_port(value)
 
 
 def test_runner_trim_accepts_llm_message_objects():

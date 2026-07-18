@@ -63,14 +63,14 @@ flowchart LR
 
 ## 关键设计决策
 
-### 巡检流程（v3.11+）
+### 巡检流程（v4.1+）
 - 巡检由**前端驱动**：CMDB 点击按钮 → 异步创建后台任务 → 轮询 task_id → 完成后 auto-send 分析 prompt
 - LLM 只做分析：通过 `inspection.manage action=report` 自行拉取原始输出，不再由前端嵌入大段内容
 - `inspection.manage action=get` 返回 slim 数据（不含 output_snippet），避免轮询撑爆上下文
 
 ### LLM 配置
 - 仓库基础配置 `config/llm.yaml` 使用 `max_tokens: 50000`；未配置 provider 时运行时回退值为 `4096`
-- `config/providers/` 保存每 provider 配置，`config/llm.local.yaml` 保存本机覆盖；两者均不入 git
+- `config/providers/` 保存每 provider 配置，运行时按需读取；带有机密信息的本机配置文件不入 git
 - `NETWORK_AGENT_AUTH_ENABLED=true` 时 WebSocket 也需携带 `auth_token`
 
 ### 安全

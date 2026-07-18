@@ -9,8 +9,8 @@ from pathlib import Path
 
 from agent.runtime.utils import now_iso
 from agent.modules.remote.core import (
-    ssh_connect, telnet_connect, exec_command, send_interactive,
-    resize_session, disconnect, list_sessions, get_session,
+    ssh_connect, telnet_connect, send_interactive,
+    resize_session, disconnect, get_session,
 )
 from agent.modules.remote.vendors import list_vendors, get_profile
 
@@ -80,14 +80,6 @@ def connect_device(workspace_id: str, host: str, port: int, protocol: str,
         return {"ok": False, "error": f"连接失败: {e}"}
 
 
-def run_command(session_id: str, command: str, workspace_id: str) -> dict:
-    """Execute a command on a connected device."""
-    guard = _require_session_workspace(session_id, workspace_id)
-    if guard:
-        return guard
-    return exec_command(session_id, command)
-
-
 def interactive_input(session_id: str, data: str, workspace_id: str) -> dict:
     """Send interactive input to a session."""
     guard = _require_session_workspace(session_id, workspace_id)
@@ -113,13 +105,6 @@ def close_session(session_id: str, workspace_id: str = "") -> dict:
     if session and session.log and workspace_id:
         _save_session_log(workspace_id, session_id, session.log)
     return disconnect(session_id)
-
-
-def get_active_sessions(workspace_id: str) -> list[dict]:
-    return [
-        session for session in list_sessions()
-        if session.get("workspace_id") == workspace_id
-    ]
 
 
 def get_vendors() -> list[dict]:
