@@ -16,6 +16,7 @@ import {
 import { IconBolt, IconCheck, IconRefresh, IconShield, IconTrash } from "../../components/Icon";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
+import { PageHeader } from "../../components/ui";
 import "./AssurancePage.css";
 
 type View = "overview" | "baseline" | "topology" | "incident" | "change" | "continuous";
@@ -340,11 +341,11 @@ export function AssurancePage() {
 
   return (
     <div className="assurance-page">
-      <div className="page-header assurance-header">
-        <div>
-          <h1>网络保障 <span>· Assurance</span></h1>
-          <p className="subtitle">确立权威状态，分析故障如何传播，验证变更，并持续跟踪异常。</p>
-        </div>
+      <PageHeader
+        title={<>网络保障 <span className="title-suffix">· Assurance</span></>}
+        subtitle="确立权威状态，分析故障如何传播，验证变更，并持续跟踪异常。"
+        className="assurance-header"
+      >
         <div className="assurance-header-actions">
           {overview && <Status value={!counts.baselines ? "unconfigured" : overview.health} />}
           {loading && overview && <span className="assurance-refreshing">正在更新</span>}
@@ -353,7 +354,7 @@ export function AssurancePage() {
           </button>
           <button className="btn sm ghost" onClick={() => void load()} disabled={loading}><IconRefresh size={14} /> 刷新</button>
         </div>
-      </div>
+      </PageHeader>
 
       <div className="assurance-nav" role="tablist" aria-label="网络保障视图">
         {VIEWS.map(([id, label]) => <button type="button" role="tab" aria-selected={view === id} key={id} className={view === id ? "active" : ""} onClick={() => setView(id)}>{label}</button>)}

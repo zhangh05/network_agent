@@ -11,6 +11,7 @@ import { useSessionStore } from "../../stores/session";
 import { LoadingState } from "../../components/common";
 import { IconRefresh } from "../../components/Icon";
 import { formatDate } from "../../utils/format";
+import { PageHeader, DataTable } from "../../components/ui";
 
 const CACHE_KEY = "diagnostics_v1";
 
@@ -176,18 +177,40 @@ export function Diagnostics() {
   return (
     <div className="page" data-testid="page-diagnostics">
       <PageHeader
-        onDetect={runDetection}
-        detecting={detecting}
-        lastCheck={lastCheck}
-        allOk={allOk}
-        hasData={hasData}
-      />
+        title="系统诊断"
+        subtitle={
+          <span>
+            健康跟踪 · 用量 · 自检 · 策略
+            {lastCheck && (
+              <span className="ml-2 faint">上次检测：{formatDate(lastCheck, "compact")}</span>
+            )}
+            {hasData && (
+              <span className={`ml-2 ${allOk ? "success-text" : "warning-text"}`}>
+                {allOk ? "● 正常" : "● 注意"}
+              </span>
+            )}
+          </span>
+        }
+      >
+        <button
+          className="btn sm"
+          onClick={runDetection}
+          disabled={detecting}
+          style={{ fontWeight: 680, minWidth: 100, justifyContent: "center" }}
+        >
+          {detecting ? (
+            <>⏳ 检测中…</>
+          ) : (
+            <><IconRefresh size={12} /> {hasData ? "重新检测" : "开始检测"}</>
+          )}
+        </button>
+      </PageHeader>
 
       {/* Loading overlay during detection */}
       {detecting ? (
         <div className="page-body"><LoadingState text="检测中…" /></div>
       ) : (
-        <div className="page-body" style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
+        <div className="page-body page-body-flex">
           {/* ═══ 概览摘要卡（用户3秒看懂系统状态） ═══ */}
           {summaryStats && (
             <div className="diag-summary">
@@ -282,27 +305,18 @@ export function Diagnostics() {
               ) : <Dim>无数据</Dim>}
             </Section>
 
-            <Section title="提示词库" badge={prompts?.length != null ? <span style={{ fontSize: 12, color: "var(--text-4)" }}>{prompts.length} 条</span> : null}>
+            <Section title="提示词库" badge={prompts?.length != null ? <span className="faint">{prompts.length} 条</span> : null}>
               {prompts && prompts.length > 0 ? (
                 <div style={{ maxHeight: 260, overflowY: "auto" }}>
-                  <table className="diag-prompts-table">
-                    <thead>
-                      <tr>
-                        <th>用途说明</th>
-                        <th>版本</th>
-                        <th>ID</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {prompts.map((p: any) => (
-                        <tr key={p.prompt_id}>
-                          <td className="diag-prompt-desc">{p.description || p.task || p.prompt_id}</td>
-                          <td><span className="diag-ver-badge">{p.version}</span></td>
-                          <td className="diag-prompt-id">{p.prompt_id}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <DataTable
+                    rows={prompts}
+                    keyExtractor={(p) => p.prompt_id}
+                    columns={[
+                      { key: "desc", header: "用途说明", render: (p) => <span className="diag-prompt-desc">{p.description || p.task || p.prompt_id}</span> },
+                      { key: "version", header: "版本", width: 70, align: "center", render: (p) => <span className="diag-ver-badge">{p.version}</span> },
+                      { key: "id", header: "ID", width: 180, render: (p) => <span className="diag-prompt-id">{p.prompt_id}</span> },
+                    ]}
+                  />
                 </div>
               ) : <Dim>暂无</Dim>}
             </Section>
@@ -354,60 +368,13 @@ export function Diagnostics() {
   );
 }
 
-/* ─── Page Header ─── */
-
-function PageHeader({
-  onDetect, detecting, lastCheck, allOk, hasData,
-}: {
-  onDetect: () => void;
-  detecting: boolean;
-  lastCheck: string | null;
-  allOk: boolean;
-  hasData: boolean;
-}) {
-  return (
-    <div className="page-header" style={{ background: "var(--surface)", borderBottom: "1px solid var(--line-2)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: "var(--fs-18)" }}>系统诊断</h1>
-          <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-4)" }}>
-            健康跟踪 · 用量 · 自检 · 策略
-            {lastCheck && (
-              <span style={{ marginLeft: 10, color: "var(--text-3)", fontSize: 11 }}>
-                上次检测：{formatDate(lastCheck, "compact")}
-              </span>
-            )}
-            {hasData && (
-              <span style={{ marginLeft: 10, color: allOk ? "#2e7d32" : "#ed6c02", fontWeight: 600, fontSize: 11 }}>
-                {allOk ? "● 正常" : "● 注意"}
-              </span>
-            )}
-          </p>
-        </div>
-        <button
-          className="btn sm"
-          onClick={onDetect}
-          disabled={detecting}
-          style={{ marginLeft: "auto", fontWeight: 680, minWidth: 100, justifyContent: "center" }}
-        >
-          {detecting ? (
-            <>⏳ 检测中…</>
-          ) : (
-            <><IconRefresh size={12} /> {hasData ? "重新检测" : "开始检测"}</>
-          )}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 /* ─── Sub-components ─── */
 
 function Section({ title, badge, children }: { title: string; badge?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div style={{ padding: "16px 20px", background: "var(--surface)", borderRadius: 8, border: "1px solid var(--line-2)" }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 12 }}>
-        <h3 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "var(--text)" }}>{title}</h3>
+    <div className="diag-section">
+      <div className="diag-section-head">
+        <h3 className="diag-section-title">{title}</h3>
         {badge}
       </div>
       {children}
@@ -417,15 +384,15 @@ function Section({ title, badge, children }: { title: string; badge?: React.Reac
 
 function Row({ label, value, dim, compact }: { label: string; value: string; dim?: boolean; compact?: boolean }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: compact ? 11 : 12, padding: compact ? "2px 0" : undefined }}>
-      <span style={{ color: "var(--text-4)" }}>{label}</span>
-      <span style={{ fontWeight: 500, color: dim ? "var(--text-3)" : "var(--text)", fontVariantNumeric: "tabular-nums" }}>{value}</span>
+    <div className={`diag-row ${compact ? "diag-row-compact" : "diag-row-normal"}`}>
+      <span className="diag-row-label">{label}</span>
+      <span className={`diag-row-value ${dim ? "dim" : "normal"}`}>{value}</span>
     </div>
   );
 }
 
 function Dim({ children }: { children: React.ReactNode }) {
-  return <div style={{ fontSize: 12, color: "var(--text-4)", textAlign: "center", padding: "20px 0" }}>{children}</div>;
+  return <div className="diag-dim">{children}</div>;
 }
 
 /* ─── Small helpers ─── */

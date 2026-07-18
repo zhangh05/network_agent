@@ -6,6 +6,8 @@ import { apiRequest } from "../../api/client";
 import { artifactsApi } from "../../api";
 import { isApiError } from "../../types";
 import { formatFileSize, formatDate } from "../../utils/format";
+import { EmptyState } from "../../components/common";
+import { PageHeader, FilterBar, DetailPanel } from "../../components/ui";
 
 interface FileItem {
   artifact_id: string;
@@ -150,21 +152,15 @@ export function FileManager() {
 
   return (
     <div className="page">
-      <div className="page-header">
-        <div>
-          <h1>文件管理</h1>
-          <p className="subtitle">统一制品管理 — 基于 FileStore</p>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn primary sm" onClick={() => setShowUpload(true)}>上传文件</button>
-          <button className="btn sm ghost" onClick={fetchFiles}>刷新</button>
-        </div>
-      </div>
+      <PageHeader title="文件管理" subtitle="统一制品管理 — 基于 FileStore">
+        <button className="btn primary sm" onClick={() => setShowUpload(true)}>上传文件</button>
+        <button className="btn sm ghost" onClick={fetchFiles}>刷新</button>
+      </PageHeader>
 
       {showUpload && (
-        <div className="card" style={{ padding: "12px 16px", margin: "0 0 12px", borderColor: "var(--accent)" }}>
+        <div className="card card-highlight" style={{ padding: "12px 16px", margin: "0 0 12px" }}>
           <div className="card-title">上传文件</div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+          <div className="row-flex mt-2">
             <input ref={fileRef} type="file" style={{ display: "none" }}
               onChange={e => {
                 const f = e.target.files?.[0];
@@ -183,7 +179,7 @@ export function FileManager() {
 
       <div className="split-shell" style={{ flex: 1 }}>
         <aside style={{ display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", gap: 6, padding: "8px 12px", borderBottom: "1px solid var(--line-2)", flexWrap: "wrap" }}>
+          <FilterBar>
             {TYPE_TABS.map(t => {
               const count = t.key === "all" ? allFiles.length : allFiles.filter(f => matchesType(f, t.key)).length;
               return (
@@ -194,10 +190,10 @@ export function FileManager() {
                 </button>
               );
             })}
-          </div>
+          </FilterBar>
 
-          <div style={{ flex: 1, overflow: "auto", padding: "8px 12px" }}>
-            {loading && <div style={{ padding: 24, textAlign: "center", color: "var(--text-4)" }}>加载中…</div>}
+          <div className="file-list">
+            {loading && <div className="empty-sm">加载中…</div>}
             {!loading && files.length === 0 && (
               <div className="empty" style={{ padding: 40 }}>
                 <div className="empty-text">暂无文件</div>
@@ -206,11 +202,9 @@ export function FileManager() {
             {files.map(f => {
               const isActive = selected?.artifact_id === f.artifact_id;
               return (
-                <div key={f.artifact_id} className="card" onClick={() => selectFile(f)}
-                  style={{ padding: "10px 12px", cursor: "pointer", marginBottom: 6,
-                    borderColor: isActive ? "var(--accent)" : "var(--line)", background: isActive ? "var(--accent-soft)" : undefined }}>
-                  <div style={{ fontSize: "var(--fs-13)", fontWeight: 680, wordBreak: "break-all" }}>{f.title}</div>
-                  <div style={{ display: "flex", gap: 6, marginTop: 4, fontSize: "var(--fs-10)", color: "var(--text-4)" }}>
+                <div key={f.artifact_id} className={`card file-list-item ${isActive ? "active" : ""}`} onClick={() => selectFile(f)}>
+                  <div className="file-list-item-title">{f.title}</div>
+                  <div className="file-list-item-meta">
                     <span>{f.artifact_type}</span>
                     <span>{formatFileSize(f.size_bytes)}</span>
                     <span>{formatDate(f.created_at, "short")}</span>
@@ -221,45 +215,41 @@ export function FileManager() {
           </div>
         </aside>
 
-        <div className="split-detail" style={{ display: "flex", flexDirection: "column" }}>
+        <DetailPanel title={selected?.title || "选择文件"} subtitle={selected ? selected.artifact_type : "点击左侧文件查看详情"}>
           {!selected ? (
-            <div className="empty" style={{ flex: 1 }}>
-              <div className="empty-text">选择文件查看详情</div>
-            </div>
+            <EmptyState text="选择文件查看详情" />
           ) : (
-	            <>
-	              <div className="card" style={{ padding: "14px 16px", marginBottom: 12 }}>
-	                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-	                  <div>
-	                    <h3 style={{ fontSize: "var(--fs-16)", fontWeight: 720, margin: 0 }}>{selected.title}</h3>
-	                    <div style={{ display: "flex", gap: 8, marginTop: 6, fontSize: "var(--fs-11)", color: "var(--text-3)" }}>
-	                      <span>{selected.artifact_type}</span>
-	                      <span style={{ fontFamily: "var(--font-mono)" }}>{selected.file_id}</span>
-                        <span>{formatFileSize(selected.size_bytes)}</span>
-                        <span>{formatDate(selected.created_at, "short")}</span>
-	                    </div>
-	                  </div>
-	                  <div style={{ display: "flex", gap: 6, alignItems: "flex-start", flexShrink: 0 }}>
-	                    {isRawPacketCapture(selected) && selected.file_id && (
-	                      <button className="btn primary sm" onClick={() => openPacketAnalysis(selected)}>打开分析</button>
-	                    )}
-	                    <button className="btn danger-ghost sm" onClick={() => deleteFile(selected.artifact_id)}>删除</button>
-	                  </div>
-	                </div>
-	              </div>
+            <>
+              <div className="card file-detail-card">
+                <div className="file-detail-head">
+                  <div>
+                    <h3 className="file-detail-title">{selected.title}</h3>
+                    <div className="file-detail-meta">
+                      <span>{selected.artifact_type}</span>
+                      <span className="mono">{selected.file_id}</span>
+                      <span>{formatFileSize(selected.size_bytes)}</span>
+                      <span>{formatDate(selected.created_at, "short")}</span>
+                    </div>
+                  </div>
+                  <div className="file-detail-actions">
+                    {isRawPacketCapture(selected) && selected.file_id && (
+                      <button className="btn primary sm" onClick={() => openPacketAnalysis(selected)}>打开分析</button>
+                    )}
+                    <button className="btn danger-ghost sm" onClick={() => deleteFile(selected.artifact_id)}>删除</button>
+                  </div>
+                </div>
+              </div>
 
               {detailContent ? (
-                <div className="card" style={{ flex: 1, overflow: "auto", padding: 0 }}>
-                  <pre style={{ margin: 0, padding: "12px 16px", fontFamily: "var(--font-mono)", fontSize: "var(--fs-12)", whiteSpace: "pre-wrap", wordBreak: "break-word", color: "var(--text-2)", background: "var(--surface-2)" }}>
-                    {detailContent.slice(0, 8000)}{detailContent.length > 8000 ? "\n\n..." : ""}
-                  </pre>
+                <div className="card file-content-card">
+                  <pre>{detailContent.slice(0, 8000)}{detailContent.length > 8000 ? "\n\n..." : ""}</pre>
                 </div>
               ) : (
                 <div className="empty" style={{ flex: 1 }}><div className="empty-text">无文本内容</div></div>
               )}
             </>
           )}
-        </div>
+        </DetailPanel>
       </div>
     </div>
   );

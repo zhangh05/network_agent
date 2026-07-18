@@ -3,6 +3,7 @@ import { memoryApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { Badge, StatusDot } from "../../components/common";
 import { IconSearch, IconPlus, IconRefresh, IconClose, IconCheck, IconTrash } from "../../components/Icon";
+import { PageHeader, FilterBar } from "../../components/ui";
 
 interface MemEntry {
   memory_id?: string;
@@ -135,20 +136,14 @@ export function MemoryPage() {
   if (!loading && !err && display.length === 0) {
     return (
       <div className="page">
-        <div className="page-header" style={{ background: "var(--surface)" }}>
-          <div>
-            <h1>记忆管理</h1>
-            <p className="subtitle">管理 Agent 的长期记忆和知识笔记</p>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn sm" onClick={() => setShowCreate(!showCreate)}>
-              <IconPlus size={14} /> 新建记忆
-            </button>
-          </div>
-        </div>
+        <PageHeader title="记忆管理" subtitle="管理 Agent 的长期记忆和知识笔记">
+          <button className="btn sm" onClick={() => setShowCreate(!showCreate)}>
+            <IconPlus size={14} /> 新建记忆
+          </button>
+        </PageHeader>
         <div className="page-body">
           {showCreate && (
-            <div className="card" style={{ marginBottom: 16, borderColor: "var(--accent)", boxShadow: "0 0 0 1px var(--accent-soft)" }}>
+            <div className="card card-highlight">
               <div className="card-title" style={{ marginBottom: 10 }}>新建记忆</div>
               <input className="input" type="text" placeholder="标题" value={title} onChange={(e) => setTitle(e.target.value)} style={{ marginBottom: 8 }} />
               <textarea className="input" placeholder="记忆内容..." value={content} onChange={(e) => setContent(e.target.value)} rows={3} style={{ marginBottom: 10 }} />
@@ -179,67 +174,55 @@ export function MemoryPage() {
 
   return (
     <div className="page">
-      <div className="page-header" style={{ background: "var(--surface)" }}>
-        <div>
-          <h1>记忆管理</h1>
-          <p className="subtitle">管理 Agent 的长期记忆和知识笔记</p>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn sm" onClick={() => setShowCreate(!showCreate)}>
-            <IconPlus size={14} /> 新建
-          </button>
-          <button className="btn sm ghost" onClick={load} title="刷新">
-            <IconRefresh size={14} />
-          </button>
-        </div>
-      </div>
+      <PageHeader title="记忆管理" subtitle="管理 Agent 的长期记忆和知识笔记">
+        <button className="btn sm" onClick={() => setShowCreate(!showCreate)}>
+          <IconPlus size={14} /> 新建
+        </button>
+        <button className="btn sm ghost" onClick={load} title="刷新">
+          <IconRefresh size={14} />
+        </button>
+      </PageHeader>
 
       <div className="page-body">
         {/* Search + filter bar */}
-        <div className="card" style={{ padding: "12px 16px", marginBottom: 16 }}>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <div style={{ position: "relative", flex: 1 }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
-                <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
-              </svg>
-              <input className="input" type="text" placeholder="搜索记忆..." value={searchQ}
-                onChange={(e) => setSearchQ(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
-                style={{ paddingLeft: 34, paddingRight: searchQ ? 32 : 11 }} />
-              {searchQ && (
-                <button onClick={() => { setSearchQ(""); setSearchRes(null); }}
-                  style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", color: "var(--text-4)", padding: 2, lineHeight: 0 }}>
-                  <IconClose size={12} />
-                </button>
-              )}
-            </div>
-            <button className="btn sm" onClick={handleSearch}><IconSearch size={14} /> 搜索</button>
-            {searchRes && (
-              <button className="btn sm ghost" onClick={() => { setSearchRes(null); setSearchQ(""); }}>清除结果</button>
-            )}
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line-2)" }}>
-            {display.length > 0 && (
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--fs-12)", color: "var(--text-3)", cursor: "pointer", userSelect: "none" }}>
-                <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
-                  style={{ accentColor: "var(--accent)", width: 14, height: 14, cursor: "pointer" }} />
-                全选 ({checked.size})
-              </label>
-            )}
-            {checked.size > 0 && (
-              <button className="btn sm danger" onClick={handleBatchDelete} style={{ backgroundColor: "var(--danger)", color: "#fff", border: "none" }}>
-                <IconTrash size={12} /> 删除 {checked.size} 条
+        <FilterBar>
+          <div className="search-input-wrapper">
+            <svg className="search-input-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+            </svg>
+            <input className="input" type="text" placeholder="搜索记忆..." value={searchQ}
+              onChange={(e) => setSearchQ(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+              style={{ paddingRight: searchQ ? 32 : 11 }} />
+            {searchQ && (
+              <button className="search-input-clear" onClick={() => { setSearchQ(""); setSearchRes(null); }}>
+                <IconClose size={12} />
               </button>
             )}
-            <span style={{ marginLeft: "auto", fontSize: "var(--fs-11)", color: "var(--text-4)" }}>
-              {searchRes ? `搜索结果 ${display.length} 条` : `共 ${display.length} 条记忆`}
-            </span>
           </div>
-        </div>
+          <button className="btn sm" onClick={handleSearch}><IconSearch size={14} /> 搜索</button>
+          {searchRes && (
+            <button className="btn sm ghost" onClick={() => { setSearchRes(null); setSearchQ(""); }}>清除结果</button>
+          )}
+          <div className="spacer" />
+          {display.length > 0 && (
+            <label className="select-all">
+              <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} />
+              全选 ({checked.size})
+            </label>
+          )}
+          {checked.size > 0 && (
+            <button className="btn sm danger" onClick={handleBatchDelete}>
+              <IconTrash size={12} /> 删除 {checked.size} 条
+            </button>
+          )}
+          <span className="count">
+            {searchRes ? `搜索结果 ${display.length} 条` : `共 ${display.length} 条记忆`}
+          </span>
+        </FilterBar>
 
         {showCreate && (
-          <div className="card" style={{ marginBottom: 16, borderColor: "var(--accent)", borderWidth: 1, boxShadow: "0 0 0 1px var(--accent-soft)" }}>
+          <div className="card card-highlight">
             <div className="card-title" style={{ marginBottom: 10 }}>新建记忆</div>
             <input className="input" type="text" placeholder="标题" value={title} onChange={(e) => setTitle(e.target.value)} style={{ marginBottom: 8 }} />
             <textarea className="input" placeholder="记忆内容..." value={content} onChange={(e) => setContent(e.target.value)} rows={3} style={{ marginBottom: 10 }} />
@@ -267,7 +250,7 @@ export function MemoryPage() {
         )}
 
         {!loading && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="memory-list">
             {display.map((e, i) => {
               const isSelected = sel?.memory_id === e.memory_id;
               const isChecked = checked.has(e.memory_id ?? "");
@@ -275,9 +258,9 @@ export function MemoryPage() {
               const dotColor = isInactive ? "err" : e.status === "pending" || e.status === "conflict" ? "warn" : "ok";
 
               return (
-                <div key={e.memory_id || i} className="card" style={{ padding: 0, cursor: "pointer", opacity: isInactive ? 0.55 : 1, transition: "all var(--dur-2) var(--ease)", outline: isChecked ? "2px solid var(--accent)" : "none" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "14px 16px" }}
-                    onClick={() => setSel(isSelected ? null : e)}>
+                <div key={e.memory_id || i} className={`card memory-card ${isChecked ? "checked" : ""} ${isInactive ? "inactive" : ""}`}
+                  onClick={() => setSel(isSelected ? null : e)}>
+                  <div className="memory-card-row">
                     {/* Checkbox */}
                     <input type="checkbox" checked={isChecked}
                       onChange={(ev) => {
@@ -289,39 +272,34 @@ export function MemoryPage() {
                       onClick={(ev) => ev.stopPropagation()}
                       style={{ accentColor: "var(--accent)", width: 14, height: 14, cursor: "pointer", flexShrink: 0 }} />
 
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+                    <div className="memory-card-content">
+                      <div className="memory-card-title">
                         <StatusDot status={dotColor} />
-                        <strong style={{ fontSize: "var(--fs-14)", lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {e.title || e.summary || e.content?.slice(0, 80) || "未命名记忆"}
-                        </strong>
+                        <strong>{e.title || e.summary || e.content?.slice(0, 80) || "未命名记忆"}</strong>
                         {e.status && e.status !== "active" && (
                           <Badge kind={isInactive ? "err" : "warn"}>{e.status}</Badge>
                         )}
                         {e.memory_type && <Badge kind="info">{e.memory_type}</Badge>}
                         {e.scope && <Badge kind="muted">{e.scope}</Badge>}
                       </div>
-                      <div style={{ fontSize: "var(--fs-12)", color: "var(--text-3)", lineHeight: 1.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div className="memory-card-preview">
                         {e.value_preview || e.content?.substring(0, 150) || "(无内容)"}
                       </div>
                     </div>
 
-                    <button className="btn sm ghost" title="永久删除"
-                      onClick={(ev) => { ev.stopPropagation(); setDeleteConfirm(e.memory_id || null); }}
-                      style={{ flexShrink: 0, padding: "2px 6px", color: "var(--text-4)" }}>
+                    <button className="btn sm ghost memory-card-delete" title="永久删除"
+                      onClick={(ev) => { ev.stopPropagation(); setDeleteConfirm(e.memory_id || null); }}>
                       <IconTrash size={13} />
                     </button>
-                    <span style={{ flexShrink: 0, color: "var(--text-4)", fontSize: "var(--fs-11)", paddingTop: 2 }}>
+                    <span className="memory-card-chevron">
                       {isSelected ? "▾" : "▸"}
                     </span>
                   </div>
 
                   {deleteConfirm === e.memory_id && (
-                    <div style={{ padding: "6px 16px 8px", borderTop: "1px solid var(--line-2)", background: "var(--danger-soft, #fde8e8)", display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: "var(--fs-12)", color: "var(--danger)", flex: 1 }}>
-                        永久删除这条记忆？此操作不可逆。
-                      </span>
-                      <button className="btn sm danger" onClick={() => handleDeleteHard(e.memory_id!)} style={{ background: "var(--danger)", color: "#fff", border: "none" }}>
+                    <div className="memory-delete-confirm">
+                      <span>永久删除这条记忆？此操作不可逆。</span>
+                      <button className="btn sm danger" onClick={() => handleDeleteHard(e.memory_id!)}>
                         <IconCheck size={11} /> 确认
                       </button>
                       <button className="btn sm ghost" onClick={(ev) => { ev.stopPropagation(); setDeleteConfirm(null); }}>
@@ -331,19 +309,17 @@ export function MemoryPage() {
                   )}
 
                   {isSelected && (
-                    <div style={{ padding: "0 16px 14px", borderTop: "1px solid var(--line-2)" }}>
+                    <div className="memory-card-detail">
                       {e.content && (
-                        <pre style={{ fontSize: "var(--fs-12)", lineHeight: 1.6, color: "var(--text-2)", background: "var(--surface-2)", padding: "12px 14px", borderRadius: "var(--r-6)", maxHeight: 260, overflow: "auto", marginTop: 10, whiteSpace: "pre-wrap", wordBreak: "break-word", border: "1px solid var(--line-2)", fontFamily: "var(--font-mono)" }}>
-                          {e.content}
-                        </pre>
+                        <pre>{e.content}</pre>
                       )}
                       {e.tags && e.tags.length > 0 && (
-                        <div style={{ display: "flex", gap: 4, marginTop: 10, flexWrap: "wrap" }}>
+                        <div className="tags">
                           {e.tags.map((t: string) => <Badge key={t} kind="accent">{t}</Badge>)}
                         </div>
                       )}
                       {(e.status === "pending" || e.status === "conflict") && e.memory_id && (
-                        <div style={{ display: "flex", gap: 8, marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--line-2)" }}>
+                        <div className="actions">
                           <button className="btn primary sm" onClick={() => void handleReview(e.memory_id!, "confirm")}>
                             <IconCheck size={12} /> 确认并启用
                           </button>
@@ -363,7 +339,7 @@ export function MemoryPage() {
 
       {/* Toast notification */}
       {toast && (
-        <div style={{ position: "fixed", bottom: 24, right: 24, padding: "10px 16px", borderRadius: "var(--r-6)", color: "#fff", fontSize: "var(--fs-13)", zIndex: 9999, boxShadow: "0 4px 12px rgba(0,0,0,0.3)", background: toast.kind === "ok" ? "var(--ok)" : "var(--danger)" }}>
+        <div className={`toast-notification ${toast.kind}`}>
           {toast.msg}
         </div>
       )}

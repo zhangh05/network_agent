@@ -18,6 +18,7 @@ interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   className?: string;
   "data-testid"?: string;
+  rowDataTestId?: (row: T) => string | undefined;
 }
 
 export function DataTable<T>({
@@ -29,6 +30,7 @@ export function DataTable<T>({
   onRowClick,
   className = "",
   "data-testid": testId,
+  rowDataTestId,
 }: DataTableProps<T>) {
   if (!loading && rows.length === 0) {
     return (
@@ -62,6 +64,7 @@ export function DataTable<T>({
           {rows.map((row, i) => (
             <tr
               key={keyExtractor(row)}
+              data-testid={rowDataTestId?.(row)}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
               className={onRowClick ? "cursor-pointer" : undefined}
             >

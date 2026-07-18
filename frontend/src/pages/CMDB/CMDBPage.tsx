@@ -6,6 +6,7 @@ import { apiRequest } from "../../api/client";
 import { isApiError } from "../../types";
 import { RemoteTerminal } from "../../components/RemoteTerminal/RemoteTerminal";
 import { ScriptManagerModal } from "../../components/ScriptManagerModal";
+import { PageHeader, FilterBar } from "../../components/ui";
 
 interface Asset {
   asset_id: string; name: string; type: string; vendor: string;
@@ -44,10 +45,10 @@ const VENDOR_PRESETS_LIST = [
 // ── compact stat pill ──
 function Stat({ label, value, color, sub }: { label: string; value: number | string; color: string; sub?: string }) {
   return (
-    <div style={{ minWidth: 72 }}>
-      <div style={{ fontSize: 22, fontWeight: 700, color, lineHeight: 1.2 }}>{value}</div>
-      <div style={{ fontSize: 11, color: "var(--text-4)", marginTop: 2, whiteSpace: "nowrap" }}>{label}</div>
-      {sub && <div style={{ fontSize: 10, color: "var(--text-5)", marginTop: 1, whiteSpace: "nowrap" }}>{sub}</div>}
+    <div className="stat-card">
+      <div className="stat-value" style={{ color }}>{value}</div>
+      <div className="stat-label">{label}</div>
+      {sub && <div className="stat-sub">{sub}</div>}
     </div>
   );
 }
@@ -323,51 +324,25 @@ export function CMDBPage() {
   ];
 
   return (
-    <div style={{ height: "100%", overflow: "auto", background: "var(--bg)" }}>
-      {/* ── 工具栏 ── */}
-      <div style={{
-        display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "16px 24px 12px", position: "sticky", top: 0, zIndex: 10,
-        background: "var(--bg)",
-      }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "var(--text)" }}>
-            设备资产
-          </h2>
-          <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-4)" }}>
-            已注册 {assets.length} 台设备
-          </p>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn" onClick={() => setScriptManagerType("general")}
-            style={{ fontWeight: 600, fontSize: 13, padding: "8px 14px", background: "var(--surface-2)" }}>
-            通用脚本管理
-          </button>
-          <button className="btn" onClick={() => setScriptManagerType("log")}
-            style={{ fontWeight: 600, fontSize: 13, padding: "8px 14px", background: "var(--surface-2)" }}>
-            日志脚本管理
-          </button>
-          <button className="btn" onClick={() => setGlobalTerm(true)}
-            style={{ fontWeight: 600, fontSize: 13, padding: "8px 14px", background: "var(--surface-2)" }}>
-            终端
-          </button>
-          <button className="btn primary" onClick={openNew}
-            style={{ fontWeight: 600, fontSize: 13, padding: "8px 18px" }}>
-            + 新增设备
-          </button>
-        </div>
-      </div>
+    <div className="page">
+      <PageHeader title="设备资产" subtitle={`已注册 ${assets.length} 台设备`}>
+        <button className="btn" onClick={() => setScriptManagerType("general")}>
+          通用脚本管理
+        </button>
+        <button className="btn" onClick={() => setScriptManagerType("log")}>
+          日志脚本管理
+        </button>
+        <button className="btn" onClick={() => setGlobalTerm(true)}>
+          终端
+        </button>
+        <button className="btn primary" onClick={openNew}>
+          + 新增设备
+        </button>
+      </PageHeader>
 
-      <div style={{ padding: "0 24px 24px" }}>
+      <div className="page-body">
         {/* ── 统计栏 ── */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(86px, 1fr))",
-          gap: 14,
-          padding: "14px 18px", marginBottom: 18,
-          borderRadius: 10, border: "1px solid var(--line-2)", background: "var(--surface)",
-          alignItems: "center",
-        }}>
+        <div className="stat-grid">
           <Stat label="总资产" value={stats.total} color="var(--accent)" sub={`${stats.regions.size} 区域`} />
           <Stat label="可连接" value={stats.connectable} color="var(--ok)" sub={`SSH ${stats.ssh} / Telnet ${stats.telnet}`} />
           <Stat label="厂商" value={stats.vendors.size} color="#7e22ce" sub="已登记厂商" />
@@ -380,33 +355,32 @@ export function CMDBPage() {
 
         {/* ── 区域筛选 ── */}
         {regionSet.length > 0 && (
-          <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap", alignItems: "center" }}>
-            <span style={{ fontSize: 12, color: "var(--text-4)", marginRight: 4 }}>区域：</span>
+          <FilterBar>
+            <span className="filter-chip-label">区域：</span>
             <button
               onClick={() => setRegionFilter("")}
-              style={{
-                padding: "3px 12px", borderRadius: "var(--r-pill)", cursor: "pointer",
-                border: `1px solid ${regionFilter ? "var(--line-2)" : "var(--accent)"}`,
-                background: regionFilter ? "transparent" : "var(--accent-soft)",
-                color: regionFilter ? "var(--text-3)" : "var(--accent)",
-                fontSize: 12, fontWeight: 600, transition: "all .15s",
-              }}
+              className={`filter-chip ${!regionFilter ? "active" : ""}`}
             >全部</button>
             {regionSet.map(r => {
               const active = regionFilter === r;
               return (
-                <button key={r} onClick={() => setRegionFilter(active ? "" : r)}
+                <button
+                  key={r}
+                  onClick={() => setRegionFilter(active ? "" : r)}
+                  className={`filter-chip region ${active ? "active" : ""}`}
                   style={{
-                    padding: "3px 12px", borderRadius: "var(--r-pill)", cursor: "pointer",
-                    border: `1px solid ${active ? (REGION_TEXT[r] || "var(--text-3)") : "var(--line-2)"}`,
-                    background: active ? (REGION_TINT[r] || "var(--surface-3)") : "transparent",
-                    color: active ? (REGION_TEXT[r] || "var(--text)") : "var(--text-3)",
-                    fontSize: 12, fontWeight: 600, transition: "all .15s",
-                  }}
+                    ...(active
+                      ? {
+                          "--chip-bg": REGION_TINT[r] || "var(--surface-3)",
+                          "--chip-color": REGION_TEXT[r] || "var(--text)",
+                          "--chip-border": REGION_TEXT[r] || "var(--text-3)",
+                        }
+                      : {}),
+                  } as React.CSSProperties}
                 >{r}</button>
               );
             })}
-            <div style={{ flex: "1 1 160px" }} />
+            <div className="spacer" />
             <button
               type="button"
               className="btn"
@@ -424,14 +398,7 @@ export function CMDBPage() {
                   type: "general",
                 });
               }}
-              style={{
-                fontWeight: 600,
-                fontSize: 13,
-                padding: "7px 14px",
-                opacity: activeInspectionRegion ? 1 : .55,
-                whiteSpace: "nowrap",
-                background: "var(--surface-2)",
-              }}
+              style={{ opacity: activeInspectionRegion ? 1 : .55 }}
             >
               通用巡检
             </button>
@@ -453,11 +420,7 @@ export function CMDBPage() {
                 });
               }}
               style={{
-                fontWeight: 600,
-                fontSize: 13,
-                padding: "7px 14px",
                 opacity: activeInspectionRegion ? 1 : .55,
-                whiteSpace: "nowrap",
                 background: "var(--info-soft)",
                 color: "var(--info)",
                 border: "1px solid var(--info-soft)",
@@ -465,7 +428,7 @@ export function CMDBPage() {
             >
               日志巡检
             </button>
-          </div>
+          </FilterBar>
         )}
 
         {/* ── 全局终端 ── */}
@@ -485,29 +448,13 @@ export function CMDBPage() {
 
         {/* ── 新增/编辑弹窗 ── */}
         {showForm && (
-          <div style={{
-            position: "fixed", inset: 0, zIndex: 9999,
-            background: "var(--overlay)", backdropFilter: "blur(3px)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            padding: 18,
-          }} onClick={() => setShowForm(false)}>
-            <div
-              onClick={e => e.stopPropagation()}
-              style={{
-                width: "min(760px, 100%)", maxHeight: "92vh", overflow: "auto",
-                background: "var(--surface)", borderRadius: 10,
-                boxShadow: "var(--shadow-menu)", padding: 0,
-                display: "flex", flexDirection: "column",
-              }}>
+          <div className="modal-overlay" onClick={() => setShowForm(false)}>
+            <div className="modal-sheet" onClick={e => e.stopPropagation()}>
               {/* 标题 */}
-              <div style={{
-                display: "flex", justifyContent: "space-between", alignItems: "flex-start",
-                gap: 16, padding: "22px 24px 16px", borderBottom: "1px solid var(--line-2)",
-                background: "var(--surface)",
-              }}>
+              <div className="modal-header">
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ fontWeight: 800, fontSize: 18, color: "var(--text)" }}>
+                    <span className="modal-title">
                       {editingAsset ? "编辑设备资产" : "新增设备资产"}
                     </span>
                     {editingAsset?.asset_id && (
@@ -517,18 +464,14 @@ export function CMDBPage() {
                       }}>{editingAsset.asset_id}</span>
                     )}
                   </div>
-                  <div style={{ marginTop: 5, fontSize: 12, color: "var(--text-4)", lineHeight: 1.5 }}>
+                  <div className="modal-subtitle">
                     字段与 CMDB 后端一致；密码只会保存为服务端密钥，列表和详情不会返回明文。
                   </div>
                 </div>
-                <button className="btn sm ghost" onClick={() => setShowForm(false)}
-                  style={{ fontSize: 18, padding: "2px 7px", color: "var(--text-4)", flexShrink: 0 }}>×</button>
+                <button className="btn sm ghost modal-close" onClick={() => setShowForm(false)} type="button">×</button>
               </div>
 
-              <div style={{
-                display: "grid", gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
-                gap: "13px 14px", padding: "18px 24px 8px",
-              }}>
+              <div className="modal-form-grid">
                 {/* 基本信息 */}
                 {sectionTitle("基础信息", "用于识别资产，LLM 会优先根据名称、厂商、型号和标签检索。")}
                 <div style={{ gridColumn: "span 6" }}>{field("名称 *", inp("设备名称，例如：杭州核心交换机-01", "name", { fontFamily: "var(--font-sans)" }, false))}</div>
@@ -681,12 +624,9 @@ export function CMDBPage() {
                 </div>
               )}
 
-              <div style={{
-                display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18,
-                padding: "14px 24px 20px", borderTop: "1px solid var(--line-2)",
-              }}>
-                <button className="btn" onClick={() => setShowForm(false)} style={{ padding: "7px 16px" }}>取消</button>
-                <button className="btn primary" onClick={doSave} style={{ padding: "7px 22px" }}>
+              <div className="modal-footer">
+                <button className="btn" onClick={() => setShowForm(false)}>取消</button>
+                <button className="btn primary" onClick={doSave}>
                   {editingAsset ? "保存更改" : "创建设备"}
                 </button>
               </div>
@@ -696,142 +636,98 @@ export function CMDBPage() {
 
         {/* ── 空状态 ── */}
         {assets.length === 0 && (
-          <div style={{ textAlign: "center", padding: "80px 40px", color: "var(--text-4)" }}>
-            <div style={{ fontSize: 40, marginBottom: 12, opacity: .5 }}>⊞</div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text-3)", marginBottom: 4 }}>暂无设备</div>
-            <div style={{ fontSize: 13 }}>点击 <b>+ 新增设备</b> 注册第一台网络设备。</div>
+          <div className="empty-center">
+            <div className="empty-icon">⊞</div>
+            <div className="empty-title">暂无设备</div>
+            <div className="empty-hint">点击 <b>+ 新增设备</b> 注册第一台网络设备。</div>
           </div>
         )}
 
         {/* ── 设备卡片 ── */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", gap: 16 }}>
+        <div className="asset-card-grid">
           {filtered.map(a => {
             const strip = VENDOR_STRIP[a.vendor] || "var(--accent)";
             const regionName = a.region || "";
             const canOpenTerminal = ["ssh", "telnet"].includes((a.protocol || "").toLowerCase());
             return (
-              <div key={a.asset_id}
-                style={{
-                  borderRadius: 10, border: "1px solid var(--line-2)",
-                  background: "var(--surface)", overflow: "hidden",
-                  transition: "box-shadow .15s",
-                }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 16px rgba(0,0,0,.06)"}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.boxShadow = "none"}>
-                {/* 顶栏 */}
-                <div style={{
-                  padding: "14px 16px 10px", borderBottom: `3px solid ${strip}`,
-                  display: "flex", alignItems: "flex-start", gap: 12,
-                }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: "var(--text)", lineHeight: 1.3 }}>
-                      {a.name || a.host}
-                    </div>
-                    <div style={{ marginTop: 3, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 11, color: "var(--text-3)", background: "var(--surface-3)", padding: "1px 8px", borderRadius: 4 }}>
-                        {TYPE_LABEL[a.type] || a.type}
+            <div key={a.asset_id} className="asset-card">
+              <div className="asset-card-header" style={{ borderBottomColor: strip }}>
+                <div className="asset-card-title">
+                  <div className="asset-card-name">{a.name || a.host}</div>
+                  <div className="asset-card-meta">
+                    <span className="asset-card-type">{TYPE_LABEL[a.type] || a.type}</span>
+                    {a.vendor && (
+                      <span style={{ fontSize: 11, color: "var(--text-4)" }}>{a.vendor}</span>
+                    )}
+                    {regionName && (
+                      <span className="asset-card-region" style={{ background: REGION_TINT[regionName], color: REGION_TEXT[regionName] }}>
+                        {regionName}
                       </span>
-                      {a.vendor && (
-                        <span style={{ fontSize: 11, color: "var(--text-4)" }}>{a.vendor}</span>
-                      )}
-                      {regionName && (
-                        <span style={{
-                          fontSize: 11, fontWeight: 600, padding: "1px 8px", borderRadius: 4,
-                          background: REGION_TINT[regionName] || "var(--surface-3)",
-                          color: REGION_TEXT[regionName] || "var(--text-3)",
-                        }}>{regionName}</span>
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                    <button className="btn sm ghost" onClick={() => openEdit(a)}
-                      style={{ fontSize: 11, padding: "2px 6px" }}>编辑</button>
-                    <button className="btn sm ghost" onClick={() => doDelete(a.asset_id)}
-                      style={{ fontSize: 11, padding: "2px 6px", color: "var(--text-4)" }}>删除</button>
+                    )}
                   </div>
                 </div>
-
-                {/* 信息行 */}
-                <div style={{ padding: "12px 16px 8px", display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div style={{ fontSize: 12, fontFamily: "var(--font-mono)", color: "var(--text-2)", display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontWeight: 600, fontSize: 11, color: "var(--text-4)", textTransform: "uppercase", minWidth: 28 }}>
-                      {a.protocol}
-                    </span>
-                    <span>{a.host}:{a.port}</span>
-                    {a.username && <span style={{ color: "var(--text-4)" }}>@{a.username}</span>}
-                  </div>
-                  {(a.model || a.location) && (
-                    <div style={{ fontSize: 12, color: "var(--text-3)", display: "flex", gap: 14 }}>
-                      {a.model && <span>{a.model}</span>}
-                      {a.location && <span>· {a.location}</span>}
-                    </div>
-                  )}
-                </div>
-
-                {/* 底栏 */}
-                <div style={{
-                  padding: "10px 16px", borderTop: "1px solid var(--line-2)",
-                  display: "flex", gap: 6,
-                }}>
-                  <button className="btn primary" onClick={() => canOpenTerminal && setTermAsset(a)}
-                    disabled={!canOpenTerminal}
-                    style={{ flex: 1, justifyContent: "center", fontWeight: 600, fontSize: 13, padding: "7px 0" }}>
-                    {canOpenTerminal ? "连接" : "已保存资料"}
-                  </button>
-                  <button
-                    className="btn"
-                    type="button"
-                    onClick={() => launchInspection({
-                      asset_ids: [a.asset_id],
-                      label: a.name || a.host,
-                      source: "cmdb_asset_button",
-                      type: "general",
-                    })}
-                    style={{
-                      justifyContent: "center",
-                      fontWeight: 600,
-                      fontSize: 12,
-                      padding: "7px 10px",
-                      background: "var(--surface-2)",
-                      flex: "0 1 auto",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    通用巡检
-                  </button>
-                  <button
-                    className="btn"
-                    type="button"
-                    onClick={() => launchInspection({
-                      asset_ids: [a.asset_id],
-                      label: a.name || a.host,
-                      source: "cmdb_asset_button",
-                      type: "log",
-                    })}
-                    style={{
-                      justifyContent: "center",
-                      fontWeight: 600,
-                      fontSize: 12,
-                      padding: "7px 10px",
-                      background: "var(--info-soft)",
-                      color: "var(--info)",
-                      border: "1px solid var(--info-soft)",
-                      flex: "0 1 auto",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    日志巡检
-                  </button>
+                <div className="asset-card-actions">
+                  <button className="btn sm ghost" onClick={() => openEdit(a)}>编辑</button>
+                  <button className="btn sm ghost text-danger" onClick={() => doDelete(a.asset_id)}>删除</button>
                 </div>
               </div>
+
+              <div className="asset-card-body">
+                <div className="asset-card-host">
+                  <span className="asset-card-protocol">{a.protocol}</span>
+                  <span>{a.host}:{a.port}</span>
+                  {a.username && <span style={{ color: "var(--text-4)" }}>@{a.username}</span>}
+                </div>
+                {(a.model || a.location) && (
+                  <div className="asset-card-extra">
+                    {a.model && <span>{a.model}</span>}
+                    {a.location && <span>· {a.location}</span>}
+                  </div>
+                )}
+              </div>
+
+              <div className="asset-card-footer">
+                <button className="btn primary" onClick={() => canOpenTerminal && setTermAsset(a)}
+                  disabled={!canOpenTerminal}>
+                  {canOpenTerminal ? "连接" : "已保存资料"}
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => launchInspection({
+                    asset_ids: [a.asset_id],
+                    label: a.name || a.host,
+                    source: "cmdb_asset_button",
+                    type: "general",
+                  })}
+                >
+                  通用巡检
+                </button>
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={() => launchInspection({
+                    asset_ids: [a.asset_id],
+                    label: a.name || a.host,
+                    source: "cmdb_asset_button",
+                    type: "log",
+                  })}
+                  style={{
+                    background: "var(--info-soft)",
+                    color: "var(--info)",
+                    border: "1px solid var(--info-soft)",
+                  }}
+                >
+                  日志巡检
+                </button>
+              </div>
+            </div>
             );
           })}
         </div>
 
         {assets.length > 0 && filtered.length === 0 && (
-          <div style={{ textAlign: "center", padding: "40px", color: "var(--text-4)", fontSize: 13 }}>
-            该区域暂无设备。
-          </div>
+          <div className="empty-sm">该区域暂无设备。</div>
         )}
       </div>
     </div>

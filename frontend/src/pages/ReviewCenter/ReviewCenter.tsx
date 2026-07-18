@@ -7,6 +7,7 @@ import { isApiError } from "../../types";
 import type { ReviewItem, ReviewStatus } from "../../types";
 import { IconAlert, IconCheck, IconRefresh } from "../../components/Icon";
 import { PortalModal } from "../../components/PortalModal";
+import { PageHeader, FilterBar, DataTable } from "../../components/ui";
 
 const STATUS_OPTIONS: { value: ReviewStatus | "all"; label: string }[] = [
   { value: "all", label: "全部" },
@@ -88,19 +89,12 @@ export function ReviewCenter() {
 
   return (
     <div className="page" data-testid="page-reviews">
-      <div className="page-header">
-        <div>
-          <h1>
-            评审中心{" "}
-            <span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14 }}>
-              · Review Center
-            </span>
-          </h1>
-          <div className="subtitle">
-            只记录人工判断和备注，<strong>不</strong>修改原始制品
-          </div>
-        </div>
-        <div className="row-flex">
+      <PageHeader
+        title={<>评审中心 <span className="title-suffix">· Review Center</span></>}
+        subtitle={<>只记录人工判断和备注，<strong>不</strong>修改原始制品</>}
+      />
+      <div className="page-body">
+        <FilterBar className="mb-2">
           {STATUS_OPTIONS.map((o) => (
             <button
               key={o.value}
@@ -112,9 +106,8 @@ export function ReviewCenter() {
               {o.label}
             </button>
           ))}
-        </div>
-      </div>
-      <div className="page-body">
+        </FilterBar>
+
         {list.state.kind === "empty" ? (
           <ReviewEmptyState
             filter={filter}
@@ -129,22 +122,20 @@ export function ReviewCenter() {
             emptyHint="切换过滤条件或等待 agent run 触发 review"
           >
             {(d) => (
-              <table className="tbl" data-testid="review-tbl">
-                <thead>
-                  <tr>
-                    <th>需要你看的问题</th>
-                    <th>影响</th>
-                    <th>状态</th>
-                    <th>备注</th>
-                    <th style={{ width: 90 }}>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(d.items ?? []).map((it) => {
-                    const artifactId = (it as ReviewItem & { artifact_id?: string }).artifact_id;
-                    return (
-                      <tr key={it.item_id} data-testid={`review-${it.item_id}`}>
-                        <td>
+              <DataTable
+                data-testid="review-tbl"
+                rows={d.items ?? []}
+                keyExtractor={(it) => it.item_id}
+                rowDataTestId={(it) => `review-${it.item_id}`}
+                empty={{ text: "无 review item", hint: "切换过滤条件或等待 agent run 触发 review" }}
+                columns={[
+                  {
+                    key: "reason",
+                    header: "需要你看的问题",
+                    render: (it) => {
+                      const artifactId = (it as ReviewItem & { artifact_id?: string }).artifact_id;
+                      return (
+                        <>
                           <div className="text-sm">{reviewReason(it)}</div>
                           <details className="collapse mt-1">
                             <summary className="text-xs muted">技术详情</summary>
@@ -156,38 +147,34 @@ export function ReviewCenter() {
                               )}
                             </div>
                           </details>
-                        </td>
-                        <td>
-                          <Badge kind={severityKind(it.severity)}>
-                            {severityLabel(it.severity)}
-                          </Badge>
-                        </td>
-                        <td>
-                          <Badge kind={STATUS_KIND[it.status]} withDot>
-                            {STATUS_LABEL[it.status]}
-                          </Badge>
-                        </td>
-                        <td className="text-sm muted">
-                          {it.user_note || <span className="muted">—</span>}
-                        </td>
-                        <td>
-                          <button
-                            className="btn sm"
-                            type="button"
-                            onClick={() => {
-                              setEditing(it);
-                              setNote(it.user_note ?? "");
-                            }}
-                            data-testid={`btn-edit-${it.item_id}`}
-                          >
-                            编辑
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                        </>
+                      );
+                    },
+                  },
+                  { key: "severity", header: "影响", width: 90, render: (it) => <Badge kind={severityKind(it.severity)}>{severityLabel(it.severity)}</Badge> },
+                  { key: "status", header: "状态", width: 100, render: (it) => <Badge kind={STATUS_KIND[it.status]} withDot>{STATUS_LABEL[it.status]}</Badge> },
+                  { key: "note", header: "备注", render: (it) => <span className="text-sm muted">{it.user_note || "—"}</span> },
+                  {
+                    key: "actions",
+                    header: "操作",
+                    width: 90,
+                    align: "right",
+                    render: (it) => (
+                      <button
+                        className="btn sm"
+                        type="button"
+                        onClick={() => {
+                          setEditing(it);
+                          setNote(it.user_note ?? "");
+                        }}
+                        data-testid={`btn-edit-${it.item_id}`}
+                      >
+                        编辑
+                      </button>
+                    ),
+                  },
+                ]}
+              />
             )}
           </AsyncView>
         )}
