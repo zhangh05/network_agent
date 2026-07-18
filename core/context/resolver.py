@@ -87,7 +87,7 @@ def resolve_context_ref(workspace_id: str, raw: str = "", payload: dict = None,
 
 def _get_ws_state(ws_id):
     try:
-        from workspace.manager import get_workspace_state
+        from storage.workspace_store import get_workspace_state
         return get_workspace_state(ws_id)
     except Exception:
         return {}
@@ -125,7 +125,7 @@ def _check_artifact_exists(ws_id, art_id):
 
 def _check_run_exists(ws_id, run_id):
     try:
-        from workspace.run_store import get_run
+        from storage.run_record_store import get_run
         return bool(get_run(run_id, ws_id))
     except Exception:
         return False

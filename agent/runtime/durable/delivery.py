@@ -24,8 +24,7 @@ def _resolve_repo_dir(ws_id: str) -> str:
         return str(workspaces_dir.resolve())
     return os.getcwd()
 from typing import Optional, Literal
-from workspace.run_store import WS_ROOT
-from workspace.atomic_io import atomic_write_json
+from storage.records import atomic_save_json, read_json_record
 from agent.runtime.utils import now_iso
 
 DeliveryMode = Literal["code","network_change","diagnosis","report","config_translation","artifact_generation"]
@@ -99,15 +98,10 @@ def requires_rollback(mode: DeliveryMode) -> bool:
 # ── Rollback Plan Persistence ──
 
 def save_rollback_plan(plan: RollbackPlan):
-    d = WS_ROOT / plan.workspace_id / "delivery" / "rollback"
-    d.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(d / f"{plan.rollback_id}.json", plan.to_dict())
+    atomic_save_json(plan.workspace_id, ("delivery", "rollback", f"{plan.rollback_id}.json"), plan.to_dict())
 
 def get_rollback_plan(ws_id: str, rb_id: str) -> Optional[dict]:
-    p = WS_ROOT / ws_id / "delivery" / "rollback" / f"{rb_id}.json"
-    if not p.exists(): return None
-    try: return json.loads(p.read_text(encoding="utf-8"))
-    except Exception: return None
+    return read_json_record(ws_id, ("delivery", "rollback", f"{rb_id}.json"))
 
 
 # ── Audit Report ──

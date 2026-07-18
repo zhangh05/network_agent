@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from storage import paths as storage_paths
-from workspace.atomic_io import atomic_write_json
+from storage.atomic_io import atomic_write_json
 from workspace.ids import validate_workspace_id
 
 _LOCKS: dict[str, threading.RLock] = {}

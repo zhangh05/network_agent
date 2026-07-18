@@ -64,7 +64,7 @@ def load_context_items(workspace_id: str, context_ref=None, intent: str = "",
     # 3. Workspace state (P3)
     if include_workspace:
         try:
-            from workspace.manager import get_workspace_state
+            from storage.workspace_store import get_workspace_state
             ws = get_workspace_state(workspace_id)
             safe_ws = {k: v for k, v in ws.items()
                        if k not in ("source_config", "deployable_config")

@@ -2490,7 +2490,7 @@ def _ws_artifact_list_basic(inv: ToolInvocation) -> dict:
     """List artifact metadata for a workspace (simple list, no full content)."""
     workspace_id = inv.arguments.get("workspace_id", inv.workspace_id or "")
     try:
-        from workspace.manager import get_workspace_state
+        from storage.workspace_store import get_workspace_state
         state = get_workspace_state(workspace_id)
         art_refs = state.get("artifact_refs", []) if isinstance(state, dict) else []
         return {

@@ -17,9 +17,12 @@ from pathlib import Path
 from typing import Optional
 
 from agent.runtime.utils import now_iso
+from storage.atomic_io import atomic_write_json
+from storage.paths import workspace_root
 
-ROOT = Path(__file__).resolve().parents[2]
-WS_ROOT = ROOT / "workspaces"
+
+def workspace_dir(workspace_id: str) -> Path:
+    return workspace_root(workspace_id)
 
 
 def is_safe_path(path: Path, ws_dir: Path) -> bool:
@@ -70,7 +73,7 @@ def get_active_refs(ws_dir: Path) -> set:
     # From recent runs
     runs_dir = ws_dir / "runs"
     if runs_dir.is_dir():
-        from workspace.run_store import is_run_record_file
+        from storage.run_record_store import is_run_record_file
 
         for rf in list(runs_dir.iterdir())[:100]:
             if not is_run_record_file(rf):
@@ -179,7 +182,5 @@ def write_audit(audit_dir: Path, record_type: str, workspace_id: str,
         "blocked_count": blocked_count,
         "warnings": warnings[:20],
     }
-    (audit_dir / f"{audit_id}.json").write_text(
-        json.dumps(record, indent=2, ensure_ascii=False)
-    )
+    atomic_write_json(audit_dir / f"{audit_id}.json", record)
     return audit_id

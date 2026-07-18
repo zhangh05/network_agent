@@ -7,10 +7,8 @@ from __future__ import annotations
 import json
 import logging
 import time as _time
-from pathlib import Path
 from typing import Optional
-from workspace.run_store import WS_ROOT
-from workspace.atomic_io import atomic_write_json
+from storage.records import append_jsonl, atomic_save_json, list_json_records, read_json_record, workspace_record_dir
 from .models import TaskState, RuntimeEvent, RuntimeCheckpoint
 from agent.runtime.utils import now_iso
 
@@ -24,66 +22,63 @@ def _redact(obj, max_len=256):
     if isinstance(obj, str) and len(obj) > max_len: return obj[:max_len] + "..."
     return obj
 
-def _task_dir(ws): return WS_ROOT / ws / "durable" / "tasks"
-def _events_path(ws, tid): return WS_ROOT / ws / "durable" / "events" / f"{tid}.events.json"
-def _checkpoint_dir(ws, tid): return WS_ROOT / ws / "durable" / "checkpoints" / tid
+def _task_parts(task_id): return ("durable", "tasks", f"{task_id}.json")
+def _events_parts(tid): return ("durable", "events", f"{tid}.events.json")
+def _checkpoint_parts(tid): return ("durable", "checkpoints", tid)
 
 # ── Task CRUD ──
 def save_task(task: TaskState):
     task.updated_at = now_iso()
-    d = _task_dir(task.workspace_id); d.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(d / f"{task.task_id}.json", task.to_dict())
+    atomic_save_json(task.workspace_id, _task_parts(task.task_id), task.to_dict())
 
 def get_task(ws_id: str, task_id: str) -> Optional[TaskState]:
-    p = _task_dir(ws_id) / f"{task_id}.json"
-    if not p.exists(): return None
-    try: return TaskState.from_dict(json.loads(p.read_text(encoding="utf-8")))
+    data = read_json_record(ws_id, _task_parts(task_id))
+    if not data: return None
+    try: return TaskState.from_dict(data)
     except Exception: return None
 
 def list_tasks(ws_id: str, session_id="", limit=50) -> list[TaskState]:
     """List tasks. P1-22: full dir scan + sort, no cache — pagination at app level."""
-    d = _task_dir(ws_id)
-    if not d.exists() or limit <= 0: return []
+    if limit <= 0: return []
     tasks = []
-    for f in sorted(d.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True):
+    for data in list_json_records(ws_id, ("durable", "tasks"), limit=limit):
         try:
-            t = TaskState.from_dict(json.loads(f.read_text(encoding="utf-8")))
+            t = TaskState.from_dict(data)
             if session_id and t.session_id != session_id: continue
             tasks.append(t)
             if len(tasks) >= limit: break
         except (OSError, ValueError, json.JSONDecodeError):
             # v3.9.9: a malformed TaskState file should not silently
             # skip — log it. (Continue reading remaining files.)
-            logger.debug("durable: skip corrupt task file %s", f, exc_info=True)
+            logger.debug("durable: skip corrupt task record", exc_info=True)
     return tasks
 
 # ── Events ──
 def append_event(evt: RuntimeEvent):
     evt.created_at = now_iso()
     evt.payload_redacted = _redact(evt.payload_redacted)
-    p = _events_path(evt.workspace_id, evt.task_id); p.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with p.open("a") as fh: fh.write(json.dumps(evt.__dict__, ensure_ascii=False, default=str) + "\n")
+        append_jsonl(evt.workspace_id, _events_parts(evt.task_id), evt.__dict__)
     except OSError:
         # v3.9.9: was bare ``except Exception: pass`` — losing the
         # entire event log silently hides every tool error, every
         # approval decision, every retry. Surface it at WARNING so
         # the admin sees disk pressure.
         logger.warning("durable: append_event write failed for %s",
-                       p, exc_info=True)
+                       evt.task_id, exc_info=True)
 
 def get_events(ws_id, task_id, limit=100) -> list[dict]:
-    p = _events_path(ws_id, task_id)
-    if not p.exists(): return []
+    path = workspace_record_dir(ws_id, "durable", "events") / f"{task_id}.events.json"
+    if not path.exists(): return []
     evts = []
     try:
-        for line in p.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             if line.strip(): evts.append(json.loads(line))
         return evts[-limit:]
     except (OSError, json.JSONDecodeError):
         # v3.9.9: best-effort read — return what we already
         # collected before the error.
-        logger.debug("durable: get_events read failed for %s", p,
+        logger.debug("durable: get_events read failed for %s", path,
                      exc_info=True)
         return evts
 
@@ -92,11 +87,10 @@ def save_checkpoint(cp: RuntimeCheckpoint):
     cp.created_at = now_iso()
     cp.state_snapshot = _redact(cp.state_snapshot)
     if cp.pending_action: cp.pending_action = _redact(cp.pending_action)
-    d = _checkpoint_dir(cp.workspace_id, cp.task_id); d.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(d / f"{cp.checkpoint_id}.json", cp.__dict__)
+    atomic_save_json(cp.workspace_id, (*_checkpoint_parts(cp.task_id), f"{cp.checkpoint_id}.json"), cp.__dict__)
 
 def get_checkpoints(ws_id, task_id) -> list[dict]:
-    d = _checkpoint_dir(ws_id, task_id)
+    d = workspace_record_dir(ws_id, *_checkpoint_parts(task_id))
     if not d.exists(): return []
     cps = []
     for f in sorted(d.glob("*.json"), key=lambda x: x.stat().st_mtime):

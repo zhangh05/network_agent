@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from agent.runtime.utils import now_iso
-from workspace.atomic_io import atomic_write_json, atomic_write_text
+from storage.atomic_io import atomic_write_json, atomic_write_text
 ROOT = Path(__file__).resolve().parent.parent.parent
 PROVIDERS_DIR = ROOT / "config" / "providers"
 ACTIVE_FILE = PROVIDERS_DIR / "_active"

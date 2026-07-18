@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from core.runtime.lifecycle_base import (
-    WS_ROOT, is_safe_path, get_active_refs, scan_directory, write_audit,
+    workspace_dir, is_safe_path, get_active_refs, scan_directory, write_audit,
 )
 
 
@@ -88,7 +88,7 @@ def preview_retention(workspace_id: str = "default",
                       policy: RetentionPolicy = None) -> RetentionPreview:
     """Preview what would be pruned. NEVER deletes. Always safe."""
     policy = policy or default_retention_policy()
-    ws_dir = WS_ROOT / workspace_id
+    ws_dir = workspace_dir(workspace_id)
     preview = RetentionPreview(
         dry_run=True,
         workspace_id=workspace_id,
@@ -240,7 +240,7 @@ def apply_retention(workspace_id: str = "default",
         return preview
 
     # Actually delete
-    ws_dir = WS_ROOT / workspace_id
+    ws_dir = workspace_dir(workspace_id)
     deleted = {"runs": 0, "traces": 0, "jobs": 0, "artifacts": 0, "memories": 0, "sessions": 0}
 
     for candidate in preview.candidates:
@@ -322,7 +322,7 @@ def apply_retention(workspace_id: str = "default",
 
 def get_audits(workspace_id: str = "default") -> list:
     """List retention audit records."""
-    audit_dir = WS_ROOT / workspace_id / "sys" / "audits"
+    audit_dir = workspace_dir(workspace_id) / "sys" / "audits"
     if not audit_dir.is_dir():
         return []
     audits = []
@@ -337,7 +337,7 @@ def get_audits(workspace_id: str = "default") -> list:
 
 def get_audit(workspace_id: str, audit_id: str) -> dict:
     """Get a specific retention audit record."""
-    audit_path = WS_ROOT / workspace_id / "sys" / "audits" / f"{audit_id}.json"
+    audit_path = workspace_dir(workspace_id) / "sys" / "audits" / f"{audit_id}.json"
     if audit_path.is_file():
         try:
             return json.loads(audit_path.read_text())

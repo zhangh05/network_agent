@@ -2,29 +2,12 @@
 """Trace store — write/read trace records to workspace runs directory."""
 
 import json
-import os
 import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
-
-def _get_ws_root():
-    """Get workspace root (deferred, respects test monkeypatches)."""
-    try:
-        from workspace.manager import WS_ROOT
-        return WS_ROOT
-    except ImportError:
-        return Path(__file__).resolve().parent.parent / "workspaces"
-
-
-# P1 fix (round 7): delegate atomic writes to workspace.atomic_io so
-# they share the pid+uuid tmp-name scheme and O_EXCL protection added
-# in round 7. Keeps concurrent writes from clobbering each other's
-# tmp file (a known issue with the previous `.tmp` suffix collision).
-def _atomic_write_json(path: Path, data: dict) -> None:
-    from workspace.atomic_io import atomic_write_json as _atomic
-    _atomic(path, data, indent=2)
+from storage.records import atomic_save_json, workspace_record_dir, workspace_record_file
 
 
 _trace_locks: dict[str, threading.RLock] = {}
@@ -66,23 +49,19 @@ def _locked_trace(path: Path):
 
 def write_trace(trace, ws_id: str = "default") -> str:
     """Write a trace record to workspace runs directory. Returns trace_id."""
-    from workspace.manager import ensure_workspace
-    ws_id = ensure_workspace(ws_id)
+    from workspace.ids import validate_workspace_id
+    ws_id = validate_workspace_id(ws_id)
 
     trace_id = trace.trace_id
     run_id = trace.run_id
-
-    WS_ROOT = _get_ws_root()
-    runs_dir = WS_ROOT / ws_id / "runs"
-    runs_dir.mkdir(parents=True, exist_ok=True)
 
     # Redact before writing
     from observability.redaction import redact_trace
     data = redact_trace(trace.as_dict())
 
-    path = runs_dir / f"{run_id}.trace.json"
+    path = workspace_record_file(ws_id, "runs", f"{run_id}.trace.json")
     with _locked_trace(path):
-        _atomic_write_json(path, data)
+        atomic_save_json(ws_id, ("runs", f"{run_id}.trace.json"), data)
 
     return trace_id
 
@@ -91,8 +70,7 @@ def get_trace(run_id: str, ws_id: str = "default") -> Optional[dict]:
     """Get a trace record by run_id."""
     from workspace.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
-    WS_ROOT = _get_ws_root()
-    path = WS_ROOT / ws_id / "runs" / f"{run_id}.trace.json"
+    path = workspace_record_file(ws_id, "runs", f"{run_id}.trace.json")
     if not path.is_file():
         return None
     try:
@@ -105,8 +83,7 @@ def list_traces(ws_id: str = "default", limit: int = 50) -> list:
     """List trace records for a workspace."""
     from workspace.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
-    WS_ROOT = _get_ws_root()
-    runs_dir = WS_ROOT / ws_id / "runs"
+    runs_dir = workspace_record_dir(ws_id, "runs")
     if not runs_dir.is_dir():
         return []
 
@@ -139,8 +116,7 @@ def append_event(trace_id: str, event, ws_id: str = "default"):
     """
     from workspace.ids import validate_workspace_id
     ws_id = validate_workspace_id(ws_id)
-    WS_ROOT = _get_ws_root()
-    runs_dir = WS_ROOT / ws_id / "runs"
+    runs_dir = workspace_record_dir(ws_id, "runs")
     if not runs_dir.is_dir():
         return
 
@@ -178,6 +154,6 @@ def append_event(trace_id: str, event, ws_id: str = "default"):
             event_data = event.as_dict() if hasattr(event, "as_dict") else event
             events.append(redact_trace_event(event_data))
             data["events"] = events
-            _atomic_write_json(target, data)
+            atomic_save_json(ws_id, ("runs", target.name), data)
     except Exception:
         pass

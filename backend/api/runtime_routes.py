@@ -21,7 +21,7 @@ _lock = threading.Lock()
 
 
 def _persist_history(ws_id: str):
-    # v5.0.0: write through workspace.atomic_io for crash-safe persistence
+    # v5.0.0: write through storage.atomic_io for crash-safe persistence
     # (was a non-atomic open(...).write(...), which could leave the JSON
     # half-written if the process was killed mid-flush).
     with _lock:

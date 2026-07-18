@@ -11,7 +11,8 @@ from storage.records import (
     list_json_records,
     read_json_record,
 )
-from workspace.atomic_io import atomic_write_json, safe_read_json
+from storage.atomic_io import atomic_write_json, safe_read_json
+from storage import paths as storage_paths
 from workspace.ids import validate_workspace_id
 from storage.workspace_store import list_workspace_ids as _list_workspace_ids
 
@@ -98,6 +99,4 @@ def _task_dir_for_scan(workspace_id: str, root_override: Path | None = None) -> 
 
 
 def _workspace_root() -> Path:
-    from workspace.run_store import WS_ROOT
-
-    return WS_ROOT
+    return storage_paths.get_workspace_root()

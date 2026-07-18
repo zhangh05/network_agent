@@ -154,7 +154,7 @@ def register_workspace_routes(app):
     # ── Workspace ──
     @app.route("/api/workspaces")
     def api_workspaces_list():
-        from workspace.manager import list_workspaces
+        from storage.workspace_store import list_workspaces
         return jsonify({"workspaces": list_workspaces()})
 
     @app.route("/api/workspaces", methods=["POST"])
@@ -163,14 +163,14 @@ def register_workspace_routes(app):
         ws_id = data.get("workspace_id", "")
         if not ws_id:
             return jsonify({"ok": False, "error": "workspace_id required"}), 400
-        from workspace.manager import ensure_workspace
+        from storage.workspace_store import ensure_workspace
         from workspace.ids import validate_workspace_id
         try:
             ws_id = validate_workspace_id(ws_id)
         except ValueError:
             return jsonify({"ok": False, "error": "invalid_workspace_id"}), 400
         ensure_workspace(ws_id)
-        from workspace.manager import get_workspace_state
+        from storage.workspace_store import get_workspace_state
         state = get_workspace_state(ws_id)
         return jsonify({"ok": True, "workspace": state})
 
@@ -179,7 +179,7 @@ def register_workspace_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        from workspace.manager import get_workspace_state
+        from storage.workspace_store import get_workspace_state
         return jsonify({"ok": True, "workspace": get_workspace_state(ws_id)})
 
     @app.route("/api/workspaces/<ws_id>/settings", methods=["PUT"])
@@ -203,7 +203,7 @@ def register_workspace_routes(app):
                 return jsonify({"ok": False, "error": "invalid_memory_gating", "message": "Must be 'rule_only' or 'llm_first'"}), 400
             patch["memory_gating"] = mode
 
-        from workspace.manager import update_workspace_state
+        from storage.workspace_store import update_workspace_state
         state = update_workspace_state(ws_id, patch)
         return jsonify({"ok": True, "workspace": state})
 
@@ -214,7 +214,7 @@ def register_workspace_routes(app):
             return err
         if not _confirmed():
             return jsonify({"ok": False, "error": "confirm_required"}), 400
-        from workspace.manager import delete_workspace
+        from storage.workspace_store import delete_workspace
         return jsonify(delete_workspace(ws_id))
 
     @app.route("/api/workspaces/batch-delete", methods=["POST"])
@@ -225,7 +225,7 @@ def register_workspace_routes(app):
             return jsonify({"ok": False, "error": "workspace_ids must be a non-empty list"}), 400
         if not _confirmed():
             return jsonify({"ok": False, "error": "confirm_required"}), 400
-        from workspace.manager import batch_delete_workspaces
+        from storage.workspace_store import batch_delete_workspaces
         return jsonify(batch_delete_workspaces(ws_ids))
 
     @app.route("/api/workspaces/<ws_id>/rename", methods=["POST"])
@@ -237,7 +237,7 @@ def register_workspace_routes(app):
         new_id = data.get("new_workspace_id", "")
         if not new_id:
             return jsonify({"ok": False, "error": "new_workspace_id required"}), 400
-        from workspace.manager import rename_workspace
+        from storage.workspace_store import rename_workspace
         new_id_validated, err2 = _validated_ws_id(new_id)
         if err2:
             return err2
@@ -318,7 +318,7 @@ def register_workspace_routes(app):
             "tool_decision", "no_tool_reason",
             # v3.9.1: expose `ok` so the frontend can render badges honestly
             # for disk records whose `status` may be stuck at "ok"
-            # despite a failed run (see workspace.run_store._safe_status).
+            # despite a failed run (see storage.run_record_store._safe_status).
             "ok",
         })
         from observability.store import get_trace

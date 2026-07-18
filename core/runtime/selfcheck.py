@@ -11,8 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-ROOT = Path(__file__).resolve().parents[2]
-WS_ROOT = ROOT / "workspaces"
+from storage.paths import workspace_root
 
 
 class SelfcheckStatus:
@@ -93,7 +92,7 @@ def run_selfcheck(workspace_id: str = "default") -> SelfcheckResult:
 
 def run_checks(result: SelfcheckResult, ws_id: str):
     """Execute all selfcheck checks. Appends issues to result."""
-    ws_dir = WS_ROOT / ws_id
+    ws_dir = workspace_root(ws_id)
 
     # 1. Workspace root exists
     if not ws_dir.exists():
@@ -110,7 +109,7 @@ def run_checks(result: SelfcheckResult, ws_id: str):
 
     # 3. Runs directory
     runs_dir = ws_dir / "runs"
-    from workspace.run_store import is_run_record_file
+    from storage.run_record_store import is_run_record_file
 
     all_run_files = _safe_list_dir(runs_dir) if runs_dir.is_dir() else []
     run_files = sorted(

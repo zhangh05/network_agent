@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from workspace.atomic_io import atomic_write_json, safe_read_json
+from storage.atomic_io import atomic_write_json, safe_read_json
 from workspace.ids import validate_workspace_id
 
 _DATA_ROOT = Path(__file__).resolve().parent.parent / "data"

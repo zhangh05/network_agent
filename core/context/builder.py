@@ -58,7 +58,7 @@ def build_context_bundle(workspace_id: str, user_input: str = "",
 
     # Load workspace state
     try:
-        from workspace.manager import get_workspace_state
+        from storage.workspace_store import get_workspace_state
         ws = get_workspace_state(workspace_id)
         safe.last_result_summary = ws.get("last_result_summary", "")
         safe.job_summary = ws.get("job_stats", {})

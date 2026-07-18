@@ -6,9 +6,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from agent.runtime.utils import now_iso
-from workspace.run_store import write_run_record
 from workspace.message_store import SessionMessageStore
-from workspace.atomic_io import atomic_write_json
+from storage.run_record_store import save_trace_record, update_run_record, write_run_record
 
 
 _log = logging.getLogger(__name__)
@@ -87,7 +86,7 @@ def persist_run_record(session, turn, result, context) -> None:
             trace_id=(result.trace_id if result else ""),
             error=((result.errors[0] if result and result.errors else None)),
             # v3.9.1: expose the real AgentResult.ok / .errors so
-            # workspace.run_store._safe_status can derive the record's
+            # storage.run_record_store._safe_status can derive the record's
             # `status` field from runtime truth (was previously always "ok"
             # because it read the skill_results dict instead).
             result_ok=(bool(result.ok) if result else None),
@@ -126,10 +125,6 @@ def persist_run_record(session, turn, result, context) -> None:
 
 def persist_trace(run_id: str, ws_id: str, events: list) -> None:
     """Write trace events to workspaces/<ws>/runs/<run_id>.trace.json."""
-    from workspace.run_store import WS_ROOT
-    runs_dir = WS_ROOT / ws_id / "runs"
-    runs_dir.mkdir(parents=True, exist_ok=True)
-    trace_path = runs_dir / f"{run_id}.trace.json"
     normalized_events = _normalize_trace_events(run_id, events)
 
     # ── P0: Separate real vs synthetic vs missing counts ──
@@ -150,7 +145,7 @@ def persist_trace(run_id: str, ws_id: str, events: list) -> None:
         "total_duration_ms": 0,
         "persisted_at": now_iso(),
     }
-    atomic_write_json(trace_path, record)
+    save_trace_record(ws_id, run_id, record)
 
 
 def _synthetic_trace_events(run_id: str, result) -> list:
@@ -194,14 +189,9 @@ def _merge_result_projection(run_id: str, ws_id: str, result, context) -> None:
     """
     if not result:
         return
-    from workspace.run_store import WS_ROOT
-    run_path = WS_ROOT / ws_id / "runs" / f"{run_id}.json"
-    if not run_path.is_file():
-        return
-    try:
-        record = json.loads(run_path.read_text(encoding="utf-8"))
-    except Exception:
-        _log.warning("Cannot read run projection %s", run_path, exc_info=True)
+    from storage.run_record_store import get_run
+    record = get_run(run_id, ws_id)
+    if not record:
         return
     try:
         result_dict = result.to_dict() if hasattr(result, "to_dict") else {}
@@ -238,9 +228,9 @@ def _merge_result_projection(run_id: str, ws_id: str, result, context) -> None:
         # Only flip to "ok" if the record wasn't explicitly marked planned.
         record["status"] = "ok"
     try:
-        atomic_write_json(run_path, record)
+        update_run_record(ws_id, run_id, record)
     except Exception:
-        _log.warning("Cannot write result projection %s", run_path, exc_info=True)
+        _log.warning("Cannot write result projection for run %s", run_id, exc_info=True)
 
 
 def _safe_tool_calls(tool_calls: list) -> list:

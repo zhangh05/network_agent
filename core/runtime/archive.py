@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from core.runtime.lifecycle_base import (
-    WS_ROOT, is_safe_path, get_active_refs, scan_directory, write_audit,
+    workspace_dir, is_safe_path, get_active_refs, scan_directory, write_audit,
 )
 
 
@@ -79,12 +79,16 @@ def preview_archive_candidates(workspace_id: str = "default",
                                policy: ArchivePolicy = None) -> ArchivePreview:
     """Preview archive candidates. NEVER moves files."""
     policy = policy or default_archive_policy()
-    ws_dir = WS_ROOT / workspace_id
     preview = ArchivePreview(
         dry_run=True,
         workspace_id=workspace_id,
         policy=policy.as_dict(),
     )
+    try:
+        ws_dir = workspace_dir(workspace_id)
+    except ValueError:
+        preview.warnings.append("Invalid workspace id")
+        return preview
 
     if not ws_dir.exists():
         preview.warnings.append(f"Workspace '{workspace_id}' not found")
@@ -195,6 +199,20 @@ def apply_archive(workspace_id: str = "default",
     if dry_run:
         preview.dry_run = True
         preview.warnings.append("DRY RUN — no files were moved. Use dry_run=False + confirm=True to apply.")
+        try:
+            write_audit(
+                audit_dir=workspace_dir(workspace_id) / "sys" / "audits",
+                record_type="archive",
+                workspace_id=workspace_id,
+                dry_run=True,
+                policy=preview.policy,
+                candidate_counts=preview.candidate_counts,
+                result_counts={},
+                warnings=preview.warnings,
+                blocked_count=len(preview.blocked_items),
+            )
+        except Exception:
+            pass
         return preview
 
     if not confirm:
@@ -202,7 +220,7 @@ def apply_archive(workspace_id: str = "default",
         return preview
 
     # Actually archive
-    ws_dir = WS_ROOT / workspace_id
+    ws_dir = workspace_dir(workspace_id)
     month_key = time.strftime("%Y-%m")
     archive_root = ws_dir / "sys" / "archives" / month_key
     moved = {}
@@ -257,7 +275,7 @@ def apply_archive(workspace_id: str = "default",
 
 def get_archive_audits(workspace_id: str = "default") -> list:
     """List archive audit records."""
-    audit_dir = WS_ROOT / workspace_id / "sys" / "audits"
+    audit_dir = workspace_dir(workspace_id) / "sys" / "audits"
     if not audit_dir.is_dir():
         return []
     audits = []
@@ -272,7 +290,7 @@ def get_archive_audits(workspace_id: str = "default") -> list:
 
 def get_archive_audit(workspace_id: str, audit_id: str) -> dict:
     """Get a specific archive audit record."""
-    audit_path = WS_ROOT / workspace_id / "sys" / "audits" / f"{audit_id}.json"
+    audit_path = workspace_dir(workspace_id) / "sys" / "audits" / f"{audit_id}.json"
     if audit_path.is_file():
         try:
             return json.loads(audit_path.read_text())

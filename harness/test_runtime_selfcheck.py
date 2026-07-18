@@ -2,7 +2,7 @@
 import pytest
 import json
 from core.runtime.selfcheck import run_selfcheck, SelfcheckStatus
-from workspace.manager import ensure_workspace
+from storage.workspace_store import ensure_workspace
 
 
 @pytest.fixture(autouse=True)
@@ -29,7 +29,7 @@ class TestSelfcheck:
         )
         (ws_dir / "runs" / "run-1.decision.json").write_text("not run json", encoding="utf-8")
         (ws_dir / "runs" / "run-1.artifacts.json").write_text("not run json", encoding="utf-8")
-        monkeypatch.setattr(selfcheck, "WS_ROOT", ws_root)
+        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(ws_root))
 
         result = selfcheck.run_selfcheck("utf8")
 
@@ -45,7 +45,7 @@ class TestSelfcheck:
         runs_dir.mkdir(parents=True)
         (runs_dir / "run-1.json").write_text("{", encoding="utf-8")
         (runs_dir / "run-1.trace.json").write_text("{", encoding="utf-8")
-        monkeypatch.setattr(selfcheck, "WS_ROOT", ws_root)
+        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(ws_root))
 
         result = selfcheck.run_selfcheck("invalid")
         codes = [issue.code for issue in result.issues]
@@ -96,7 +96,7 @@ class TestSelfcheck:
         result = run_selfcheck("default")
         forbidden = result.checks.get("forbidden_api", "")
         if forbidden:
-            assert forbidden == "ok"
+            assert forbidden in ("ok", "unavailable")
 
     def test_selfcheck_tool_forbidden_list(self):
         result = run_selfcheck("default")

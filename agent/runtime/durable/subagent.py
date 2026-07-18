@@ -474,22 +474,14 @@ def cancel_subagent_task(subtask_id: str, ws_id: str) -> dict:
 
 def list_subagent_tasks(ws_id: str, limit: int = 200) -> list[dict]:
     """Return persisted tasks for one workspace, newest first."""
-    import json
-    from workspace.run_store import WS_ROOT
+    from storage.records import list_json_records
     try:
         ws_id = _validated_workspace_id(ws_id)
     except ValueError:
         return []
     limit = max(1, min(int(limit), 1000))
-    directory = WS_ROOT / ws_id / "subagents"
-    if not directory.exists():
-        return []
     rows: list[dict] = []
-    for path in sorted(directory.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
+    for raw in list_json_records(ws_id, ("subagents",), limit=limit):
         if raw.get("workspace_id") != ws_id:
             continue
         rows.append({
@@ -526,25 +518,13 @@ def get_subagent_task(ws_id: str, subtask_id: str) -> Optional[dict]:
 
 def reconcile_subagent_tasks() -> list[str]:
     """Mark process-owned queued/running tasks interrupted after restart."""
-    import json
-    from workspace.run_store import WS_ROOT
+    from storage.records import list_json_records
+    from storage.workspace_store import list_workspace_ids
 
     reconciled: list[str] = []
-    if not WS_ROOT.exists():
-        return reconciled
-    for ws_dir in WS_ROOT.iterdir():
-        if not ws_dir.is_dir():
-            continue
-        try:
-            ws_id = _validated_workspace_id(ws_dir.name)
-        except ValueError:
-            continue
-        directory = ws_dir / "subagents"
-        if not directory.exists():
-            continue
-        for path in directory.glob("sub-*.json"):
+    for ws_id in list_workspace_ids():
+        for raw in list_json_records(ws_id, ("subagents",), limit=1000):
             try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
                 if raw.get("workspace_id") != ws_id or raw.get("status") not in {"created", "running"}:
                     continue
                 task = SubagentTask(**{
@@ -581,27 +561,22 @@ def merge_subagent_result(parent_task_id: str, subtask_id: str, ws_id: str) -> d
 # ── Helpers ──
 
 def _save_task(task: SubagentTask):
-    from workspace.run_store import WS_ROOT
-    from workspace.atomic_io import atomic_write_json
     from dataclasses import asdict
+    from storage.records import atomic_save_json
     task.workspace_id = _validated_workspace_id(task.workspace_id)
     _validated_subtask_id(task.subtask_id)
-    d = WS_ROOT / task.workspace_id / "subagents"
-    d.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(d / f"{task.subtask_id}.json", asdict(task))
+    atomic_save_json(task.workspace_id, ("subagents", f"{task.subtask_id}.json"), asdict(task))
 
 def _load_task(ws_id: str, subtask_id: str) -> Optional[SubagentTask]:
-    import json
-    from workspace.run_store import WS_ROOT
+    from storage.records import read_json_record
     try:
         ws_id = _validated_workspace_id(ws_id)
         subtask_id = _validated_subtask_id(subtask_id)
     except ValueError:
         return None
-    p = WS_ROOT / ws_id / "subagents" / f"{subtask_id}.json"
-    if not p.exists(): return None
     try:
-        raw = json.loads(p.read_text(encoding="utf-8"))
+        raw = read_json_record(ws_id, ("subagents", f"{subtask_id}.json"))
+        if not raw: return None
         return SubagentTask(**{k:v for k,v in raw.items() if k in SubagentTask.__dataclass_fields__})
     except Exception: return None
 

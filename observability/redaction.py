@@ -1,8 +1,6 @@
-# observability/redaction.py
 """Trace redaction — strip secrets before persisting trace data."""
 
-import re
-from workspace.redaction import _KEYWORD_PATTERNS, _FULL_MASK_PATTERNS, MASK, redact_text, redact_dict, contains_secret
+from storage.redaction import contains_secret, redact_dict, redact_text
 
 
 def redact_trace_event(event: dict) -> dict:

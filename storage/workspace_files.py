@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from storage.atomic_io import atomic_write_text
 from storage.paths import workspace_root
-from workspace.atomic_io import atomic_write_text
 
 _WRITE_DIRS = (
     "files/data",

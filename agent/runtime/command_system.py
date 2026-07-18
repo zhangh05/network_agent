@@ -285,19 +285,10 @@ def _cmd_compact(args: str, session_id: Optional[str], context: Optional[dict]) 
     # Also persist to disk metadata so the runtime's session can pick it up on next turn
     if sid:
         try:
-            import json as _json
-            from pathlib import Path
-            from workspace.run_store import WS_ROOT
-            meta_path = WS_ROOT / ws / "sessions" / sid / "meta.json"
-            meta_path.parent.mkdir(parents=True, exist_ok=True)
-            meta = {}
-            if meta_path.is_file():
-                try:
-                    meta = _json.loads(meta_path.read_text(encoding='utf-8'))
-                except Exception:
-                    logger.debug("_cmd_compact: <pass>", exc_info=True)
+            from storage.session_meta_store import read_session_meta, save_session_meta
+            meta = read_session_meta(ws, sid)
             meta['manual_compact_requested'] = True
-            meta_path.write_text(_json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8')
+            save_session_meta(ws, sid, meta)
         except Exception:
             logger.debug("_cmd_compact: <pass>", exc_info=True)
 

@@ -170,75 +170,35 @@ def _is_connected(provider: dict, key_loaded: bool, health: dict) -> bool:
 
 # ── Recent failure tracking for LLM health UX ──
 
-_FAILURE_FILE = "workspaces/_runtime/llm_recent_failure.json"
-
-
 def record_recent_failure(error_summary: str, error_type: str = "") -> None:
     """Called by the runtime when an LLM turn fails, so the health
     bar can show a diagnostic even when normal probing passes."""
-    import json, os
-    from pathlib import Path
-    from workspace.run_store import WS_ROOT
-    path = WS_ROOT / "_runtime" / "llm_recent_failure.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
+    from storage.runtime_state_store import save_runtime_record
     record = {
         "at": now_iso(),
         "error_summary": error_summary[:200],
         "error_type": error_type[:100],
     }
-    _atomic_write_json_cfg(path, record)
+    save_runtime_record("llm_recent_failure", record)
 
 
 def record_recent_success() -> None:
     """Called by the runtime when an LLM turn succeeds, so Settings
     can show success state alongside any stale failure record."""
-    from pathlib import Path
-    from workspace.run_store import WS_ROOT
-    path = WS_ROOT / "_runtime" / "llm_recent_success.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _atomic_write_json_cfg(path, {"at": now_iso()})
-    failure_path = WS_ROOT / "_runtime" / "llm_recent_failure.json"
-    try:
-        failure_path.unlink(missing_ok=True)
-    except Exception:
-        pass
+    from storage.runtime_state_store import delete_runtime_record, save_runtime_record
+    save_runtime_record("llm_recent_success", {"at": now_iso()})
+    delete_runtime_record("llm_recent_failure")
 
 def _read_recent_success() -> dict | None:
     """Return the most recent LLM success record, or None."""
-    import json
-    from pathlib import Path
-    from workspace.run_store import WS_ROOT
-    path = WS_ROOT / "_runtime" / "llm_recent_success.json"
-    if not path.is_file():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
+    from storage.runtime_state_store import read_runtime_record
+    return read_runtime_record("llm_recent_success")
 
 
 def _read_recent_failure() -> dict | None:
     """Return the most recent LLM failure record, or None."""
-    import json
-    from pathlib import Path
-    from workspace.run_store import WS_ROOT
-    path = WS_ROOT / "_runtime" / "llm_recent_failure.json"
-    if not path.is_file():
-        return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-
-
-def _atomic_write_json_cfg(path, data: dict) -> None:
-    import logging
-    from workspace.atomic_io import atomic_write_json
-    _log = logging.getLogger(__name__)
-    try:
-        atomic_write_json(path, data)
-    except Exception as e:
-        _log.warning("_atomic_write_json_cfg failed for %s: %s", path, e)
+    from storage.runtime_state_store import read_runtime_record
+    return read_runtime_record("llm_recent_failure")
 
 
 def _default_config() -> dict:

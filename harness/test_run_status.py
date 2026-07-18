@@ -1,6 +1,6 @@
 """Run status projection and lifecycle contracts.
 
-Bug: workspace.run_store._safe_status previously read result.get("ok"), but
+Bug: storage.run_record_store._safe_status previously read result.get("ok"), but
 `result` at the call site was `state.skill_results` (the tool skill payload
 dict, with no `ok` key). So status was always "ok" even when the run failed,
 and only `ok` (boolean) was set correctly by _merge_result_projection — the
@@ -35,7 +35,7 @@ def _state(**overrides):
 
 
 def test_safe_status_reads_explicit_result_ok_false():
-    from workspace.run_store import _safe_status
+    from storage.run_record_store import _safe_status
     # Real AgentResult.ok = False → status must be "error"
     s = _state(result_ok=False)
     assert _safe_status(s, {}) == "error", \
@@ -43,7 +43,7 @@ def test_safe_status_reads_explicit_result_ok_false():
 
 
 def test_safe_status_reads_result_errors_nonempty():
-    from workspace.run_store import _safe_status
+    from storage.run_record_store import _safe_status
     # AgentResult.errors non-empty → status must be "error"
     s = _state(result_ok=True, result_errors=["boom"])
     assert _safe_status(s, {}) == "error", \
@@ -51,21 +51,20 @@ def test_safe_status_reads_result_errors_nonempty():
 
 
 def test_safe_status_ok_when_all_clear():
-    from workspace.run_store import _safe_status
+    from storage.run_record_store import _safe_status
     s = _state(result_ok=True, result_errors=[])
     assert _safe_status(s, {}) == "ok"
 
 
 def test_safe_status_legacy_dict_with_ok_false_still_works():
-    """Back-compat: callers that pass a dict result={'ok': False} keep working."""
-    from workspace.run_store import _safe_status
+    from storage.run_record_store import _safe_status
     s = _state()  # no result_ok / result_errors
     assert _safe_status(s, {"ok": False}) == "error"
 
 
 def test_safe_status_planned_overrides_ok():
     """If capability_status=='planned', status is 'planned' regardless of ok."""
-    from workspace.run_store import _safe_status
+    from storage.run_record_store import _safe_status
     s = _state(
         result_ok=True,
         context={"llm": {}, "capability_id": "", "memory_written": False,
@@ -76,7 +75,7 @@ def test_safe_status_planned_overrides_ok():
 
 def test_safe_status_state_error_overrides_everything():
     """state.error is the highest-priority signal."""
-    from workspace.run_store import _safe_status
+    from storage.run_record_store import _safe_status
     s = _state(result_ok=True, error="llm timeout")
     assert _safe_status(s, {}) == "error"
 
@@ -84,10 +83,8 @@ def test_safe_status_state_error_overrides_everything():
 def test_merge_result_projection_reconciles_status_on_failure(monkeypatch, tmp_path):
     """The full write → merge path must end with status=='error' for failed runs."""
     from agent.runtime import turn_persistence as tp
-    # Use a tmp WS_ROOT so we don't pollute real runs
-    import workspace.run_store as rs
-    monkeypatch.setattr(rs, "WS_ROOT", tmp_path)
-    # write_run_record assumes the runs dir already exists — create it.
+    import storage.run_record_store as rs
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
     (tmp_path / "default" / "runs").mkdir(parents=True, exist_ok=True)
 
     # Pretend the run was a failure: ok=False, errors=["something broke"]
@@ -135,8 +132,8 @@ def test_merge_result_projection_reconciles_status_on_failure(monkeypatch, tmp_p
 def test_merge_result_projection_reconciles_status_on_success(monkeypatch, tmp_path):
     """Successful run must end with status=='ok' AND ok==True."""
     from agent.runtime import turn_persistence as tp
-    import workspace.run_store as rs
-    monkeypatch.setattr(rs, "WS_ROOT", tmp_path)
+    import storage.run_record_store as rs
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
     (tmp_path / "default" / "runs").mkdir(parents=True, exist_ok=True)
 
     class _FakeResult:
@@ -172,9 +169,8 @@ def test_merge_result_projection_reconciles_status_on_success(monkeypatch, tmp_p
 def test_persist_run_record_uses_result_llm_metadata(monkeypatch, tmp_path):
     """Run-store llm_metadata must mirror AgentResult.metadata['llm']."""
     from agent.runtime.turn_persistence import persist_run_record
-    import workspace.run_store as rs
 
-    monkeypatch.setattr(rs, "WS_ROOT", tmp_path)
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
     (tmp_path / "default" / "runs").mkdir(parents=True, exist_ok=True)
 
     class _Session:

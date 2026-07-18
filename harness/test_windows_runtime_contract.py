@@ -144,14 +144,16 @@ def test_windows_persistence_never_uses_rename_for_atomic_overwrite():
     paths = (
         ROOT / "workspace" / "session_store.py",
         ROOT / "workspace" / "run_store.py",
-        ROOT / "agent" / "runtime" / "turn_persistence.py",
+        ROOT / "storage" / "atomic_io.py",
+        ROOT / "storage" / "run_record_store.py",
+        ROOT / "storage" / "runtime_state_store.py",
+        ROOT / "storage" / "tool_history_store.py",
         ROOT / "agent" / "llm" / "provider_store.py",
-        ROOT / "agent" / "llm" / "config.py",
     )
     for path in paths:
         text = path.read_text(encoding="utf-8")
         assert ".rename(" not in text, path
-        assert "atomic_write_" in text, path
+        assert "atomic_write_" in text or "atomic_save_json" in text, path
 
 
 def test_persisted_text_is_read_as_utf8_and_logical_paths_are_posix():

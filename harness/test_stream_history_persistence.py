@@ -225,7 +225,7 @@ class TestRuntimeRoutesAtomicWrite:
             captured["path"] = path
             captured["obj"] = obj
             captured["indent"] = indent
-        monkeypatch.setattr("workspace.atomic_io.atomic_write_json", fake_atomic_write_json)
+        monkeypatch.setattr("storage.tool_history_store.atomic_write_json", fake_atomic_write_json)
         ws = "adhoc_ws_atomic"
         runtime_routes._tool_exec_history.pop(ws, None)
         runtime_routes._tool_exec_history[ws] = OrderedDict()
@@ -237,31 +237,26 @@ class TestRuntimeRoutesAtomicWrite:
 
     def test_load_persisted_uses_safe_read_json(self, monkeypatch, tmp_path):
         from backend.api import runtime_routes
+        from storage import tool_history_store
         hist_path = tmp_path / "tool_history_default.json"
         hist_path.write_text(json.dumps([{"invocation_id": "inv-99"}]))
 
         def fake_history_path(ws_id):
             return hist_path
-        monkeypatch.setattr(runtime_routes, "_history_path", fake_history_path)
+        monkeypatch.setattr(tool_history_store, "_history_path", fake_history_path)
         runtime_routes._tool_exec_history.pop("default", None)
         runtime_routes._tool_exec_history["default"] = OrderedDict()
-        # Monkeypatch safe_read_json to read from our test file
-        real_safe = __import__("workspace.atomic_io", fromlist=["safe_read_json"]).safe_read_json
-        def fake_safe_read_json(path, default=None):
-            if path == hist_path:
-                return json.loads(hist_path.read_text())
-            return real_safe(path, default=default)
-        monkeypatch.setattr("workspace.atomic_io.safe_read_json", fake_safe_read_json)
 
         runtime_routes._ensure_ws_history("default")
         assert "inv-99" in runtime_routes._tool_exec_history["default"]
 
     def test_load_persisted_handles_missing_file(self, monkeypatch, tmp_path):
         from backend.api import runtime_routes
+        from storage import tool_history_store
         missing = tmp_path / "missing1.json"
         def fake_history_path(ws_id):
             return missing
-        monkeypatch.setattr(runtime_routes, "_history_path", fake_history_path)
+        monkeypatch.setattr(tool_history_store, "_history_path", fake_history_path)
         runtime_routes._tool_exec_history.pop("default", None)
         runtime_routes._tool_exec_history["default"] = OrderedDict()
         runtime_routes._ensure_ws_history("default")
@@ -269,11 +264,12 @@ class TestRuntimeRoutesAtomicWrite:
 
     def test_load_persisted_handles_corrupt_json(self, monkeypatch, tmp_path):
         from backend.api import runtime_routes
+        from storage import tool_history_store
         bad = tmp_path / "bad.json"
         bad.write_text("{this is not json")
         def fake_history_path(ws_id):
             return bad
-        monkeypatch.setattr(runtime_routes, "_history_path", fake_history_path)
+        monkeypatch.setattr(tool_history_store, "_history_path", fake_history_path)
         runtime_routes._tool_exec_history.pop("default", None)
         runtime_routes._tool_exec_history["default"] = OrderedDict()
         runtime_routes._ensure_ws_history("default")

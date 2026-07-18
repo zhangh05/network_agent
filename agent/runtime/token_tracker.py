@@ -94,11 +94,8 @@ _MODEL_PRICE_PER_1K: dict[str, tuple[float, float]] = {
 
 def _record_path(workspace_id: str) -> Path:
     """Return the path for token usage JSONL."""
-    from workspace.manager import WS_ROOT
-    ws_dir = WS_ROOT / workspace_id
-    usage_dir = ws_dir / "usage"
-    usage_dir.mkdir(parents=True, exist_ok=True)
-    return usage_dir / "token_usage.jsonl"
+    from storage.usage_store import token_usage_path
+    return token_usage_path(workspace_id)
 
 
 def record_llm_call(

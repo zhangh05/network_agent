@@ -5,10 +5,8 @@ Collects component status, counts, and metadata without exposing secrets.
 """
 
 from dataclasses import dataclass, field
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-WS_ROOT = ROOT / "workspaces"
+from storage.paths import workspace_root
 
 
 @dataclass
@@ -43,7 +41,7 @@ def get_diagnostics(workspace_id: str = "default") -> DiagnosticReport:
     """Collect diagnostic information for a workspace."""
     report = DiagnosticReport()
     components = []
-    ws_dir = WS_ROOT / workspace_id
+    ws_dir = workspace_root(workspace_id)
 
     # 1. Workspace
     if ws_dir.exists():
@@ -67,7 +65,7 @@ def get_diagnostics(workspace_id: str = "default") -> DiagnosticReport:
     runs_dir = ws_dir / "runs"
     if runs_dir.is_dir():
         try:
-            from workspace.run_store import is_run_record_file
+            from storage.run_record_store import is_run_record_file
 
             count = sum(
                 1 for path in runs_dir.iterdir()
