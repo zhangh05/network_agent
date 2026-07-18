@@ -4,6 +4,7 @@ import { useSessionStore } from "../../stores/session";
 import { apiRequest } from "../../api/client";
 import { artifactsApi } from "../../api";
 import { IconAlert } from "../../components/Icon";
+import { Button, Select, Input } from "../../components/ui";
 
 interface ConnectionGroup {
   src: string; sport: number; dst: string; dport: number;
@@ -225,9 +226,9 @@ export function PacketAnalysis() {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       {/* Top bar */}
-      <div style={{ padding: "10px 18px", borderBottom: "1px solid var(--line)", background: "var(--surface)", flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <span style={{ fontWeight: 700, fontSize: "var(--fs-15)" }}>Packet Analysis</span>
+      <div className="packet-toolbar">
+        <div className="row-flex" style={{ flexWrap: "wrap" }}>
+          <span className="text-md" style={{ fontWeight: 700 }}>Packet Analysis</span>
           {/* File upload */}
           <input
             ref={fileInputRef}
@@ -236,17 +237,18 @@ export function PacketAnalysis() {
             style={{ display: "none" }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) { handleUpload(f); e.target.value = ""; } }}
           />
-          <button
-            className="btn sm"
+          <Button
+            size="sm"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
           >
             {uploading ? (<span className="spinner" />) : "📤"} {uploading ? "上传中…" : "上传 pcap"}
-          </button>
-          {filename && <span style={{ color: "var(--text-3)", fontSize: "var(--fs-12)" }}>{filename} · {totalPackets} pkts · {(connections || []).length} flows{Object.keys(protocolCounts).length ? ` · ${Object.entries(protocolCounts).map(([k, v]) => `${k}:${v}`).join(" ")}` : ""}</span>}
+          </Button>
+          {filename && <span className="faint text-sm">{filename} · {totalPackets} pkts · {(connections || []).length} flows{Object.keys(protocolCounts).length ? ` · ${Object.entries(protocolCounts).map(([k, v]) => `${k}:${v}`).join(" ")}` : ""}</span>}
           {loading && <span className="status-pill"><span className="dot loading" />分析中</span>}
           {result && (
-            <button className="btn"
+            <Button
+              variant="primary"
               onClick={async () => {
                 // 1. Save analysis as an artifact (writes through FileStore)
                 const analysisData = JSON.stringify({
@@ -283,39 +285,38 @@ export function PacketAnalysis() {
                 sessionStorage.setItem("pcap_ai_prompt", text);
                 navigate("/workbench");
               }}
-              style={{ marginLeft: "auto", background: "var(--accent)", color: "#fff", border: "none", fontWeight: 600 }}>
+              style={{ marginLeft: "auto" }}>
               Ask AI →
-            </button>
+            </Button>
           )}
         </div>
-        {error && <div style={{ marginTop: 6, color: "var(--warn)", fontSize: "var(--fs-12)", display: "flex", gap: 6, alignItems: "center" }}><IconAlert size={12}/>{error}</div>}
+        {error && <div className="packet-error"><IconAlert size={12}/>{error}</div>}
       </div>
 
       {/* Main: left + right */}
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+      <div className="packet-main">
         {/* ===== LEFT ===== */}
-        <div style={{ width: 380, flexShrink: 0, borderRight: "1px solid var(--line)", display: "flex", flexDirection: "column", background: "var(--surface)" }}>
-          <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--line-2)", display: "flex", gap: 6, flexShrink: 0 }}>
-            <select value={filterProto} onChange={e => setFilterProto(e.target.value)}
-              style={{ padding: "3px 6px", fontSize: "var(--fs-12)", borderRadius: 4, border: "1px solid var(--line)", background: "var(--surface)" }}>
+        <div className="packet-sidebar">
+          <div className="packet-sidebar-filter">
+            <Select value={filterProto} onChange={e => setFilterProto(e.target.value)} style={{ padding: "3px 6px", fontSize: "var(--fs-12)", borderRadius: 4, width: "auto" }}>
               <option value="">All</option><option value="TCP">TCP</option><option value="UDP">UDP</option>
-            </select>
-            <input placeholder="Filter…" value={filterText} onChange={e => setFilterText(e.target.value)}
-              style={{ flex: 1, padding: "3px 8px", fontSize: "var(--fs-12)", borderRadius: 4, border: "1px solid var(--line)", background: "var(--surface)" }} />
+            </Select>
+            <Input placeholder="Filter…" value={filterText} onChange={e => setFilterText(e.target.value)}
+              style={{ flex: 1, padding: "3px 8px", fontSize: "var(--fs-12)", borderRadius: 4 }} />
           </div>
-          <div style={{ flex: 1, overflow: "auto" }}>
+          <div className="packet-sidebar-scroll">
             {(connections || []).length === 0 && (
               <div style={{ padding: "20px 16px" }}>
                 {/* Recent sessions */}
                 {recentSessions.length > 0 && (
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: "var(--fs-12)", fontWeight: 600, color: "var(--text-2)", marginBottom: 8 }}>
+                  <div className="mb-3">
+                    <div className="text-sm" style={{ fontWeight: 600, color: "var(--text-2)", marginBottom: 8 }}>
                       最近上传 {recentSessions.length} 个文件
                     </div>
                     {recentSessions.map((s) => (
                       <div key={s.session_id}
+                        className="packet-session-row"
                         onClick={async () => {
-                          setError(""); setLoading(true);
                           try {
                             const res = await apiRequest<{ ok: boolean; session_id: string; filename: string; total_packets: number; protocol_counts?: ProtocolCounts; connections: ConnectionGroup[]; error?: string }>({
                               method: "GET", url: `/pcap/session/${s.session_id}`, params: { workspace_id: wsId },
@@ -331,23 +332,18 @@ export function PacketAnalysis() {
                           } catch (e: any) { setError("加载失败：" + (e?.message || "unknown")); }
                           finally { setLoading(false); }
                         }}
-                        style={{
-                          padding: "8px 12px", cursor: "pointer", borderRadius: 6, marginBottom: 4,
-                          border: "1px solid var(--line-2)", background: "var(--surface-2)",
-                          display: "flex", alignItems: "center", gap: 8,
-                        }}>
-                        <span style={{ fontSize: "var(--fs-13)", fontWeight: 500 }}>📦</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: "var(--fs-12)", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {s.filename}
-                          </div>
-                          <div style={{ fontSize: "var(--fs-11)", color: "var(--text-4)" }}>
+                      >
+                        <span className="packet-session-icon">📦</span>
+                        <div className="packet-session-info">
+                          <div className="packet-session-name">{s.filename}</div>
+                          <div className="packet-session-meta">
                             {s.total_packets} pkts · {s.connection_count} flows
                             {s.protocol_counts && Object.keys(s.protocol_counts).length ? ` · ${Object.entries(s.protocol_counts).map(([k, v]) => `${k}:${v}`).join(" ")}` : ""}
                           </div>
                         </div>
-                        <button
-                          className="btn sm ghost"
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           title="删除"
                           onClick={async (e: React.MouseEvent) => {
                             e.stopPropagation();
@@ -357,8 +353,8 @@ export function PacketAnalysis() {
                               loadRecentSessions();
                             } catch { /* ignore */ }
                           }}
-                          style={{ flexShrink: 0, padding: "2px 6px", color: "var(--text-4)" }}
-                        >✕</button>
+                          className="packet-session-delete"
+                        >✕</Button>
                       </div>
                     ))}
                   </div>
@@ -370,21 +366,16 @@ export function PacketAnalysis() {
               const isActive = key === activeKey;
               return (
                 <div key={i} onClick={() => analyze(t)}
-                  style={{
-                    padding: "8px 12px", cursor: "pointer",
-                    borderLeft: isActive ? "3px solid var(--accent)" : "3px solid transparent",
-                    background: isActive ? "var(--accent-soft)" : "transparent",
-                    borderBottom: "1px solid var(--line-2)",
-                  }}
+                  className={"packet-conn-row" + (isActive ? " active" : "")}
                 >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span className="mono" style={{ fontSize: "var(--fs-12)", fontWeight: isActive ? 700 : 500 }}>
+                  <div className="packet-conn-head">
+                    <span className={"mono packet-conn-addr" + (isActive ? " active" : "")} style={{ fontSize: "var(--fs-12)" }}>
                       {t.src}:{t.sport} ↔ {t.dst}:{t.dport}
                     </span>
-                    <span className="badge" style={{ fontSize: "var(--fs-10)" }}>{t.proto_name}</span>
+                    <span className="badge text-xs">{t.proto_name}</span>
                   </div>
-                  <div style={{ display: "flex", gap: 8, fontSize: "var(--fs-11)", color: "var(--text-3)" }}>
-                    <span>→ <b style={{color:"var(--accent)"}}>{t.packets_fwd}</b></span>
+                  <div className="packet-conn-meta">
+                    <span>→ <b className="accent-text">{t.packets_fwd}</b></span>
                     <span>← <b style={{color:t.packets_rev===0?"var(--warn)":"var(--success)"}}>{t.packets_rev}</b></span>
                     {!t.bidirectional && <span style={{color:"var(--warn)",fontWeight:600}}>no reply</span>}
                     {isActive && summary && <span style={{color:"var(--text-2)"}}>{summary}</span>}
@@ -393,17 +384,17 @@ export function PacketAnalysis() {
               );
             })}
           </div>
-          <div style={{ padding: "5px 12px", borderTop: "1px solid var(--line-2)", fontSize: "var(--fs-10)", color: "var(--text-4)", background: "var(--bg-soft)", flexShrink: 0 }}>
+          <div className="packet-sidebar-footer">
             → outbound · ← reply · no reply = unreachable
           </div>
         </div>
 
         {/* ===== RIGHT ===== */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        <div className="packet-pane">
           {!result && (
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-4)" }}>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: "var(--fs-28)", marginBottom: 8 }}>📊</div>
+            <div className="packet-empty">
+              <div className="packet-empty-inner">
+                <div className="packet-empty-icon">📊</div>
                 <div>Select a flow to analyze</div>
               </div>
             </div>

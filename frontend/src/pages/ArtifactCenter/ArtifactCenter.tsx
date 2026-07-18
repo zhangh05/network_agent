@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback } from "react";
 import { artifactsApi, reportsApi, storageApi } from "../../api";
 import type { ArtifactGovernanceSummary } from "../../api";
 import { useAsync, AsyncView, Badge, CodeBlock, InlineCode, LoadingState, ErrorState } from "../../components/common";
-import { PageHeader, FilterBar } from "../../components/ui";
+import { PageHeader, FilterBar, Button, Input, Textarea } from "../../components/ui";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
@@ -83,20 +83,20 @@ export function ArtifactCenter() {
         }
         subtitle="统一管理巡检证据、历史版本与业务交付物"
       >
-        <div className="status-pill"><span className="dot" style={{ background: "var(--accent)" }} />{total} 个</div>
+        <div className="status-pill"><span className="dot accent" />{total} 个</div>
       </PageHeader>
 
       <FilterBar>
-        {producerId && <div className="status-pill">任务 <InlineCode>{producerId}</InlineCode><button className="btn icon sm" title="清除任务筛选" onClick={() => { window.history.replaceState({}, "", window.location.pathname); setProducerId(""); }}>×</button></div>}
+        {producerId && <div className="status-pill">任务 <InlineCode>{producerId}</InlineCode><Button size="sm" iconOnly className="btn-xs-compact" title="清除任务筛选" onClick={() => { window.history.replaceState({}, "", window.location.pathname); setProducerId(""); }}>×</Button></div>}
         {([
           ["", "全部制品"], ["current", "当前证据"], ["history", "历史与不完整"], ["deliverables", "业务交付物"],
         ] as const).map(([key, label]) => (
-          <button key={key || "all"} className={`btn sm ${view === key ? "primary" : ""}`} onClick={() => { setView(key); setSel(null); }}>
+          <Button key={key || "all"} size="sm" variant={view === key ? "primary" : "default"} onClick={() => { setView(key); setSel(null); }}>
             {label}
-          </button>
+          </Button>
         ))}
         <div className="spacer" />
-        {governance && <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {governance && <div className="row-flex-sm" style={{ flexWrap: "wrap" }}>
           <Badge kind="ok">状态权威 {governance.current_state_authoritative || 0}</Badge>
           {governance.inspection_current > 0 && <Badge kind="info">最新资产巡检 {governance.inspection_current}</Badge>}
           {governance.contextual > 0 && <Badge kind="muted">专项证据 {governance.contextual}</Badge>}
@@ -118,20 +118,21 @@ export function ArtifactCenter() {
         </div>
       </details>
 
-      <div className="split-shell" style={{ flex: 1 }}>
+      <div className="split-shell">
         {/* Left list */}
         <aside style={{ padding: 12, overflow: "auto" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-            <span style={{ fontSize: "var(--fs-12)", fontWeight: 680, color: "var(--text-2)" }}>制品列表</span>
-            <div style={{ flex: 1 }} />
-            <button className={`btn sm ${batch ? "danger" : ""}`} onClick={() => { setBatch(!batch); if (batch) setChecked(new Set()); }}>
+          <div className="row-flex" style={{ marginBottom: 10 }}>
+            <span className="text-sm" style={{ fontWeight: 680, color: "var(--text-2)" }}>制品列表</span>
+            <div className="spacer" />
+            <Button size="sm" variant={batch ? "danger" : "default"} onClick={() => { setBatch(!batch); if (batch) setChecked(new Set()); }}>
               {batch ? "取消" : "批量删除"}
-            </button>
+            </Button>
           </div>
           {batch && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "6px 10px", background: "var(--surface-2)", borderRadius: "var(--r-6)", border: `1px solid ${checked.size > 0 ? "var(--accent)" : "var(--line)"}` }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", flex: 1 }}>
+            <div className={"artifact-batch-bar" + (checked.size > 0 ? " active" : "")}>
+              <label className="artifact-batch-label">
                 <input type="checkbox"
+                  className="artifact-checkbox"
                   checked={list.state.kind === "success" && checked.size === (list.state.data.artifacts ?? []).length && (list.state.data.artifacts ?? []).length > 0}
                   onChange={(e) => {
                     if (e.target.checked && list.state.kind === "success") {
@@ -139,60 +140,50 @@ export function ArtifactCenter() {
                     } else {
                       setChecked(new Set());
                     }
-                  }}
-                  style={{ width: 14, height: 14, cursor: "pointer", accentColor: "var(--accent)" }} />
-                <span style={{ fontSize: "var(--fs-12)", fontWeight: 620, color: "var(--text-2)" }}>
+                  }} />
+                <span className="text-sm" style={{ fontWeight: 620, color: "var(--text-2)" }}>
                   全选 {checked.size > 0 && `(已选 ${checked.size})`}
                 </span>
               </label>
-              <button className="btn sm danger" disabled={checked.size === 0} onClick={delBatch}
-                style={{ opacity: checked.size === 0 ? 0.5 : 1, cursor: checked.size === 0 ? "not-allowed" : "pointer" }}>
+              <Button size="sm" variant="danger" disabled={checked.size === 0} onClick={delBatch}>
                 删除 {checked.size || ""} 项
-              </button>
+              </Button>
             </div>
           )}
           <AsyncView state={list.state} onRetry={list.reload} emptyText="暂无制品" emptyHint="后端返回为空">
             {(d) => {
               const groups = groupArtifactsByTask(d.artifacts ?? []);
-              return <div data-testid="artifact-list" style={{ display: "grid", gap: 8 }}>
+              return <div data-testid="artifact-list" className="artifact-list">
                 {groups.map((group, index) => (
                   <ArtifactTaskGroup key={group.key} groupKey={group.key} initialOpen={Boolean(producerId) || index === 0}>
-                    <summary style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 10px", cursor: "pointer", background: "var(--surface-2)", borderBottom: "1px solid var(--line)", listStyle: "none" }}>
+                    <summary className="artifact-task-summary">
                       <span aria-hidden="true" style={{ color: "var(--text-4)", fontSize: 10 }}>▶</span>
-                      <span style={{ minWidth: 0, flex: 1 }}>
-                        <b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "var(--fs-12)" }}>{group.label}</b>
-                        <code style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--text-4)", fontSize: "var(--fs-10)" }}>{group.taskId || "无任务 ID"}</code>
+                      <span className="flex-1">
+                        <b className="artifact-card-title">{group.label}</b>
+                        <code className="artifact-card-date" style={{ display: "block" }}>{group.taskId || "无任务 ID"}</code>
                       </span>
                       <Badge kind={group.taskId ? "info" : "muted"}>{group.artifacts.length} 个</Badge>
                     </summary>
-                    <div style={{ padding: "7px 7px 3px" }}>
+                    <div className="artifact-task-body">
                       {group.artifacts.map((a) => {
                         const active = sel?.artifact_id === a.artifact_id;
                         return (
-                          <div key={a.artifact_id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
+                          <div key={a.artifact_id} className="artifact-item">
                             {batch && (
-                              <input type="checkbox" checked={checked.has(a.artifact_id)} onChange={(e) => { const n = new Set(checked); e.target.checked ? n.add(a.artifact_id) : n.delete(a.artifact_id); setChecked(n); }}
-                                style={{ width: 14, height: 14, cursor: "pointer", flexShrink: 0, accentColor: "var(--accent)" }} />
+                              <input type="checkbox" className="artifact-checkbox" checked={checked.has(a.artifact_id)} onChange={(e) => { const n = new Set(checked); e.target.checked ? n.add(a.artifact_id) : n.delete(a.artifact_id); setChecked(n); }} />
                             )}
                             <button type="button"
-                              className="card"
+                              className={`artifact-card ${active ? "selected" : ""}`}
                               onClick={() => { setSel(a); setTab("preview"); }}
-                              data-testid={`artifact-${a.artifact_id}`}
-                              style={{
-                                flex: 1, textAlign: "left", padding: "9px 10px", cursor: "pointer",
-                                borderColor: active ? "var(--accent)" : "var(--line)",
-                                background: active ? "var(--accent-soft)" : "var(--surface)",
-                              }}>
-                              <div style={{ fontSize: "var(--fs-13)", fontWeight: 680, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 3 }}>
-                                {a.title || a.artifact_id}
-                              </div>
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                              data-testid={`artifact-${a.artifact_id}`}>
+                              <div className="artifact-card-title">{a.title || a.artifact_id}</div>
+                              <div className="artifact-card-badges">
                                 <Badge kind="muted">{typeLabel(a)}</Badge>
                                 <AuthorityBadge artifact={a} />
                                 {a.sensitivity === "sensitive" && <Badge kind="warn">敏感</Badge>}
                                 {a.sensitivity === "secret" && <Badge kind="err">机密</Badge>}
                                 {a.redaction_applied && <Badge kind="warn">脱敏</Badge>}
-                                {a.created_at && <span style={{ fontSize: "var(--fs-10)", color: "var(--text-4)" }}>{formatCompactDate(a.created_at)}</span>}
+                                {a.created_at && <span className="artifact-card-date">{formatCompactDate(a.created_at)}</span>}
                               </div>
                             </button>
                           </div>
@@ -207,17 +198,17 @@ export function ArtifactCenter() {
         </aside>
 
         {/* Right detail */}
-        <div className="split-detail" style={{ padding: "24px", overflow: "auto" }}>
+        <div className="split-detail">
           {sel ? (
             <Detail artifact={sel} tab={tab} onTab={setTab} onDel={() => delOne(sel.artifact_id, sel.title || "")} />
           ) : (
-            <div className="empty" style={{ minHeight: "100%" }}>
-              <div className="empty-icon" style={{ background: "var(--surface-2)" }}>
+            <div className="empty h-full">
+              <div className="empty-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
                 </svg>
               </div>
-              <div className="empty-text" style={{ fontSize: "var(--fs-13)" }}>选择一件制品</div>
+              <div className="empty-text">选择一件制品</div>
               <p className="empty-hint">点击左侧列表中的制品查看预览、摘要与元数据</p>
             </div>
           )}
@@ -232,22 +223,22 @@ export function ArtifactCenter() {
 
 function Detail({ artifact: a, tab, onTab, onDel }: { artifact: Artifact; tab: string; onTab: (t: "preview" | "summary" | "metadata") => void; onDel: () => void }) {
   return (
-    <div data-testid="artifact-detail" style={{ animation: "surface-in var(--dur-4) var(--ease-out) both" }}>
+    <div data-testid="artifact-detail">
       {/* Title bar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-        <IconDocument size={16} style={{ color: "var(--accent)", flexShrink: 0 }} />
-        <h3 style={{ fontSize: "var(--fs-16)", fontWeight: 720, margin: 0 }}>{a.title || a.artifact_id}</h3>
+      <div className="row-flex" style={{ marginBottom: 16, flexWrap: "wrap" }}>
+        <IconDocument size={16} className="accent-text flex-0" />
+        <h3 className="text-lg" style={{ fontWeight: 720, margin: 0 }}>{a.title || a.artifact_id}</h3>
         <Badge kind="muted">{SENS_LABEL[a.sensitivity] || a.sensitivity}</Badge>
         <Badge kind={LC_KIND[a.lifecycle]}>{LC_LABEL[a.lifecycle] || a.lifecycle}</Badge>
         <AuthorityBadge artifact={a} />
         {a.redaction_applied && <Badge kind="warn">脱敏</Badge>}
-        <div style={{ flex: 1 }} />
-        <button className="btn sm danger-ghost" onClick={onDel}>删除</button>
+        <div className="spacer" />
+        <Button size="sm" variant="danger-ghost" onClick={onDel}>删除</Button>
       </div>
 
       {/* Facts card */}
-      <div className="card" style={{ padding: "14px 16px", marginBottom: 16 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "10px 16px" }}>
+      <div className="card mb-3">
+        <div className="info-grid-3">
           <Info label="类型">{typeLabel(a)}</Info>
           <Info label="来源">{SRC_LABEL[a.source] || a.source}</Info>
           <Info label="MIME">{a.mime_type || "—"}</Info>
@@ -261,7 +252,7 @@ function Detail({ artifact: a, tab, onTab, onDel }: { artifact: Artifact; tab: s
           {typeof a.metadata?.producer_trigger === "string" && <Info label="触发场景">{triggerLabel(a.metadata.producer_trigger)}</Info>}
           {a.governance?.version_count && <Info label="证据版本">第 {a.governance.version} / {a.governance.version_count} 版</Info>}
         </div>
-        {a.governance?.authority_reason && <div style={{ marginTop: 12, padding: "8px 10px", background: "var(--surface-2)", borderLeft: "3px solid var(--accent)", fontSize: "var(--fs-12)", color: "var(--text-2)" }}>{a.governance.authority_reason}</div>}
+        {a.governance?.authority_reason && <div className="authority-reason">{a.governance.authority_reason}</div>}
         <details className="collapse" style={{ marginTop: 8 }}>
           <summary style={{ fontSize: "var(--fs-11)", color: "var(--text-4)", cursor: "pointer" }}>技术详情</summary>
           <div style={{ marginTop: 4, fontSize: "var(--fs-11)", color: "var(--text-3)" }}>
@@ -273,7 +264,7 @@ function Detail({ artifact: a, tab, onTab, onDel }: { artifact: Artifact; tab: s
       </div>
 
       {/* Tabs */}
-      <div className="tabs" style={{ marginBottom: 16 }}>
+      <div className="tabs operations-tabs">
         {(["preview", "summary", "metadata"] as const).map((t) => (
           <button key={t} className={"tab" + (tab === t ? " active" : "")} onClick={() => onTab(t)} data-testid={`tab-${t}`}>
             {t === "preview" ? "预览" : t === "summary" ? "摘要" : "元数据"}
@@ -289,7 +280,7 @@ function Detail({ artifact: a, tab, onTab, onDel }: { artifact: Artifact; tab: s
 }
 
 function Info({ label, children, mono }: { label: string; children: React.ReactNode; mono?: boolean }) {
-  return <div style={{ minWidth: 0 }}><div style={{ fontSize: "var(--fs-10)", color: "var(--text-4)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 680, marginBottom: 3 }}>{label}</div><div style={{ fontSize: "var(--fs-12)", color: "var(--text-2)", fontWeight: 620, fontFamily: mono ? "var(--font-mono)" : undefined, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{children}</div></div>;
+  return <div style={{ minWidth: 0 }}><div className="stat-card-box-label">{label}</div><div className={"stat-card-box-value" + (mono ? " mono" : "")}>{children}</div></div>;
 }
 
 /* ── Content tab ── */
@@ -315,16 +306,16 @@ function ContentTab({ artifact: a }: { artifact: Artifact }) {
   if (!d) return <LoadingState />;
   if (!d.content) return (
     <div className="card" style={{ padding: "32px 16px", textAlign: "center" }}>
-      <div style={{ color: "var(--text-3)", fontSize: "var(--fs-13)", marginBottom: 6 }}>无可用内容</div>
-      <div style={{ fontSize: "var(--fs-11)", color: "var(--text-4)" }}>
+      <div className="muted mb-1">无可用内容</div>
+      <div className="faint text-sm">
         {a.redaction_applied ? "已脱敏，原始内容不可读" : a.artifact_type ? `artifact_type=${a.artifact_type}，无内容` : "后端未返回 content"}
       </div>
     </div>
   );
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-        <button className="btn sm" onClick={() => { navigator.clipboard?.writeText(d.content); toast({ kind: "success", title: "已复制" }); }}>复制</button>
+      <div style={{ display: "flex", justifyContent: "flex-end" }} className="mb-2">
+        <Button size="sm" onClick={() => { navigator.clipboard?.writeText(d.content); toast({ kind: "success", title: "已复制" }); }}>复制</Button>
       </div>
       <CodeBlock language={a.mime_type || "text"}>{d.content}</CodeBlock>
     </div>
@@ -355,13 +346,13 @@ function SummaryTab({ artifact: a }: { artifact: Artifact }) {
   const inline = a.summary;
   const backend = d.summary?.summary;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {inline && <div className="card" style={{ padding: 14 }}><div className="card-title" style={{ marginBottom: 6 }}>内联摘要</div><div style={{ fontSize: "var(--fs-13)", color: "var(--text-2)" }}>{inline}</div></div>}
-      <div className="card" style={{ padding: 14 }}>
-        <div className="card-title" style={{ marginBottom: 6 }}>后端摘要</div>
-        {backend ? <div style={{ fontSize: "var(--fs-13)", color: "var(--text-2)" }}>{backend}</div> : <div style={{ fontSize: "var(--fs-12)", color: "var(--text-3)" }}>后端未返回 summary</div>}
+    <div className="col-flex">
+      {inline && <div className="card"><div className="card-title mb-1">内联摘要</div><div className="text-base">{inline}</div></div>}
+      <div className="card">
+        <div className="card-title mb-1">后端摘要</div>
+        {backend ? <div className="text-base">{backend}</div> : <div className="muted text-sm">后端未返回 summary</div>}
       </div>
-      {d.summary?.sha256_short && <div style={{ fontSize: "var(--fs-11)", color: "var(--text-4)", fontFamily: "var(--font-mono)" }}>SHA-256: {d.summary.sha256_short}</div>}
+      {d.summary?.sha256_short && <div className="mono text-xs faint">SHA-256: {d.summary.sha256_short}</div>}
     </div>
   );
 }
@@ -386,8 +377,7 @@ function ArtifactTaskGroup({ groupKey, initialOpen, children }: { groupKey: stri
     data-testid={`artifact-group-${groupKey}`}
     open={open}
     onToggle={(event) => setOpen(event.currentTarget.open)}
-    className="card"
-    style={{ padding: 0, overflow: "hidden", background: "var(--surface)" }}
+    className="card artifact-task-group"
   >{children}</details>;
 }
 
@@ -479,35 +469,30 @@ function ReportSection() {
 
   return (
     <div className="card" style={{ marginTop: 20, padding: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-        <h3 style={{ fontSize: "var(--fs-15)", fontWeight: 720, margin: 0 }}>报告</h3>
-        <button className="btn sm" onClick={() => setShow(!show)}><IconPlus size={12} /> 新建</button>
+      <div className="row-flex" style={{ marginBottom: 12 }}>
+        <h3 className="text-md" style={{ fontWeight: 720, margin: 0 }}>报告</h3>
+        <Button size="sm" onClick={() => setShow(!show)}><IconPlus size={12} /> 新建</Button>
       </div>
 
       {show && (
-        <div className="card" style={{ padding: 12, marginBottom: 12, borderColor: "var(--accent)" }}>
-          <input className="input" style={{ marginBottom: 8 }} placeholder="报告标题" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") create(); }} />
-          <textarea className="input" style={{ marginBottom: 8, minHeight: 72 }} placeholder="报告内容（可选）" value={content} onChange={(e) => setContent(e.target.value)} />
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn primary sm" onClick={create}>创建</button>
-            <button className="btn sm" onClick={() => setShow(false)}>取消</button>
+        <div className="card card-accent-border" style={{ padding: 12, marginBottom: 12 }}>
+          <Input className="mb-2" placeholder="报告标题" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") create(); }} />
+          <Textarea className="mb-2" style={{ minHeight: 72 }} placeholder="报告内容（可选）" value={content} onChange={(e) => setContent(e.target.value)} />
+          <div className="row-flex-sm">
+            <Button size="sm" variant="primary" onClick={create}>创建</Button>
+            <Button size="sm" onClick={() => setShow(false)}>取消</Button>
           </div>
         </div>
       )}
 
       {loading ? <LoadingState text="加载报告…" /> :
-        reports.length === 0 ? <div style={{ fontSize: "var(--fs-12)", color: "var(--text-3)" }}>暂无报告</div> :
+        reports.length === 0 ? <div className="muted text-sm">暂无报告</div> :
           reports.map((r: any, i: number) => (
             <div key={r.artifact_id || i}
-              className="row-flex" style={{
-                padding: "8px 12px", marginBottom: 4, border: "1px solid var(--line-2)", borderRadius: "var(--r-6)", cursor: "pointer",
-                justifyContent: "space-between", transition: "background var(--dur-2) var(--ease)",
-              }}
-              onMouseOver={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-              onMouseOut={(e) => (e.currentTarget.style.background = "")}
+              className="report-row"
               onClick={() => { if (!wsId) return; reportsApi.content(wsId, r.artifact_id).then((d) => toast({ kind: "success", title: "报告内容", body: (d.content ?? "").slice(0, 200) + "…" })).catch(() => {}); }}>
-              <span style={{ fontSize: "var(--fs-13)", fontWeight: 650 }}>{r.title || r.artifact_id || `#${i + 1}`}</span>
-              <span style={{ fontSize: "var(--fs-11)", color: "var(--text-4)" }}>{r.created_at ? formatCompactDate(r.created_at) : ""}</span>
+              <span className="text-sm" style={{ fontWeight: 650 }}>{r.title || r.artifact_id || `#${i + 1}`}</span>
+              <span className="faint text-xs">{r.created_at ? formatCompactDate(r.created_at) : ""}</span>
             </div>
           ))}
     </div>

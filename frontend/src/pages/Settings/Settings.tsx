@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { settingsApi } from "../../api";
 import { EmptyState, LoadingState } from "../../components/common";
+import { Button, Input, FormField } from "../../components/ui";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
@@ -331,7 +332,7 @@ export function Settings() {
       <div className="page" data-testid="page-settings">
         <PageHeader />
         <div className="page-body">
-          <div className="card" style={{ borderColor: "var(--danger)", color: "var(--danger)" }}>{error}</div>
+          <div className="card card-danger-border" style={{ color: "var(--danger)" }}>{error}</div>
         </div>
       </div>
     );
@@ -379,9 +380,9 @@ export function Settings() {
                   <div className="provider-card-hint">{preset.hint}</div>
                   <div className="provider-card-meta">
                     {prov?.key_configured ? (
-                      <span style={{ color: "var(--ok)", fontSize: 11 }}>✓ key 已配置</span>
+                      <span className="success-text text-xs">✓ key 已配置</span>
                     ) : (
-                      <span className="muted" style={{ fontSize: 11 }}>未配置 key</span>
+                      <span className="muted text-xs">未配置 key</span>
                     )}
                   </div>
                 </button>
@@ -399,10 +400,10 @@ export function Settings() {
                     <h2 className="settings-form-title">
                       {selectedPreset.label}
                       {isActiveProvider && (
-                        <span className="badge ok" style={{ marginLeft: 10 }}>当前活跃</span>
+                        <span className="badge ok ml-2">当前活跃</span>
                       )}
                     </h2>
-                    <div className="muted" style={{ fontSize: 12 }}>{selectedPreset.hint}</div>
+                    <div className="muted text-xs">{selectedPreset.hint}</div>
                   </div>
                   <div className="settings-toggle-row">
                     <ToggleField
@@ -458,29 +459,26 @@ export function Settings() {
                 {/* Test result */}
                 {testResult && (
                   <div
-                    className="card mt-3"
-                    style={{ borderColor: testResult.llm_used ? "var(--ok)" : "var(--warn)", fontSize: 12, padding: 12, marginTop: 12 }}
+                    className={"card mt-3 " + (testResult.llm_used ? "card-ok-border" : "card-warn-border")}
+                    style={{ fontSize: 12, padding: 12, marginTop: 12 }}
                     data-testid="test-result"
                   >
-                    <div style={{ marginBottom: 6 }}>
+                    <div className="mb-1">
                       <strong>{testResult.llm_used ? "✓ LLM 可用" : "✗ LLM 不可用"}</strong>
-                      <span className="muted" style={{ marginLeft: 8 }}>
+                      <span className="muted ml-2">
                         provider={testResult.provider ?? "?"} · model={testResult.model ?? "?"} · source={testResult.config_source}
                       </span>
                     </div>
                     {testResult.fallback_reason && (
-                      <div className="muted" style={{ marginBottom: 4 }}>fallback: {testResult.fallback_reason}</div>
+                      <div className="muted mb-1">fallback: {testResult.fallback_reason}</div>
                     )}
                     {testResult.response && (
-                      <pre style={{
-                        margin: 0, padding: 8, background: "var(--bg-soft, #f5f5f5)", borderRadius: 4,
-                        maxHeight: 160, overflow: "auto", whiteSpace: "pre-wrap", fontSize: 11,
-                      }}>
+                      <pre className="test-result-pre">
                         {sanitizeAssistantText(testResult.response)}
                       </pre>
                     )}
                     {testResult.warnings?.length > 0 && (
-                      <div className="muted" style={{ marginTop: 4, fontSize: 11 }}>
+                      <div className="muted text-xs mt-1">
                         warnings: {testResult.warnings.join("; ")}
                       </div>
                     )}
@@ -489,27 +487,27 @@ export function Settings() {
 
                 {/* Actions */}
                 <div className="settings-actions">
-                  <button type="button" className="btn" onClick={onTest} disabled={isBusy} data-testid="btn-test-llm">
+                  <Button type="button" onClick={onTest} disabled={isBusy} data-testid="btn-test-llm">
                     {testing ? "测试中…" : "🧪 测试连接"}
-                  </button>
-                  <button type="button" className="btn" onClick={onSave} disabled={isBusy} data-testid="btn-save-llm">
+                  </Button>
+                  <Button type="button" onClick={onSave} disabled={isBusy} data-testid="btn-save-llm">
                     {saving ? "保存中…" : "💾 保存"}
-                  </button>
-                  <button type="button" className="btn primary" onClick={onApply} disabled={isBusy} data-testid="btn-apply-llm">
+                  </Button>
+                  <Button type="button" variant="primary" onClick={onApply} disabled={isBusy} data-testid="btn-apply-llm">
                     {applying ? "应用中…" : "⚡ 应用"}
-                  </button>
-                  <span style={{ flex: 1 }} />
+                  </Button>
+                  <span className="spacer" />
                   {draft.updated_at && (
-                    <span className="muted" style={{ fontSize: 11 }} data-testid="last-updated">
+                    <span className="muted text-xs" data-testid="last-updated">
                       {formatDate(draft.updated_at, "compact")}
                     </span>
                   )}
-                  <button
-                    type="button" className="btn danger-ghost" onClick={onReset}
+                  <Button
+                    type="button" variant="danger-ghost" onClick={onReset}
                     disabled={isBusy} title="重置为默认值" data-testid="btn-reset-llm"
                   >
                     🗑 重置
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -535,11 +533,11 @@ function PageHeader({ activeId }: { activeId?: string }) {
   return (
     <div className="page-header">
       <div>
-        <h1>系统设置<span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14 }}> · Settings</span></h1>
+        <h1>系统设置<span className="title-suffix"> · Settings</span></h1>
         <div className="subtitle">
           LLM Provider 配置
           {activePreset && (
-            <span className="badge ok" style={{ marginLeft: 10, fontSize: 11 }}>
+            <span className="badge ok ml-2 text-xs">
               {activePreset.label}
             </span>
           )}
@@ -553,10 +551,9 @@ function TextField({ label, value, onChange, testid, placeholder }: {
   label: string; value: string; onChange: (v: string) => void; testid?: string; placeholder?: string;
 }) {
   return (
-    <div>
-      <label className="settings-field-label">{label}</label>
-      <input className="input" type="text" value={value} onChange={(e) => onChange(e.target.value)} data-testid={testid} spellCheck={false} autoComplete="off" placeholder={placeholder} />
-    </div>
+    <FormField label={label}>
+      <Input type="text" value={value} onChange={(e) => onChange(e.target.value)} data-testid={testid} spellCheck={false} autoComplete="off" placeholder={placeholder} />
+    </FormField>
   );
 }
 
@@ -564,10 +561,9 @@ function NumberField({ label, value, min, max, step, onChange, testid }: {
   label: string; value: number; min: number; max: number; step: number; onChange: (v: number) => void; testid?: string;
 }) {
   return (
-    <div>
-      <label className="settings-field-label">{label}</label>
-      <input className="input" type="number" value={value} min={min} max={max} step={step} onChange={(e) => { const n = Number(e.target.value); if (!Number.isNaN(n)) onChange(n); }} data-testid={testid} />
-    </div>
+    <FormField label={label}>
+      <Input type="number" value={value} min={min} max={max} step={step} onChange={(e) => { const n = Number(e.target.value); if (!Number.isNaN(n)) onChange(n); }} data-testid={testid} />
+    </FormField>
   );
 }
 
@@ -575,8 +571,7 @@ function ToggleField({ label, hint, checked, onChange, testid }: {
   label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void; testid?: string;
 }) {
   return (
-    <div>
-      <label className="settings-field-label">{label}</label>
+    <FormField label={label}>
       <button
         type="button"
         className={"toggle" + (checked ? " on" : "")}
@@ -588,7 +583,7 @@ function ToggleField({ label, hint, checked, onChange, testid }: {
         <span className="toggle-knob" />
         <span className="toggle-label">{hint ? <span className="muted text-xs">{hint}</span> : null}</span>
       </button>
-    </div>
+    </FormField>
   );
 }
 
@@ -609,11 +604,9 @@ function ApiKeyField({
     ? revealed ? "粘贴新 key 替换当前" : "已配置 · 输入新 key 替换"
     : "粘贴 API key";
   return (
-    <div>
-      <label className="settings-field-label">api_key</label>
-      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        <input
-          className="input"
+    <FormField label="api_key">
+      <div className="row-flex-sm">
+        <Input
           type={revealed ? "text" : "password"}
           value={clearRequested ? "" : draft}
           onChange={(e) => onDraftChange(e.target.value)}
@@ -621,25 +614,25 @@ function ApiKeyField({
           data-testid="field-api_key"
           autoComplete="off"
           spellCheck={false}
-          style={{ fontFamily: "ui-monospace,Menlo,monospace", flex: 1 }}
+          className="mono flex-1"
         />
         {configured && !draft && !clearRequested && (
           <span className="muted text-xs" data-testid="api-key-preview"><code>{preview ?? "已配置"}</code></span>
         )}
-        <button type="button" className="btn" onClick={onRevealToggle} data-testid="btn-toggle-key-reveal" title={revealed ? "隐藏" : "显示"}>
+        <Button type="button" onClick={onRevealToggle} data-testid="btn-toggle-key-reveal" title={revealed ? "隐藏" : "显示"}>
           {revealed ? "隐藏" : "显示"}
-        </button>
+        </Button>
       </div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, fontSize: 11 }}>
-        {configured ? <span style={{ color: "var(--ok)" }}>✓ 已配置</span> : <span className="muted">未配置</span>}
+      <div className="row-flex-sm mt-1">
+        {configured ? <span className="success-text text-xs">✓ 已配置</span> : <span className="muted text-xs">未配置</span>}
         {configured && (
-          <label style={{ display: "flex", gap: 4, cursor: "pointer", alignItems: "center" }}>
+          <label className="row-flex-xs">
             <input type="checkbox" checked={clearRequested} onChange={(e) => onClearToggle(e.target.checked)} data-testid="cb-clear-key" />
-            <span className="muted">保存时清空 key</span>
+            <span className="muted text-xs">保存时清空 key</span>
           </label>
         )}
       </div>
-    </div>
+    </FormField>
   );
 }
 
@@ -651,16 +644,16 @@ function MemoryGatingCard({
   enabled: boolean; loading: boolean; loaded: boolean; onToggle: (v: boolean) => void;
 }) {
   return (
-    <div className="card" style={{ marginTop: 16, padding: "20px 24px" }}>
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 16 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>记忆门控 Memory Gating</div>
-          <div className="muted" style={{ fontSize: 12, lineHeight: 1.5 }}>
+    <div className="card mt-3" style={{ padding: "20px 24px" }}>
+      <div className="row-flex" style={{ alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 16 }}>
+        <div className="flex-1">
+          <div className="text-md" style={{ fontWeight: 700, marginBottom: 2 }}>记忆门控 Memory Gating</div>
+          <div className="muted text-xs" style={{ lineHeight: 1.5 }}>
             选择每轮对话后，系统如何生成长期记忆
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: enabled ? "var(--ok)" : "var(--ink-mute)" }}>
+        <div className="row-flex-sm">
+          <span className="text-xs" style={{ fontWeight: 600, color: enabled ? "var(--ok)" : "var(--ink-mute)" }}>
             {enabled ? "LLM 优先" : "规则门控"}
           </span>
           <button type="button" className={"toggle" + (enabled ? " on" : "")} onClick={() => onToggle(!enabled)}
@@ -670,26 +663,21 @@ function MemoryGatingCard({
         </div>
       </div>
       {loaded && (
-        <div style={{
-          background: enabled ? "rgba(52, 199, 89, 0.06)" : "var(--surface-2)",
-          border: "1px solid " + (enabled ? "rgba(52, 199, 89, 0.2)" : "var(--border-2)"),
-          borderRadius: 8, padding: "14px 16px", fontSize: 12, lineHeight: 1.7,
-        }}>
-          <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 13 }}>
-            <span style={{ marginRight: 8 }}>{enabled ? "🧠" : "⚡"}</span>
+        <div className={"memory-gating-box " + (enabled ? "ok" : "default")}>
+          <div className="memory-gating-title">
+            <span className="mr-1">{enabled ? "🧠" : "⚡"}</span>
             当前：{enabled ? "LLM 优先门控（llm_first）" : "纯规则门控（rule_only）"}
           </div>
-          <div style={{ color: "var(--text-2)", lineHeight: 1.7 }}>
+          <div className="memory-gating-body">
             {enabled ? "LLM 从本轮对话与工具结果中提取候选，并统一完成价值评分和检索摘要；不会推测用户未明确表达的偏好。"
               : "只按确定性规则从工具结果和用户明确表达中生成候选，不调用额外 LLM。"}
           </div>
-          <div style={{ color: "var(--text-2)", lineHeight: 1.7, marginTop: 2 }}>
+          <div className="memory-gating-body">
             {enabled ? "高分候选可生效，边界候选等待确认；模型不可用时也会进入待确认，不会静默写入或丢失。"
               : "Agent 候选统一等待确认；用户手动保存的记忆直接生效。安全过滤、去重与冲突检测始终启用。"}
           </div>
-          <div style={{ marginTop: 8, padding: "6px 10px", background: "var(--bg-soft, #f5f5f5)", borderRadius: 5,
-            fontSize: 11, color: "var(--text-3)", display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ opacity: 0.6 }}>⏱</span>
+          <div className="memory-gating-footer">
+            <span className="opacity-60">⏱</span>
             {enabled ? "异步执行一次记忆生成与评分，不阻塞本轮回复"
               : "每轮最多生成 3 条候选 · 零额外模型调用"}
           </div>

@@ -13,7 +13,7 @@ import { useSessionStore } from "../../stores/session";
 import { APP_EVENTS } from "../../utils/appEvents";
 import { useToastStore } from "../../stores/toast";
 import { Badge, StatusDot, EmptyState, LoadingState, CodeBlock } from "../../components/common";
-import { PageHeader, DetailPanel } from "../../components/ui";
+import { PageHeader, DetailPanel, Button } from "../../components/ui";
 import { IconRefresh, IconDocument, IconHistory, IconBolt, IconAlert } from "../../components/Icon";
 import { TraceDetailPanel } from "../../components/TraceDetailPanel";
 import { deriveRunTraceStats } from "../../utils/runTraceStats";
@@ -330,7 +330,7 @@ export function OperationsPage() {
         <OperationsPageHeader count={0} onRefresh={loadJobs} />
         <div className="page-body">
           <div className="hero">
-            <div className="hero-mark" style={{ fontSize: 22, fontWeight: 700 }}>
+            <div className="hero-mark operations-hero-mark">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
                 <line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
@@ -350,7 +350,7 @@ export function OperationsPage() {
       <OperationsPageHeader count={jobs.length} onRefresh={loadJobs} />
 
       {error && (
-        <div style={{ margin: "12px 24px 0", padding: "10px 14px", color: "var(--danger)", background: "var(--danger-soft)", borderRadius: "var(--r-6)", fontSize: "var(--fs-13)", fontWeight: 650 }}>
+        <div className="operations-alert">
           ⚠ {error}
         </div>
       )}
@@ -360,7 +360,7 @@ export function OperationsPage() {
       ) : (
         <div className="split-shell operations-split">
           {/* ══════ 左侧 作业列表 ══════ */}
-          <aside className="list-scroll jobs-list operations-pane-scroll" style={{ padding: 12 }}>
+          <aside className="list-scroll jobs-list operations-pane-scroll">
             {jobs.map((job) => {
               const meta = sMeta(job.status);
               const active = selectedJob?.job_id === job.job_id;
@@ -369,13 +369,8 @@ export function OperationsPage() {
                 <button
                   key={job.job_id}
                   type="button"
-                  className="job-card"
+                  className={`job-card ${active ? "selected" : ""}`}
                   onClick={() => void selectJob(job)}
-                  style={{
-                    width: "100%", textAlign: "left", cursor: "pointer",
-                    background: active ? "var(--accent-soft)" : "var(--surface)",
-                    border: active ? "1px solid var(--accent)" : "1px solid var(--line)",
-                  }}
                 >
                   <div className="job-card-head">
                     <StatusDot status={meta.dot} />
@@ -383,8 +378,8 @@ export function OperationsPage() {
                     <Badge kind={meta.kind}>{meta.label}</Badge>
                   </div>
                   <div className="job-card-meta">
-                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                      <TypeIcon size={11} style={{ opacity: 0.6 }} />
+                    <span className="row-flex-xs">
+                      <TypeIcon size={11} className="opacity-60" />
                       {JOB_TYPE_LABELS[job.job_type] || job.job_type}
                     </span>
                     {job.created_at && <span>{formatCompactDate(job.created_at)}</span>}
@@ -392,23 +387,23 @@ export function OperationsPage() {
                   </div>
                   {job.run_ids && job.run_ids.length > 0 && (
                     <div className="job-card-meta">
-                      <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <IconHistory size={11} style={{ opacity: 0.6 }} />
+                      <span className="row-flex-xs">
+                        <IconHistory size={11} className="opacity-60" />
                         {job.run_ids.length} 轮对话
                       </span>
                     </div>
                   )}
                   {job.error && (
                     <div className="job-card-meta">
-                      <span style={{ color: "var(--danger)", fontSize: "var(--fs-11)" }}>{job.error.slice(0, 60)}</span>
+                      <span className="danger-text" style={{ fontSize: "var(--fs-11)" }}>{job.error.slice(0, 60)}</span>
                     </div>
                   )}
                   <div className="job-card-actions">
                     {(job.status === "failed" || job.status === "error") && (
-                      <button className="btn sm" onClick={(e) => { e.stopPropagation(); handleRetry(job.job_id); }} type="button">重试</button>
+                      <Button size="sm" onClick={(e) => { e.stopPropagation(); handleRetry(job.job_id); }}>重试</Button>
                     )}
                     {canRestore(job) && (
-                      <button className="btn sm ghost" onClick={(e) => { e.stopPropagation(); handleRestore(job); }} type="button">恢复</button>
+                      <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); handleRestore(job); }}>恢复</Button>
                     )}
                   </div>
                 </button>
@@ -460,9 +455,9 @@ function OperationsPageHeader({ count, onRefresh }: { count: number; onRefresh: 
       subtitle="任务全貌与执行细节：作业追踪、运行记录、Trace 调试"
     >
       {count > 0 && (
-        <div className="status-pill"><span className="dot" style={{ background: "var(--accent)" }} />{count} 项</div>
+        <div className="status-pill"><span className="dot accent" />{count} 项</div>
       )}
-      <button className="btn sm ghost" onClick={onRefresh} title="刷新"><IconRefresh size={14} /></button>
+      <Button size="sm" variant="ghost" onClick={onRefresh} title="刷新"><IconRefresh size={14} /></Button>
     </PageHeader>
   );
 }
@@ -498,10 +493,10 @@ function JobDetail({
   const meta = sMeta(job.status);
 
   return (
-    <div className="split-detail operations-pane-scroll" style={{ padding: "24px", animation: "surface-in var(--dur-4) var(--ease-out) both" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+    <div className="split-detail operations-pane-scroll operations-detail-body">
+      <div className="operations-detail-header">
         <StatusDot status={meta.dot} />
-        <h3 style={{ fontSize: "var(--fs-18)", fontWeight: 720, margin: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <h3 className="operations-detail-title">
           {job.title || job.job_id?.slice(0, 12)}
         </h3>
         <Badge kind={meta.kind}>{meta.label}</Badge>
@@ -509,11 +504,7 @@ function JobDetail({
       </div>
 
       {(stats.runCount > 0 || duration || getSessionId(job)) && (
-        <div style={{
-          display: "flex", gap: 14, flexWrap: "wrap", padding: "10px 14px",
-          background: "var(--surface-2)", borderRadius: "var(--r-8)", marginBottom: 16,
-          fontSize: "var(--fs-12)", color: "var(--text-3)", border: "1px solid var(--line-2)",
-        }}>
+        <div className="operations-stat-bar">
           {getSessionId(job) && <QuickStat label="会话" value={getSessionId(job).slice(0, 12)} mono />}
           {stats.runCount > 0 && <QuickStat label="对话轮数" value={String(stats.runCount)} />}
           {duration && <QuickStat label="耗时" value={duration} />}
@@ -523,19 +514,19 @@ function JobDetail({
       )}
 
       {((job.status === "failed" || job.status === "error") || (getSessionId(job) && ["succeeded", "completed", "cancelled"].includes(job.status))) && (
-        <div style={{ marginBottom: 14, display: "flex", gap: 8 }}>
+        <div className="operations-detail-actions">
           {(job.status === "failed" || job.status === "error") && (
-            <button className="btn sm" onClick={() => onRetry(job.job_id)}>重试</button>
+            <Button size="sm" onClick={() => onRetry(job.job_id)}>重试</Button>
           )}
           {getSessionId(job) && ["succeeded", "completed", "cancelled"].includes(job.status) && (
-            <button className="btn sm ghost" onClick={() => onRestore(job)}>恢复</button>
+            <Button variant="ghost" size="sm" onClick={() => onRestore(job)}>恢复</Button>
           )}
         </div>
       )}
 
-      <div className="tabs" style={{ marginBottom: 16 }}>
+      <div className="tabs operations-tabs">
         <button className={"tab" + (jobTab === "overview" ? " active" : "")} onClick={() => setJobTab("overview")}>
-          运行记录 {stats.runCount > 0 && <span style={{ opacity: 0.5, marginLeft: 4 }}>{stats.runCount}</span>}
+          运行记录 {stats.runCount > 0 && <span className="opacity-60 ml-1">{stats.runCount}</span>}
         </button>
         <button className={"tab" + (jobTab === "stats" ? " active" : "")} onClick={() => setJobTab("stats")}>统计</button>
         <button className={"tab" + (jobTab === "summary" ? " active" : "")} onClick={() => setJobTab("summary")}>概要</button>
@@ -554,9 +545,9 @@ function JobDetail({
 
 function QuickStat({ label, value, mono, danger }: { label: string; value: string; mono?: boolean; danger?: boolean }) {
   return (
-    <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-      <span style={{ color: "var(--text-4)", fontSize: "var(--fs-10)" }}>{label}</span>
-      <span style={{ fontWeight: 680, color: danger ? "var(--danger)" : "var(--text-2)", fontFamily: mono ? "var(--font-mono)" : undefined }}>{value}</span>
+    <span className="row-flex-xs">
+      <span className="faint text-xs">{label}</span>
+      <span className={mono ? "mono" : undefined} style={{ fontWeight: 680, color: danger ? "var(--danger)" : "var(--text-2)" }}>{value}</span>
     </span>
   );
 }
@@ -570,35 +561,26 @@ function TabRuns({ job, runs, runsLoading, onOpenRun }: { job: JobItem; runs: Ru
   }
   return (
     <div>
-      <div className="section-head" style={{ marginBottom: 10 }}>共 {runs.length} 轮对话</div>
+      <div className="section-head mb-2">共 {runs.length} 轮对话</div>
       {runs.map((r, i) => (
         <button
           key={r.run_id || r.turn_id || i}
           type="button"
           onClick={() => onOpenRun(r)}
-          className="card"
-          style={{
-            width: "100%", textAlign: "left", padding: "12px 14px", marginBottom: 6,
-            cursor: "pointer", display: "flex", alignItems: "center", gap: 10,
-            background: "var(--surface)", border: "1px solid var(--line)",
-          }}
+          className="run-card"
         >
-          <span style={{
-            width: 24, height: 24, borderRadius: "50%",
-            background: "var(--surface-2)", display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "var(--fs-10)", fontWeight: 700, color: "var(--text-4)", flexShrink: 0,
-          }}>{runs.length - i}</span>
-          <span style={{ flex: 1, fontSize: "var(--fs-13)", fontWeight: 620, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+          <span className="run-card-index">{runs.length - i}</span>
+          <span className="run-card-title">
             {r.user_input_summary || r.intent || "(无摘要)"}
           </span>
           <Badge kind={sBadge(effectiveStatus(r))}>{sLabel(effectiveStatus(r))}</Badge>
           {(r.tool_call_count ?? 0) > 0 && (
-            <span style={{ fontSize: "var(--fs-11)", color: "var(--text-4)", whiteSpace: "nowrap" }}>{r.tool_call_count} 工具</span>
+            <span className="run-card-meta">{r.tool_call_count} 工具</span>
           )}
           {r.created_at && (
-            <span style={{ fontSize: "var(--fs-11)", color: "var(--text-4)", whiteSpace: "nowrap" }}>{formatCompactDate(r.created_at)}</span>
+            <span className="run-card-meta">{formatCompactDate(r.created_at)}</span>
           )}
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg className="run-card-arrow" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="9 18 15 12 9 6" />
           </svg>
         </button>
@@ -640,8 +622,8 @@ function TabStats({ job, runs, runsLoading, stats, duration }: {
         <StatCard label="单轮平均" value={avgTools} />
       </div>
 
-      <div className="section-head" style={{ marginBottom: 10 }}>时间线</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "8px", fontSize: "var(--fs-12)", color: "var(--text-3)", marginBottom: 20 }}>
+      <div className="section-head mb-2">时间线</div>
+      <div className="row-flex-sm" style={{ flexWrap: "wrap", fontSize: "var(--fs-12)", color: "var(--text-3)", marginBottom: 20 }}>
         <div>创建：{formatCompactDate(job.created_at) || "-"}</div>
         <div>开始：{formatCompactDate(job.started_at) || "-"}</div>
         <div>结束：{formatCompactDate(job.finished_at) || "-"}</div>
@@ -652,9 +634,9 @@ function TabStats({ job, runs, runsLoading, stats, duration }: {
         <>
           <div className="section-head" style={{ marginBottom: 10 }}>各轮耗时</div>
           {runList.map((r, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: "var(--surface-2)", borderRadius: "var(--r-4)", marginBottom: 4, fontSize: "var(--fs-11)", color: "var(--text-3)" }}>
-              <span style={{ fontWeight: 680, width: 30 }}>#{runList.length - i}</span>
-              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.user_input_summary || r.intent || "(无摘要)"}</span>
+            <div key={i} className="timeline-row">
+              <span className="timeline-index">#{runList.length - i}</span>
+              <span className="timeline-title">{r.user_input_summary || r.intent || "(无摘要)"}</span>
               <Badge kind={sBadge(effectiveStatus(r))}>{sLabel(effectiveStatus(r))}</Badge>
               {r.tool_call_count ? <span>{r.tool_call_count} 工具</span> : null}
               <span>{r.created_at ? formatCompactDate(r.created_at) : "-"}</span>
@@ -685,8 +667,8 @@ function TabSummary({ job }: { job: JobItem }) {
   if (job.error) rows.push(["错误", job.error]);
 
   return (
-    <div className="card" style={{ padding: "16px 18px" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: "8px 16px", alignItems: "center" }}>
+    <div className="card">
+      <div className="fragment-grid">
         {rows.map(([k, v]) => (
           <FragmentRow key={k} label={k} value={v} danger={k === "错误"} />
         ))}
@@ -698,8 +680,8 @@ function TabSummary({ job }: { job: JobItem }) {
 function FragmentRow({ label, value, danger }: { label: string; value: string; danger?: boolean }) {
   return (
     <>
-      <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>{label}</span>
-      <span style={{ fontSize: 13, color: danger ? "var(--danger)" : "var(--text-2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</span>
+      <span className="fragment-row-label">{label}</span>
+      <span className={"fragment-row-value" + (danger ? " danger" : "")}>{value}</span>
     </>
   );
 }
@@ -707,13 +689,16 @@ function FragmentRow({ label, value, danger }: { label: string; value: string; d
 function StatCard({ label, value, mono, highlight, ok, danger }: {
   label: string; value: string; mono?: boolean; highlight?: boolean; ok?: boolean; danger?: boolean;
 }) {
-  let color = "var(--text-2)";
-  if (ok) color = "var(--ok)";
-  if (danger) color = "var(--danger)";
   return (
-    <div style={{ padding: "10px 14px", background: "var(--surface-2)", borderRadius: "var(--r-8)", border: "1px solid var(--line-2)" }}>
-      <div style={{ fontSize: "var(--fs-10)", color: "var(--text-4)", textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 680, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: highlight ? "var(--fs-16)" : "var(--fs-13)", fontWeight: 720, color, fontFamily: mono ? "var(--font-mono)" : undefined, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</div>
+    <div className="stat-card-box">
+      <div className="stat-card-box-label">{label}</div>
+      <div className={
+        "stat-card-box-value" +
+        (highlight ? " highlight" : "") +
+        (ok ? " ok" : "") +
+        (danger ? " danger" : "") +
+        (mono ? " mono" : "")
+      }>{value}</div>
     </div>
   );
 }
@@ -747,41 +732,41 @@ function RunTraceView({ run, trace, tab, setTab, onBack }: {
   const selectedStats = useMemo(() => deriveRunTraceStats(run, trace), [run, trace]);
 
   return (
-    <div className="split-detail operations-pane-scroll" style={{ padding: "24px", animation: "surface-in var(--dur-4) var(--ease-out) both" }}>
-      <button className="btn sm ghost" onClick={onBack} style={{ marginBottom: 14 }}>
+    <div className="split-detail operations-pane-scroll operations-detail-body">
+      <Button size="sm" variant="ghost" onClick={onBack} className="mb-3">
         ← 返回作业
-      </button>
+      </Button>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+      <div className="operations-detail-header">
         <StatusDot status={sDot(effectiveStatus(run))} />
-        <h3 style={{ fontSize: "var(--fs-18)", fontWeight: 720, margin: 0, flex: 1 }}>运行详情</h3>
+        <h3 className="operations-detail-title">运行详情</h3>
         <Badge kind={sBadge(effectiveStatus(run))}>{sLabel(effectiveStatus(run))}</Badge>
       </div>
 
-      <div className="tabs" style={{ marginBottom: 16 }}>
+      <div className="tabs operations-tabs">
         <button className={"tab" + (tab === "overview" ? " active" : "")} onClick={() => setTab("overview")}>概览</button>
         <button className={"tab" + (tab === "events" ? " active" : "")} onClick={() => setTab("events")}>事件时间线</button>
       </div>
 
       {tab === "overview" && (
         <>
-          <div className="card" style={{ padding: "16px 18px", marginBottom: 20 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "120px 1fr 120px 1fr", gap: "6px 20px", alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>运行 ID</span>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{run.turn_id || run.run_id || "—"}</span>
-              <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>追踪 ID</span>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{run.trace_id || "—"}</span>
-              <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>意图</span>
-              <span style={{ fontSize: 13, overflow: "hidden", textOverflow: "ellipsis" }}>{run.intent || "—"}</span>
-              <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>能力</span>
-              <span style={{ fontSize: 13 }}>{run.capability || "—"}</span>
-              <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>开始</span>
-              <span style={{ fontSize: 13 }}>{formatDate(selectedStats.startedAt, "compact") || "—"}</span>
-              <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>结束</span>
-              <span style={{ fontSize: 13 }}>{formatDate(selectedStats.finishedAt, "compact") || "—"}</span>
-              <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>工具调用</span>
-              <span style={{ fontSize: 13 }}>{selectedStats.toolCallCount || 0}</span>
-              <span style={{ fontSize: 11, color: "var(--text-4)", fontWeight: 680 }}>状态</span>
+          <div className="card">
+            <div className="info-grid-4">
+              <span className="info-grid-label">运行 ID</span>
+              <span className="info-grid-value mono">{run.turn_id || run.run_id || "—"}</span>
+              <span className="info-grid-label">追踪 ID</span>
+              <span className="info-grid-value mono">{run.trace_id || "—"}</span>
+              <span className="info-grid-label">意图</span>
+              <span className="info-grid-value">{run.intent || "—"}</span>
+              <span className="info-grid-label">能力</span>
+              <span className="info-grid-value">{run.capability || "—"}</span>
+              <span className="info-grid-label">开始</span>
+              <span className="info-grid-value">{formatDate(selectedStats.startedAt, "compact") || "—"}</span>
+              <span className="info-grid-label">结束</span>
+              <span className="info-grid-value">{formatDate(selectedStats.finishedAt, "compact") || "—"}</span>
+              <span className="info-grid-label">工具调用</span>
+              <span className="info-grid-value">{selectedStats.toolCallCount || 0}</span>
+              <span className="info-grid-label">状态</span>
               <span>{run.ok ? <Badge kind="ok" withDot>ok</Badge> : <Badge kind="err" withDot>failed</Badge>}</span>
             </div>
           </div>
@@ -789,7 +774,7 @@ function RunTraceView({ run, trace, tab, setTab, onBack }: {
           <TraceDetailPanel traceEvents={trace} selectedRun={run} />
 
           {(!trace || trace.length === 0) && !selectedStats.toolCallCount && (
-            <div style={{ padding: "40px 0", textAlign: "center", color: "var(--text-3)", fontSize: "var(--fs-12)" }}>暂无更多详情</div>
+            <div className="operations-empty">暂无更多详情</div>
           )}
         </>
       )}
@@ -799,12 +784,12 @@ function RunTraceView({ run, trace, tab, setTab, onBack }: {
           {!trace ? <LoadingState text="加载事件…" /> : (
             <>
               {failInfo && (
-                <div className="card" style={{ borderLeft: "3px solid var(--danger)", padding: "12px 14px", marginBottom: 16 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--danger)", fontWeight: 680, marginBottom: 4 }}>
+                <div className="card card-danger-left">
+                  <div className="fail-reason-head">
                     <IconAlert size={14} /> 失败原因
-                    {failInfo.timeoutSecs != null && <span style={{ color: "var(--text-3)", fontWeight: 400, fontSize: "var(--fs-12)" }}>· 耗时 {failInfo.timeoutSecs}s</span>}
+                    {failInfo.timeoutSecs != null && <span className="fail-reason-timeout">· 耗时 {failInfo.timeoutSecs}s</span>}
                   </div>
-                  <div style={{ color: "var(--text-2)", fontSize: "var(--fs-13)" }}>{failInfo.error}</div>
+                  <div className="fail-reason-body">{failInfo.error}</div>
                 </div>
               )}
               <div className="section-head" style={{ justifyContent: "flex-start" }}>事件时间线 · {trace.length} 个事件</div>
@@ -815,16 +800,16 @@ function RunTraceView({ run, trace, tab, setTab, onBack }: {
                   const lb = formatEventLabel(ev);
                   const isFail = et === "turn_failed";
                   return (
-                    <div key={ev.event_id || i} className="card" style={{ padding: "10px 14px", marginBottom: 8 }}>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, flex: 1 }}>
-                          <span style={{ width: 7, height: 7, borderRadius: "50%", background: isFail ? "var(--danger)" : "var(--ok)", flexShrink: 0 }} />
-                          <span style={{ fontSize: "var(--fs-13)", fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lb}</span>
+                    <div key={ev.event_id || i} className="card event-card">
+                      <div className="event-card-head">
+                        <div className="event-card-title">
+                          <span className={"event-card-dot" + (isFail ? " danger" : " ok")} />
+                          <span className="event-card-label">{lb}</span>
                         </div>
-                        <span style={{ color: "var(--text-4)", fontSize: "var(--fs-11)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>{formatEventTime(ev)}</span>
+                        <span className="event-card-time">{formatEventTime(ev)}</span>
                       </div>
-                      <details style={{ marginTop: 6 }}>
-                        <summary style={{ fontSize: "var(--fs-11)", color: "var(--text-3)", cursor: "pointer" }}>开发诊断 · {et}</summary>
+                      <details className="event-card-detail">
+                        <summary>开发诊断 · {et}</summary>
                         <CodeBlock language="json">{JSON.stringify(dt, null, 2)}</CodeBlock>
                       </details>
                     </div>
