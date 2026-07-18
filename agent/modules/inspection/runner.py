@@ -34,6 +34,7 @@ from typing import Optional
 from agent.runtime.utils import now_iso, duration_ms
 from artifacts.store import save_artifact
 from artifacts.redaction import redact_artifact_content
+from storage import inspection_store
 from core.tools.redaction import redact_string
 from core.tools.context import ToolRuntimeContext
 from core.tools.integration import get_default_tool_runtime_client
@@ -144,18 +145,6 @@ def _registered_task_sessions(workspace_id: str, task_id: str) -> dict[str, str]
         return dict(_TASK_SESSIONS.get(workspace_id, {}).get(task_id, {}))
 
 
-# ── storage ──────────────────────────────────────────────────────────────
-
-def _inspection_root(workspace_id: str):
-    from workspace.run_store import WS_ROOT
-    from workspace.ids import validate_workspace_id
-    return WS_ROOT / validate_workspace_id(workspace_id) / "inspection"
-
-
-def _task_path(workspace_id: str, task_id: str):
-    return _inspection_root(workspace_id) / "tasks" / f"{task_id}.json"
-
-
 def _get_task_save_lock(task_id: str) -> threading.Lock:
     """Return (lazily create) a per-task save lock.
 
@@ -190,9 +179,6 @@ def _save_task_unlocked(workspace_id: str, task: InspectionTask) -> None:
     path so ``_record_device`` can take the lock once, snap the
     ``task.devices`` dict, and save without nested acquisition.
     """
-    from workspace.atomic_io import atomic_write_json
-    p = _task_path(workspace_id, task.task_id)
-    p.parent.mkdir(parents=True, exist_ok=True)
     from dataclasses import asdict
     ensure_tracking(task, source="runner")
     if task.started_at and task.finished_at:
@@ -206,7 +192,7 @@ def _save_task_unlocked(workspace_id: str, task: InspectionTask) -> None:
                 task.started_at, task.finished_at,
                 exc_info=True,
             )
-    atomic_write_json(p, asdict(task))
+    inspection_store.save_task(workspace_id, task.task_id, asdict(task))
 
 
 def _save_task(workspace_id: str, task: InspectionTask) -> None:
@@ -272,35 +258,11 @@ def reconcile_phantom_running_tasks(workspace_id: str, root_override=None) -> in
     tests target a tmp directory without monkey-patching module
     globals.
     """
-    from workspace.atomic_io import safe_read_json, atomic_write_json
-    from .models import InspectionTask
-    if root_override is not None:
-        root = root_override / workspace_id / "inspection" / "tasks"
-    else:
-        root = _inspection_root(workspace_id) / "tasks"
-    if not root.exists():
-        return 0
-    flipped = 0
-    for p in root.glob("ins_*.json"):
-        try:
-            data = safe_read_json(p, default=None)
-        except Exception:
-            continue
-        if not data:
-            continue
-        if data.get("status") != "running":
-            continue
-        data["status"] = "crashed"
-        data["error"] = (data.get("error", "")
-                          or "backend_restart_during_run")
-        data["finished_at"] = now_iso()
-        from dataclasses import asdict
-        try:
-            atomic_write_json(p, data)
-            flipped += 1
-        except Exception:
-            logger.debug("reconcile_phantom: write failed", exc_info=True)
-    return flipped
+    return inspection_store.reconcile_running_tasks(
+        workspace_id,
+        finished_at=now_iso(),
+        root_override=root_override,
+    )
 
 
 def reconcile_all_workspaces(root=None) -> dict:
@@ -309,19 +271,8 @@ def reconcile_all_workspaces(root=None) -> dict:
     Returns a per-workspace count summary; safe to call on backend
     startup. ``root`` (optional) overrides ``WS_ROOT`` for tests.
     """
-    from workspace.run_store import WS_ROOT
-    root = WS_ROOT if root is None else root
     out: dict = {}
-    if not root.exists():
-        return out
-    for ws_dir in root.iterdir():
-        if not ws_dir.is_dir() or ws_dir.name.startswith("_"):
-            continue
-        try:
-            from workspace.ids import validate_workspace_id
-            ws = validate_workspace_id(ws_dir.name)
-        except Exception:
-            continue
+    for ws in inspection_store.list_workspace_ids(root):
         n = reconcile_phantom_running_tasks(ws, root_override=root)
         if n:
             out[ws] = n
@@ -329,28 +280,15 @@ def reconcile_all_workspaces(root=None) -> dict:
 
 
 def load_task(workspace_id: str, task_id: str) -> Optional[InspectionTask]:
-    from workspace.atomic_io import safe_read_json
     from .models import InspectionScope, DeviceResult  # noqa: F401 (for type chain)
-    p = _task_path(workspace_id, task_id)
-    data = safe_read_json(p, default=None)
+    data = inspection_store.load_task(workspace_id, task_id)
     if not data:
         return None
     return _task_from_dict(data)
 
 
 def list_tasks(workspace_id: str, *, limit: int = 50) -> list:
-    root = _inspection_root(workspace_id) / "tasks"
-    if not root.exists():
-        return []
-    out: list[dict] = []
-    for p in sorted(root.glob("*.json"), reverse=True):
-        from workspace.atomic_io import safe_read_json
-        d = safe_read_json(p, default=None)
-        if d:
-            out.append(d)
-        if len(out) >= limit:
-            break
-    return out
+    return inspection_store.list_tasks(workspace_id, limit=limit)
 
 
 def record_tracking_poll(workspace_id: str, task_id: str, *, source: str = "tool") -> Optional[InspectionTask]:

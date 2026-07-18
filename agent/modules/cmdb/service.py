@@ -6,33 +6,20 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import json
 import os
 import secrets
 import csv
 import io
-import threading
 import time
 import uuid
-from pathlib import Path
 from agent.runtime.utils import now_iso
-
-_locks: dict[str, threading.RLock] = {}
-
-def _get_cmdb_lock(path: Path) -> threading.RLock:
-    key = str(path.resolve())
-    if key not in _locks:
-        _locks[key] = threading.RLock()
-    return _locks[key]
-
-
-# ── helpers ──
-
-def _db_dir(workspace_id: str) -> Path:
-    from storage.paths import workspace_root
-    d = workspace_root(workspace_id) / "cmdb"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+from storage.records import (
+    append_jsonl,
+    jsonl_transaction,
+    read_jsonl,
+    rewrite_jsonl,
+    workspace_record_file,
+)
 
 
 def _now() -> str: return now_iso()
@@ -66,9 +53,7 @@ def save_asset(workspace_id: str, asset: dict) -> dict:
     # 冲突检测：IP + 端口一致则拒绝添加
     incoming_asset_id = str(asset.get("asset_id") or "")
 
-    path = _db_dir(workspace_id) / "assets.jsonl"
-    _cmdb_lock = _get_cmdb_lock(path)
-    with _cmdb_lock:  # RLock re-entry from get_asset doubles IO — P1-27
+    with jsonl_transaction(workspace_id, ("cmdb", "assets.jsonl")):
         # TOCTOU fix: hold lock during conflict detection AND write
         # so two concurrent saves can't both pass the check.
         for existing in _load_all(workspace_id):
@@ -108,8 +93,7 @@ def save_asset(workspace_id: str, asset: dict) -> dict:
         elif existing_asset and existing_asset.get("password"):
             record["password_secret"] = _seal_secret(workspace_id, str(existing_asset["password"]))
 
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        append_jsonl(workspace_id, ("cmdb", "assets.jsonl"), record)
     return {"ok": True, "asset_id": record["asset_id"], "name": record["name"]}
 
 
@@ -165,33 +149,26 @@ def get_asset(workspace_id: str, asset_id: str, *, safe: bool = True) -> dict | 
     runner, frontend asset editor) can surface the issue instead of
     silently using an empty password.
     """
-    path = _db_dir(workspace_id) / "assets.jsonl"
-    if not path.exists():
-        return None
-    for line in reversed(path.read_text(encoding="utf-8").strip().split("\n")):
-        if not line.strip():
+    for row in reversed(read_jsonl(workspace_id, ("cmdb", "assets.jsonl"))):
+        d = dict(row)
+        if d.get("asset_id") != asset_id:
             continue
-        try:
-            d = json.loads(line)
-            if d.get("asset_id") == asset_id:
-                if d.get("deleted"):
-                    return None
-                has_secret = bool(d.get("password_secret"))
-                password = _record_password(workspace_id, d)
-                password_corrupted = (
-                    has_secret
-                    and not password
-                    and _open_secret_strict(workspace_id, d.get("password_secret", "")) == _OPEN_SECRET_FAIL
-                )
-                d.pop("password_secret", None)
-                d.pop("password", None)
-                if password_corrupted:
-                    d["password_corrupted"] = True
-                elif not safe and password:
-                    d["password"] = password
-                return d
-        except json.JSONDecodeError:
-            continue
+        if d.get("deleted"):
+            return None
+        has_secret = bool(d.get("password_secret"))
+        password = _record_password(workspace_id, d)
+        password_corrupted = (
+            has_secret
+            and not password
+            and _open_secret_strict(workspace_id, d.get("password_secret", "")) == _OPEN_SECRET_FAIL
+        )
+        d.pop("password_secret", None)
+        d.pop("password", None)
+        if password_corrupted:
+            d["password_corrupted"] = True
+        elif not safe and password:
+            d["password"] = password
+        return d
     return None
 
 
@@ -200,26 +177,17 @@ def delete_asset(workspace_id: str, asset_id: str) -> dict:
     existing = get_asset(workspace_id, asset_id, safe=False)
     if not existing:
         return {"ok": False, "error": f"asset '{asset_id}' not found"}
-    path = _db_dir(workspace_id) / "assets.jsonl"
-    with _get_cmdb_lock(path):
+    with jsonl_transaction(workspace_id, ("cmdb", "assets.jsonl")):
         # Read all, filter out the target asset and its tombstones
-        lines = path.read_text(encoding="utf-8").strip().split("\n") if path.is_file() else []
         name = existing.get("name", "")
         kept = []
-        for line in lines:
-            if not line.strip():
-                continue
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                kept.append(line)
-                continue
+        for rec in read_jsonl(workspace_id, ("cmdb", "assets.jsonl")):
             if rec.get("asset_id") == asset_id:
                 continue  # remove this asset record
             if rec.get("deleted") and rec.get("asset_id") == asset_id:
                 continue  # remove tombstone
-            kept.append(line)
-        path.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+            kept.append(rec)
+        rewrite_jsonl(workspace_id, ("cmdb", "assets.jsonl"), kept)
     return {"ok": True, "name": name}
 
 
@@ -276,42 +244,30 @@ def _load_all(workspace_id: str) -> list[dict]:
     read-write race where a concurrent ``save_asset`` appends a
     partial or interleaved line to the JSONL file.
     """
-    path = _db_dir(workspace_id) / "assets.jsonl"
-    if not path.exists():
-        return []
-    lock = _get_cmdb_lock(path)
-    with lock:
-        raw = path.read_text(encoding="utf-8")
     assets = {}
     deleted = set()
-    for line in raw.strip().split("\n"):
-        line = line.strip()
-        if not line:
+    for row in read_jsonl(workspace_id, ("cmdb", "assets.jsonl")):
+        d = dict(row)
+        aid = d.get("asset_id", "")
+        if not aid:
             continue
-        try:
-            d = json.loads(line)
-            aid = d.get("asset_id", "")
-            if not aid:
-                continue
-            if d.get("deleted"):
-                deleted.add(aid)
-                assets.pop(aid, None)  # Remove tombstoned asset
-                continue
-            if aid not in deleted:
-                # Save secret before popping — password_corrupted check
-                # must happen first, not after d.pop() (P1-1 fix).
-                secret = d.get("password_secret")
-                d.pop("password", None)
-                d.pop("password_secret", None)
-                # Surface corrupted-password flag without leaking the
-                # secret. We do the open check *only* if a secret
-                # existed on the latest revision of the row.
-                if secret:
-                    if _open_secret_strict(workspace_id, secret) == _OPEN_SECRET_FAIL:
-                        d["password_corrupted"] = True
-                assets[aid] = d
-        except json.JSONDecodeError:
+        if d.get("deleted"):
+            deleted.add(aid)
+            assets.pop(aid, None)  # Remove tombstoned asset
             continue
+        if aid not in deleted:
+            # Save secret before popping — password_corrupted check
+            # must happen first, not after d.pop() (P1-1 fix).
+            secret = d.get("password_secret")
+            d.pop("password", None)
+            d.pop("password_secret", None)
+            # Surface corrupted-password flag without leaking the
+            # secret. We do the open check *only* if a secret
+            # existed on the latest revision of the row.
+            if secret:
+                if _open_secret_strict(workspace_id, secret) == _OPEN_SECRET_FAIL:
+                    d["password_corrupted"] = True
+            assets[aid] = d
     return list(assets.values())
 
 
@@ -474,7 +430,7 @@ def _auth_key(workspace_id: str) -> bytes:
 
 
 def _workspace_secret_key(workspace_id: str) -> bytes:
-    path = _db_dir(workspace_id) / ".cmdb_secret_key"
+    path = workspace_record_file(workspace_id, "cmdb", ".cmdb_secret_key")
     if not path.exists():
         key_data = secrets.token_urlsafe(48)
         path.write_text(key_data, encoding="utf-8")

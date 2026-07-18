@@ -521,6 +521,7 @@ def test_cancel_task_closes_registered_remote_sessions(monkeypatch, tmp_path):
     from agent.modules.inspection.models import InspectionScope, InspectionTask
     from agent.runtime.utils import now_iso
     import workspace.run_store as ws_store
+    import storage.paths as spaths
 
     ws = "ws_cancel_close_sessions"
     task_id = "ins_cancel_close_001"
@@ -549,11 +550,14 @@ def test_cancel_task_closes_registered_remote_sessions(monkeypatch, tmp_path):
     runner._register_task_session(ws, task_id, "telnet", "telnet_sid_2")
 
     orig = ws_store.WS_ROOT
+    orig_storage_root = spaths.workspace_root
     ws_store.WS_ROOT = tmp_path
+    spaths.workspace_root = lambda ws_id: tmp_path / ws_id
     try:
         result = runner.cancel_task(ws, task_id)
     finally:
         ws_store.WS_ROOT = orig
+        spaths.workspace_root = orig_storage_root
 
     assert result["ok"] is True
     assert sorted(closed) == [
@@ -933,12 +937,15 @@ def test_run_task_sequential_path_no_executor(monkeypatch, tmp_path):
     from agent.modules.inspection import runner, service
     from agent.modules.cmdb.service import save_asset
     import workspace.run_store as ws_store
+    import storage.paths as spaths
 
     ws = "ws_sequential"
     ws_root = tmp_path / ws
     ws_root.mkdir(parents=True)
     orig = ws_store.WS_ROOT
+    orig_storage_root = spaths.workspace_root
     ws_store.WS_ROOT = tmp_path
+    spaths.workspace_root = lambda ws_id: tmp_path / ws_id
     try:
         # Seed one asset.
         save_asset(ws, {
@@ -961,6 +968,7 @@ def test_run_task_sequential_path_no_executor(monkeypatch, tmp_path):
         assert not saw_pool["v"], "executor should be skipped for max_workers=1"
     finally:
         ws_store.WS_ROOT = orig
+        spaths.workspace_root = orig_storage_root
 
 
 def test_render_report_normalises_alias_md():
@@ -1025,9 +1033,6 @@ def test_get_asset_flags_password_corrupted(tmp_path):
         def fake_root(ws_id):
             return tmp_path / ws_id
         spaths.workspace_root = fake_root
-        # also ensure _db_dir mkdir runs under tmp_path
-        from agent.modules.cmdb import service as _ms
-        _ms._db_dir  # referenced
         # Seed an asset with a normal password.
         cmdb.save_asset(ws, {
             "asset_id": "a_corrupt",
@@ -1077,9 +1082,12 @@ def test_uploaded_log_script_keeps_vendor_paging_guards(monkeypatch, tmp_path):
     """Uploaded log scripts must inherit vendor pre/post paging guards."""
     from agent.modules.inspection import profiles
     import workspace.run_store as run_store
+    import storage.paths as spaths
 
     original_root = run_store.WS_ROOT
+    original_storage_root = spaths.workspace_root
     run_store.WS_ROOT = tmp_path
+    spaths.workspace_root = lambda ws_id: tmp_path / ws_id
     try:
         ok = profiles.upload_vendor_script_file(
             "ws_paging_upload",
@@ -1094,6 +1102,7 @@ def test_uploaded_log_script_keeps_vendor_paging_guards(monkeypatch, tmp_path):
         assert profile.post_commands == ["undo screen-length disable"]
     finally:
         run_store.WS_ROOT = original_root
+        spaths.workspace_root = original_storage_root
 
 
 def test_telnet_session_requires_explicit_close(monkeypatch):

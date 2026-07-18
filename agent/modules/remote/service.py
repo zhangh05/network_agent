@@ -3,9 +3,7 @@
 
 from __future__ import annotations
 
-import json
 import time
-from pathlib import Path
 
 from agent.runtime.utils import now_iso
 from agent.modules.remote.core import (
@@ -13,6 +11,7 @@ from agent.modules.remote.core import (
     resize_session, disconnect, get_session,
 )
 from agent.modules.remote.vendors import list_vendors, get_profile
+from storage.records import append_jsonl, read_jsonl, rewrite_jsonl, workspace_record_dir
 
 
 def connect_device(workspace_id: str, host: str, port: int, protocol: str,
@@ -129,18 +128,8 @@ def _require_session_workspace(session_id: str, workspace_id: str) -> dict | Non
 # Device connection persistence
 # ═══════════════════════════════════════════════════════════════════════
 
-def _remote_dir(workspace_id: str) -> Path:
-    from storage.paths import workspace_root
-    d = workspace_root(workspace_id) / "remote"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def _ensure_log_dir(workspace_id: str) -> Path:
-    from storage.paths import workspace_root
-    d = workspace_root(workspace_id) / "remote" / "logs"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+def _ensure_log_dir(workspace_id: str):
+    return workspace_record_dir(workspace_id, "remote", "logs")
 
 
 def save_device(workspace_id: str, device: dict) -> dict:
@@ -159,69 +148,44 @@ def save_device(workspace_id: str, device: dict) -> dict:
     if password:
         from agent.modules.cmdb.service import _seal_secret
         record["password_secret"] = _seal_secret(workspace_id, password)
-    path = _remote_dir(workspace_id) / "connections.jsonl"
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    append_jsonl(workspace_id, ("remote", "connections.jsonl"), record)
     return {"ok": True, "device_id": record["device_id"]}
 
 
 def list_devices(workspace_id: str) -> list[dict]:
     """List saved device connections."""
-    path = _remote_dir(workspace_id) / "connections.jsonl"
-    if not path.exists():
-        return []
     devices = []
     seen = set()
-    for line in reversed(path.read_text(encoding="utf-8").strip().split("\n")):
-        if not line.strip():
-            continue
-        try:
-            d = json.loads(line)
-            did = d.get("device_id", "")
-            if did and did not in seen:
-                seen.add(did)
-                d.pop("password", None)
-                d.pop("password_secret", None)
-                devices.append(d)
-        except json.JSONDecodeError:
-            continue
+    for row in reversed(read_jsonl(workspace_id, ("remote", "connections.jsonl"))):
+        d = dict(row)
+        did = d.get("device_id", "")
+        if did and did not in seen:
+            seen.add(did)
+            d.pop("password", None)
+            d.pop("password_secret", None)
+            devices.append(d)
     return list(reversed(devices))
 
 
 def delete_device(workspace_id: str, device_id: str) -> dict:
     """Physically delete a saved device from JSONL."""
-    path = _remote_dir(workspace_id) / "connections.jsonl"
-    if not path.exists():
+    rows = read_jsonl(workspace_id, ("remote", "connections.jsonl"))
+    if not rows:
         return {"ok": False, "error": "not_found"}
-    lines = path.read_text(encoding="utf-8").strip().split("\n")
     kept = []
-    for line in lines:
-        if not line.strip():
-            continue
-        try:
-            rec = json.loads(line)
-        except json.JSONDecodeError:
-            kept.append(line)
-            continue
+    for rec in rows:
         if rec.get("device_id") == device_id:
             continue
-        kept.append(line)
-    path.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+        kept.append(rec)
+    rewrite_jsonl(workspace_id, ("remote", "connections.jsonl"), kept)
     return {"ok": True}
 
 
 def get_device_password(workspace_id: str, device_id: str) -> str:
     """Retrieve the actual password for a saved device (internal use)."""
-    path = _remote_dir(workspace_id) / "connections.jsonl"
-    if not path.exists():
-        return ""
-    for line in path.read_text(encoding="utf-8").strip().split("\n"):
-        try:
-            d = json.loads(line)
-            if d.get("device_id") == device_id:
-                return _extract_saved_password(workspace_id, d)
-        except json.JSONDecodeError:
-            continue
+    for d in read_jsonl(workspace_id, ("remote", "connections.jsonl")):
+        if d.get("device_id") == device_id:
+            return _extract_saved_password(workspace_id, d)
     return ""
 
 

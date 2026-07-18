@@ -24,7 +24,7 @@ from agent.modules.inspection.structured import STRUCTURED_SCHEMA_VERSION, parse
 from artifacts.store import read_artifact_content
 from agent.runtime.utils import now_iso
 from storage.index import IndexLock
-from storage.paths import get_workspace_root
+from storage.workspace_store import list_workspace_ids
 from workspace.ids import validate_workspace_id
 
 from . import store
@@ -1766,15 +1766,7 @@ def run_schedule_now(workspace_id: str, schedule_id: str) -> dict[str, Any]:
 
 
 def run_due_schedules() -> None:
-    root = get_workspace_root()
-    if not root.is_dir(): return
-    for path in root.iterdir():
-        if not path.is_dir():
-            continue
-        try:
-            ws = _ws(path.name)
-        except (TypeError, ValueError):
-            continue
+    for ws in list_workspace_ids():
         try:
             # Prevent two backend workers from claiming the same due schedule.
             # The critical section is short: inspection starts asynchronously.
@@ -1795,16 +1787,7 @@ def run_due_schedules() -> None:
 
 
 def refresh_active_checks() -> None:
-    root = get_workspace_root()
-    if not root.is_dir():
-        return
-    for path in root.iterdir():
-        if not path.is_dir():
-            continue
-        try:
-            ws = _ws(path.name)
-        except (TypeError, ValueError):
-            continue
+    for ws in list_workspace_ids():
         for item in store.list_records(ws, "checks", limit=100):
             if item.get("status") != "collecting":
                 continue
@@ -1818,16 +1801,7 @@ def refresh_active_checks() -> None:
 
 
 def refresh_active_operations() -> None:
-    root = get_workspace_root()
-    if not root.is_dir():
-        return
-    for path in root.iterdir():
-        if not path.is_dir():
-            continue
-        try:
-            ws = _ws(path.name)
-        except (TypeError, ValueError):
-            continue
+    for ws in list_workspace_ids():
         for item in store.list_records(ws, "operations", limit=200):
             if item.get("status") != "collecting":
                 continue

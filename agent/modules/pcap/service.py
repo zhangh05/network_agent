@@ -7,7 +7,6 @@ All core logic lives in agent.modules.pcap.core — no backend route dependency.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +19,7 @@ from agent.modules.pcap.core import (
     pcap_session_id_for,
     tcp_stream_align,
 )
+from storage import pcap_store
 
 _PCAP_PACKET_PREVIEW_LIMIT = 1000
 _PCAP_CONNECTION_PREVIEW_LIMIT = 500
@@ -50,8 +50,7 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "",
 
     if file_id:
         try:
-            from storage.file_store import resolve_file_path as _resolve
-            path = _resolve(workspace_id, file_id)
+            path = pcap_store.resolve_managed_file(workspace_id, file_id)
         except Exception as exc:
             return {"ok": False, "tool_id": "pcap.manage", "status": "failed",
                     "summary": str(exc)[:200], "errors": ["invalid_file_id"]}
@@ -86,23 +85,17 @@ def parse_pcap_file(workspace_id: str, filepath: str = "", file_id: str = "",
     }
     # Persist session to index for recovery after memory reset
     try:
-        from storage.paths import workspace_root
-        idx_dir = workspace_root(workspace_id) / "index"
-        idx_dir.mkdir(parents=True, exist_ok=True)
-        idx_path = idx_dir / "pcap_sessions.jsonl"
         record = {"session_id": sid, "filepath": str(path), "filename": path.name,
                   "total_packets": len(packets), "connection_count": len(groups),
                   "protocol_counts": protocol_counts, "connections": groups}
-        with open(idx_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+        pcap_store.save_session(workspace_id, record)
     except Exception:
         pass
 
     # ReferenceIndex: link source file to pcap session (non-fatal)
     if source_file_id:
         try:
-            from storage.reference_index import add_reference
-            add_reference(workspace_id, source_file_id, "pcap_session", sid, "source")
+            pcap_store.add_source_reference(workspace_id, source_file_id, sid)
         except Exception:
             pass
 
@@ -118,24 +111,7 @@ def delete_pcap_session(session_id: str, workspace_id: str = "") -> dict:
 
     # Physically remove from index (rewrite JSONL without the session)
     try:
-        from storage.paths import workspace_root
-        import json
-        idx_path = workspace_root(workspace_id) / "index" / "pcap_sessions.jsonl"
-        if idx_path.exists():
-            lines = idx_path.read_text(encoding="utf-8").strip().split("\n")
-            kept = []
-            for line in lines:
-                if not line.strip():
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    kept.append(line)
-                    continue
-                if rec.get("session_id") == session_id:
-                    continue
-                kept.append(line)
-            idx_path.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+        pcap_store.delete_session(workspace_id, session_id)
     except Exception:
         pass
 
@@ -145,40 +121,16 @@ def delete_pcap_session(session_id: str, workspace_id: str = "") -> dict:
 def list_pcap_sessions(workspace_id: str = "", limit: int = 20) -> list[dict]:
     """List recent PCAP sessions from the persistent index."""
     try:
-        from storage.paths import workspace_root
-        import json
-        idx_path = workspace_root(workspace_id) / "index" / "pcap_sessions.jsonl"
-        if not idx_path.exists():
-            return []
         sessions: list[dict] = []
-        seen = set()
-        deleted = set()
-        for line in reversed(idx_path.read_text(encoding="utf-8").strip().split("\n")):
-            if not line.strip():
-                continue
-            try:
-                rec = json.loads(line)
-                sid = rec.get("session_id", "")
-                if not sid:
-                    continue
-                # Skip tombstoned sessions
-                if rec.get("deleted"):
-                    deleted.add(sid)
-                    continue
-                if sid not in seen and sid not in deleted:
-                    seen.add(sid)
-                    sessions.append({
-                        "session_id": sid,
-                        "filename": rec.get("filename", ""),
-                        "total_packets": rec.get("total_packets", 0),
-                        "connection_count": rec.get("connection_count", 0),
-                        "protocol_counts": rec.get("protocol_counts", _protocol_counts(rec.get("connections", []))),
-                        "connections": rec.get("connections", []),
-                    })
-                if len(sessions) >= limit:
-                    break
-            except json.JSONDecodeError:
-                continue
+        for rec in pcap_store.list_sessions(workspace_id, limit=limit):
+            sessions.append({
+                "session_id": rec.get("session_id", ""),
+                "filename": rec.get("filename", ""),
+                "total_packets": rec.get("total_packets", 0),
+                "connection_count": rec.get("connection_count", 0),
+                "protocol_counts": rec.get("protocol_counts", _protocol_counts(rec.get("connections", []))),
+                "connections": rec.get("connections", []),
+            })
         return sessions
     except Exception:
         return []
@@ -190,32 +142,25 @@ def get_pcap_session(session_id: str, workspace_id: str = "") -> dict:
     if not session:
         # Try recovering from persisted index
         try:
-            import json
-            from storage.paths import workspace_root
-            idx_path = workspace_root(workspace_id) / "index" / "pcap_sessions.jsonl"
-            if idx_path.exists():
-                for line in idx_path.read_text(encoding="utf-8").strip().split("\n"):
-                    if not line.strip():
-                        continue
-                    rec = json.loads(line)
-                    if rec.get("session_id") == session_id:
-                        filepath = rec.get("filepath", "")
-                        packets = parse_pcap(filepath) if filepath else []
-                        groups = get_connection_groups(packets) if packets else rec.get("connections", [])
-                        if packets:
-                            PCAP_SESSIONS[session_id] = {
-                                "filepath": filepath,
-                                "packets": packets,
-                                "groups": groups,
-                            }
-                        return {
-                            "ok": True, "tool_id": "pcap.manage", "status": "succeeded",
-                            "summary": f"PCAP session 有 {rec.get('total_packets', 0)} 个报文 (从 index 恢复)。",
-                            "session_id": session_id, "filename": rec.get("filename", ""),
-                            "total_packets": len(packets) if packets else rec.get("total_packets", 0),
-                            "protocol_counts": _protocol_counts(groups),
-                            "connections": groups,
-                        }
+            rec = pcap_store.get_session(workspace_id, session_id)
+            if rec:
+                filepath = rec.get("filepath", "")
+                packets = parse_pcap(filepath) if filepath else []
+                groups = get_connection_groups(packets) if packets else rec.get("connections", [])
+                if packets:
+                    PCAP_SESSIONS[session_id] = {
+                        "filepath": filepath,
+                        "packets": packets,
+                        "groups": groups,
+                    }
+                return {
+                    "ok": True, "tool_id": "pcap.manage", "status": "succeeded",
+                    "summary": f"PCAP session 有 {rec.get('total_packets', 0)} 个报文 (从 index 恢复)。",
+                    "session_id": session_id, "filename": rec.get("filename", ""),
+                    "total_packets": len(packets) if packets else rec.get("total_packets", 0),
+                    "protocol_counts": _protocol_counts(groups),
+                    "connections": groups,
+                }
         except Exception:
             pass
         return {"ok": False, "tool_id": "pcap.manage", "status": "failed",

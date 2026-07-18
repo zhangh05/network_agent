@@ -81,8 +81,9 @@ def test_fact_missing_from_incomplete_baseline_is_not_a_drift():
 
 def test_continuous_alarm_requires_confirmation_and_recovery(tmp_path, monkeypatch):
     from agent.modules.assurance import service, store
+    import storage.paths as spaths
 
-    monkeypatch.setattr(store, "workspace_root", lambda workspace_id: tmp_path / workspace_id)
+    monkeypatch.setattr(spaths, "workspace_root", lambda workspace_id: tmp_path / workspace_id)
     schedule = {"schedule_id": "s1", "baseline_id": "b1", "confirm_after": 2, "recover_after": 2}
     change = {"asset_id": "a1", "key": "asset.a1.interface.ge0_1.protocol",
               "severity": "critical", "evidence_ref": "artifact:1"}

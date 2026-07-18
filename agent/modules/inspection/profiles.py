@@ -13,9 +13,7 @@ commands in a profile.
 
 from __future__ import annotations
 
-import json
 import logging
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +23,7 @@ from .models import (
     VendorCommandProfile,
 )
 from agent.runtime.utils import now_iso
+from storage import inspection_store
 
 ENTER_ACTION = "__ENTER__"
 
@@ -209,31 +208,15 @@ def resolve_vendor(vendor: str) -> VendorCommandProfile:
 # If no override exists for a vendor the built-in defaults apply.
 
 
-_SCRIPT_TYPES = {"general", "log"}
-
-
-def _scripts_dir(workspace_id: str, script_type: str = "general") -> Path:
-    """Return ``<WS_ROOT>/<ws>/inspection/scripts/<type>/``, creating if needed."""
-    from workspace.run_store import WS_ROOT
-    from workspace.ids import validate_workspace_id
-    stype = script_type if script_type in _SCRIPT_TYPES else "general"
-    p = WS_ROOT / validate_workspace_id(workspace_id) / "inspection" / "scripts" / stype
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-
 def load_vendor_commands(workspace_id: str, vendor: str, *, script_type: str = "general") -> dict | None:
     """Return workspace-level command overrides for *vendor* and *script_type*, or None.
 
     Returns a dict with ``commands``, ``pre_commands``, and ``post_commands``.
     All three fields are required lists in the current script schema.
     """
-    fp = _scripts_dir(workspace_id, script_type) / f"{vendor}.json"
-    if not fp.is_file():
-        return None
     try:
-        data = json.loads(fp.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        data = inspection_store.load_vendor_script(workspace_id, vendor, script_type)
+    except Exception:
         return None
     if not isinstance(data, dict):
         return None
@@ -282,8 +265,6 @@ def save_vendor_commands(workspace_id: str, vendor: str,
                          pre_commands: list[str] | None = None,
                          post_commands: list[str] | None = None) -> bool:
     """Persist a workspace-level vendor command override (including pre/post)."""
-    from workspace.atomic_io import atomic_write_json
-    fp = _scripts_dir(workspace_id, script_type) / f"{vendor}.json"
     data = {
         "vendor": vendor,
         "script_type": script_type,
@@ -296,20 +277,17 @@ def save_vendor_commands(workspace_id: str, vendor: str,
     if post_commands is not None:
         data["post_commands"] = _clean_commands(post_commands)
     try:
-        atomic_write_json(fp, data)
+        inspection_store.save_vendor_script(workspace_id, vendor, script_type, data)
         return True
-    except OSError:
+    except Exception:
         return False
 
 
 def delete_vendor_commands(workspace_id: str, vendor: str, *, script_type: str = "general") -> bool:
     """Remove a workspace-level vendor override."""
-    fp = _scripts_dir(workspace_id, script_type) / f"{vendor}.json"
     try:
-        if fp.is_file():
-            fp.unlink()
-            return True
-    except OSError:
+        return inspection_store.delete_vendor_script(workspace_id, vendor, script_type)
+    except Exception:
         pass
     return False
 

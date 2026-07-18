@@ -10,8 +10,9 @@ from agent.modules.inspection.models import CommandResult, DeviceResult, Inspect
 @pytest.fixture()
 def assurance_env(tmp_path, monkeypatch):
     from agent.modules.assurance import llm_analysis, service, store
+    import storage.paths as spaths
 
-    monkeypatch.setattr(store, "workspace_root", lambda workspace_id: tmp_path / workspace_id)
+    monkeypatch.setattr(spaths, "workspace_root", lambda workspace_id: tmp_path / workspace_id)
     tasks: dict[str, InspectionTask] = {}
 
     def get_task(_workspace_id, task_id, record_poll=False):
@@ -452,7 +453,7 @@ def test_scheduler_skips_non_workspace_directories(assurance_env, tmp_path, monk
         def __enter__(self): return self
         def __exit__(self, *_args): return False
 
-    monkeypatch.setattr(assurance_env.service, "get_workspace_root", lambda: tmp_path)
+    monkeypatch.setattr(assurance_env.service, "list_workspace_ids", lambda: ["default"])
     monkeypatch.setattr(assurance_env.service, "IndexLock", NoopLock)
     monkeypatch.setattr(assurance_env.service, "list_schedules", lambda _ws: [])
     assurance_env.service.run_due_schedules()

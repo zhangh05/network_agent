@@ -13,6 +13,10 @@ All durable user and Agent payloads live in `files/data/`. `files/tmp/` is trans
 | Runs | `workspace/run_store.py` |
 | Memory | `workspace/memory_governance.py` |
 | Artifacts | `artifacts/store.py` |
+| Generic workspace records | `storage/records.py` |
+| Workspace discovery | `storage/workspace_store.py` |
+| Inspection tasks and script overrides | `storage/inspection_store.py` |
+| PCAP session index | `storage/pcap_store.py` |
 | Jobs | `jobs/store.py` |
 | Durable runtime | `agent/runtime/durable/store.py` |
 | Tool history | `backend/api/runtime_routes.py` |

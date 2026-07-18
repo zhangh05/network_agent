@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import threading
 from dataclasses import asdict, is_dataclass
-from pathlib import Path
 from typing import Any
 
-from storage.paths import workspace_root
-from workspace.atomic_io import atomic_write_json
+from storage.records import (
+    atomic_save_json,
+    clear_json_record_dir,
+    delete_json_record,
+    list_json_records,
+    read_json_record,
+)
 from workspace.ids import validate_workspace_id
 
 
@@ -25,13 +28,15 @@ def record_kinds() -> tuple[str, ...]:
     return tuple(sorted(_KINDS))
 
 
-def _dir(workspace_id: str, kind: str) -> Path:
+def _parts(workspace_id: str, kind: str, record_id: str = "") -> tuple[str, ...]:
     ws = validate_workspace_id(workspace_id)
     if kind not in _KINDS:
         raise ValueError(f"unsupported assurance record kind: {kind}")
-    path = workspace_root(ws) / "assurance" / kind
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+    if not record_id:
+        return ("assurance", kind)
+    if "/" in record_id or "\\" in record_id or ".." in record_id:
+        raise ValueError("invalid assurance record id")
+    return ("assurance", kind, f"{record_id}.json")
 
 
 def save(workspace_id: str, kind: str, record_id: str, value: Any) -> dict[str, Any]:
@@ -39,47 +44,32 @@ def save(workspace_id: str, kind: str, record_id: str, value: Any) -> dict[str, 
         raise ValueError("invalid assurance record id")
     payload = asdict(value) if is_dataclass(value) else dict(value)
     with _LOCK:
-        atomic_write_json(_dir(workspace_id, kind) / f"{record_id}.json", payload)
+        atomic_save_json(workspace_id, _parts(workspace_id, kind, record_id), payload)
     return payload
 
 
 def get(workspace_id: str, kind: str, record_id: str) -> dict[str, Any] | None:
     if not record_id or "/" in record_id or ".." in record_id:
         return None
-    path = _dir(workspace_id, kind) / f"{record_id}.json"
-    if not path.is_file():
-        return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        data = read_json_record(workspace_id, _parts(workspace_id, kind, record_id))
+    except ValueError:
         return None
     return data if isinstance(data, dict) else None
 
 
 def list_records(workspace_id: str, kind: str, limit: int = 100) -> list[dict[str, Any]]:
     limit = max(1, min(int(limit or 100), 500))
-    records: list[dict[str, Any]] = []
-    for path in _dir(workspace_id, kind).glob("*.json"):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if isinstance(data, dict):
-            records.append(data)
-    records.sort(
-        key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""),
-        reverse=True,
-    )
-    return records[:limit]
+    return list_json_records(workspace_id, _parts(workspace_id, kind), limit=limit)
 
 
 def delete(workspace_id: str, kind: str, record_id: str) -> bool:
-    path = _dir(workspace_id, kind) / f"{record_id}.json"
     with _LOCK:
-        if not path.is_file():
+        try:
+            deleted = delete_json_record(workspace_id, _parts(workspace_id, kind, record_id))
+        except ValueError:
             return False
-        path.unlink()
-    return True
+    return deleted
 
 
 def prune(workspace_id: str, kind: str, id_field: str, keep: int) -> int:
@@ -104,10 +94,6 @@ def clear_all(workspace_id: str) -> dict[str, int]:
     with _LOCK:
         for kind in record_kinds():
             count = 0
-            for path in _dir(ws, kind).glob("*.json"):
-                if not path.is_file():
-                    continue
-                path.unlink()
-                count += 1
+            count = clear_json_record_dir(ws, _parts(ws, kind))
             removed[kind] = count
     return removed
