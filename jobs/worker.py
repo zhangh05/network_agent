@@ -6,17 +6,15 @@ It releases automatically when the process exits or unlocks the fd,
 providing crash-safe mutual exclusion without stale lock detection.
 """
 
-import json
 import os
 import time
 from pathlib import Path
 
-from agent.runtime.utils import now_iso
+from storage.time_utils import now_iso
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNTIME = ROOT / "runtime" / "jobs"
 LOCK_PATH = RUNTIME / "worker.lock"
-STATE_PATH = RUNTIME / "worker_state.json"
 
 _worker_active = False
 
@@ -80,15 +78,13 @@ def run_once() -> dict:
 
 
 def get_worker_state() -> dict:
-    if STATE_PATH.is_file():
-        try:
-            return json.loads(STATE_PATH.read_text())
-        except Exception:
-            pass
-    return {"status": "idle"}
+    from storage.runtime_state_store import read_runtime_record
+
+    return read_runtime_record("jobs_worker_state") or {"status": "idle"}
 
 
 def _write_state(state):
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    from storage.runtime_state_store import save_runtime_record
+
     state["updated_at"] = now_iso()
-    STATE_PATH.write_text(json.dumps(state, indent=2, ensure_ascii=False))
+    save_runtime_record("jobs_worker_state", state)

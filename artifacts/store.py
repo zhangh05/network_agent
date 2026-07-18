@@ -21,8 +21,9 @@ from artifacts.schemas import ArtifactRecord, ArtifactIndex, RunArtifactIndex
 from artifacts.redaction import redact_artifact_content, contains_secret, redact_metadata
 from artifacts.classifier import classify_file
 from storage.schemas import FileRecord
+from storage.atomic_io import atomic_write_json, atomic_write_text
 import logging
-from agent.runtime.utils import now_iso
+from storage.time_utils import now_iso
 
 # Per-workspace locks for artifact record writes (read-modify-write protection)
 _AREC_LOCKS: dict[str, threading.Lock] = {}
@@ -143,10 +144,9 @@ def _load_index(ws_id: str) -> ArtifactIndex:
 
 def _save_index(idx: ArtifactIndex):
     p = _index_path(idx.workspace_id)
-    p.parent.mkdir(parents=True, exist_ok=True)
     idx.updated_at = now_iso()
     idx.artifact_count = len(idx.artifact_ids)
-    p.write_text(json.dumps(idx.as_dict(), indent=2, ensure_ascii=False), encoding="utf-8")
+    atomic_write_json(p, idx.as_dict())
 
 
 def _record_meta_dict(rec: ArtifactRecord) -> dict:
@@ -190,9 +190,9 @@ def _save_artifact_record(rec: ArtifactRecord) -> None:
             if r.get("artifact_id") != rec.artifact_id
         ]
         records.append(_record_meta_dict(rec))
-        p.write_text(
+        atomic_write_text(
+            p,
             "\n".join(json.dumps(r, ensure_ascii=False, default=str) for r in records) + "\n",
-            encoding="utf-8",
         )
 
 
@@ -676,7 +676,7 @@ def _remove_artifact_record_permanently(workspace_id: str, artifact_id: str) -> 
         ]
         path.parent.mkdir(parents=True, exist_ok=True)
         payload = "\n".join(json.dumps(record, ensure_ascii=False, default=str) for record in records)
-        path.write_text(payload + ("\n" if payload else ""), encoding="utf-8")
+        atomic_write_text(path, payload + ("\n" if payload else ""))
         index = _load_index(ws_id)
         index.artifact_ids = [item for item in index.artifact_ids if item != artifact_id]
         _save_index(index)
@@ -700,7 +700,7 @@ def _remove_artifact_from_run_indexes(workspace_id: str, artifact_id: str) -> No
                 data[field] = kept
                 changed = True
         if changed:
-            path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            atomic_write_json(path, data)
 
 
 def _remove_from_knowledge_index(workspace_id: str, artifact_id: str):
@@ -803,9 +803,7 @@ def _update_run_index(ws_id, run_id, art_id, artifact_type, title):
         idx.setdefault("temp_artifacts", []).append(info)
     run_dir = _get_ws_root() / ws_id / "runs"
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / f"{run_id}.artifacts.json").write_text(
-        json.dumps(idx, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    atomic_write_json(run_dir / f"{run_id}.artifacts.json", idx)
 
 
 def _type_dir(artifact_type: str) -> str:

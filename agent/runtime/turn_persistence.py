@@ -14,7 +14,7 @@ _log = logging.getLogger(__name__)
 
 
 def persist_run_record(session, turn, result, context) -> None:
-    """Best-effort: persist this turn to workspace/run_store so that
+    """Best-effort: persist this turn to storage/run_record_store so that
     it shows up in /api/sessions/<id>/messages for plan-C sync.
 
     v1.0.3.1: also writes full user/assistant messages to the

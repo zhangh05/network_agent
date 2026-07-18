@@ -18,7 +18,7 @@ Current anchors:
 - `../../core/tools/tool_namespace_data.py` — public tool namespace (29 IDs).
 - `../../core/tools/manifest_registry.py` — tool manifests.
 - `../../agent/capabilities/catalog.py` — business capability catalog.
-- `../../workspace/memory_governance.py` — MemoryRecord, MemoryStore, MemoryWriteGate.
+- `../../storage/memory_governance.py` — MemoryRecord, MemoryStore, MemoryWriteGate.
 - `../../core/context/unified_retriever.py` — BM25 retrieval engine.
 
 Do not add documents for removed compatibility paths or old tool names.

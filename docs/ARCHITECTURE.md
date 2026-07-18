@@ -85,7 +85,7 @@ Memory is governed by `MemoryWriteGate`. Raw writers are not active paths. Retri
 Key modules:
 - `agent/runtime/memory_write/llm_memory.py` — LLM generation after each turn
 - `agent/runtime/memory_write/llm_gate.py` — LLM quality scoring (1-5)
-- `workspace/memory_governance.py` — MemoryRecord, MemoryStore, MemoryWriteGate
+- `storage/memory_governance.py` — MemoryRecord, MemoryStore, MemoryWriteGate
 - `core/context/context_store.py` — BM25 index for retrieval
 
 ## Prompt Boundary

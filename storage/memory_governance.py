@@ -4,10 +4,12 @@ from __future__ import annotations
 import json, time as _time, hashlib, logging, re, uuid
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Any, Callable, Optional, Literal
 from storage.paths import get_workspace_root
 from storage.atomic_io import atomic_write_json
-from agent.runtime.utils import from_iso, now_iso, to_iso
+from storage.time_utils import from_iso, now_iso, to_iso
+from storage.redaction import contains_secret as storage_contains_secret
+from storage.redaction import redact_dict, redact_text
 
 
 def _ws_root() -> Path:
@@ -32,6 +34,40 @@ _VALID_MEMORY_TYPES = {
     "artifact_summary", "operational_fact", "device_state", "profile", "knowledge_note",
 }
 _MEMORY_ID_RE = re.compile(r"^mem-[a-f0-9]{12}$")
+
+MemoryProjectionHook = Callable[["MemoryRecord"], None]
+MemoryDeleteHook = Callable[[str, str], None]
+MemoryRankHook = Callable[[str, list[dict], int], list[dict]]
+MemoryLLMHook = Callable[["MemoryRecord"], tuple[Optional[bool], list[dict]]]
+MemoryEventHook = Callable[[str, "MemoryRecord", str], None]
+
+_projection_hook: MemoryProjectionHook | None = None
+_delete_hook: MemoryDeleteHook | None = None
+_rank_hook: MemoryRankHook | None = None
+_llm_hook: MemoryLLMHook | None = None
+_event_hook: MemoryEventHook | None = None
+
+
+def configure_memory_hooks(
+    *,
+    projection: MemoryProjectionHook | None = None,
+    delete_projection: MemoryDeleteHook | None = None,
+    rank: MemoryRankHook | None = None,
+    llm_gate: MemoryLLMHook | None = None,
+    event: MemoryEventHook | None = None,
+) -> None:
+    """Register upper-layer services without making storage import them."""
+    global _projection_hook, _delete_hook, _rank_hook, _llm_hook, _event_hook
+    if projection is not None:
+        _projection_hook = projection
+    if delete_projection is not None:
+        _delete_hook = delete_projection
+    if rank is not None:
+        _rank_hook = rank
+    if llm_gate is not None:
+        _llm_hook = llm_gate
+    if event is not None:
+        _event_hook = event
 
 def _now(): return now_iso()
 def _mid(): return f"mem-{uuid.uuid4().hex[:12]}"
@@ -108,56 +144,79 @@ class MemoryStore:
         record.content = _redact(record.content)
         record.summary = _redact(record.summary)
         record.source_ref = _redact(record.source_ref)
-        try:
-            from core.tools.redaction import redact_tool_output
-            record.citations = redact_tool_output(list(record.citations or []))
-            record.metadata = redact_tool_output(dict(record.metadata or {}))
-        except Exception:
-            record.citations = list(record.citations or [])
-            record.metadata = dict(record.metadata or {})
+        record.citations = _redact_structured(list(record.citations or []))
+        record.metadata = _redact_structured(dict(record.metadata or {}))
         d = self._dir(record.workspace_id); d.mkdir(parents=True, exist_ok=True)
         atomic_write_json(self._path(record.workspace_id, record.memory_id), record.to_dict())
 
-        # ContextStore is a retrievable projection, not the memory lifecycle
-        # store. Only active, non-expired records may exist in this index.
+        if _projection_hook is not None:
+            try:
+                _projection_hook(record)
+            except Exception as e:
+                logging.getLogger("memory_governance._save").warning(
+                    "memory projection failed for %s: %s",
+                    record.memory_id, e,
+                )
+        else:
+            self.default_projection_upsert(record)
+
+    def projection_item(self, record: MemoryRecord) -> dict:
+        return {
+            "item_type": "memory_hit",
+            "item_id": f"mh_{record.memory_id}",
+            "workspace_id": record.workspace_id,
+            "source": "memory_governance",
+            "title": record.summary[:200] if record.summary else record.content[:200],
+            "summary": record.summary[:500] if record.summary else record.content[:500],
+            "content": record.content[:2000],
+            "memory_id": record.memory_id,
+            "memory_type": record.memory_type,
+            "confidence": record.confidence,
+            "scope": record.scope,
+            "session_id": record.session_id,
+            "task_id": record.task_id,
+            "expires_at": record.expires_at,
+            "tags": [],
+            "status": record.status,
+            "memory_status": record.status,
+            "confirmation_status": "confirmed",
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+        }
+
+    def default_projection_upsert(self, record: MemoryRecord) -> None:
+        """Persist a storage-owned projection for environments without hooks."""
+        item = self.projection_item(record)
+        if record.is_retrievable():
+            atomic_write_json(
+                _ws_root() / record.workspace_id / "context" / f"mh_{record.memory_id}.json",
+                item,
+            )
+            return
+        path = _ws_root() / record.workspace_id / "context" / f"mh_{record.memory_id}.json"
+        if path.exists():
+            try:
+                path.unlink()
+            except OSError:
+                logging.getLogger("memory_governance._save").warning(
+                    "memory projection delete failed for %s", record.memory_id, exc_info=True,
+                )
+
+    def delete_projection(self, ws_id: str, memory_id: str) -> None:
+        if _delete_hook is not None:
+            try:
+                _delete_hook(ws_id, memory_id)
+                return
+            except Exception as exc:
+                logging.getLogger("memory_governance.delete").warning(
+                    "memory projection hook delete failed for %s: %s", memory_id, exc,
+                )
+        path = _ws_root() / ws_id / "context" / f"mh_{memory_id}.json"
         try:
-            from core.context.context_store import get_context_store
-            store = get_context_store(record.workspace_id)
-            item_id = f"mh_{record.memory_id}"
-            if record.is_retrievable():
-                store.put({
-                    "item_type": "memory_hit",
-                    "item_id": item_id,
-                    "workspace_id": record.workspace_id,
-                    "source": "memory_governance",
-                    "title": record.summary[:200] if record.summary else record.content[:200],
-                    "summary": record.summary[:500] if record.summary else record.content[:500],
-                    "content": record.content[:2000],
-                    "memory_id": record.memory_id,
-                    "memory_type": record.memory_type,
-                    "confidence": record.confidence,
-                    "scope": record.scope,
-                    "session_id": record.session_id,
-                    "task_id": record.task_id,
-                    "expires_at": record.expires_at,
-                    "tags": [],
-                    "status": record.status,
-                    "memory_status": record.status,
-                    "confirmation_status": "confirmed",
-                    "created_at": record.created_at,
-                    "updated_at": record.updated_at,
-                })
-            else:
-                # Do not tombstone a projection that never existed. ContextStore
-                # tombstones are terminal in list projections, so doing this for
-                # a new pending record would prevent later confirmation from
-                # making the same item retrievable.
-                if store.get(item_id) is not None:
-                    store.delete(item_id)
-        except Exception as e:
+            path.unlink(missing_ok=True)
+        except OSError:
             logging.getLogger("memory_governance._save").warning(
-                "ContextStore index failed for memory %s: %s",
-                record.memory_id, e,
+                "memory projection delete failed for %s", memory_id, exc_info=True,
             )
 
     def delete_file(self, ws_id: str, memory_id: str) -> bool:
@@ -170,15 +229,7 @@ class MemoryStore:
             return False
         if p.exists():
             p.unlink()
-            try:
-                from core.context.context_store import get_context_store
-                context_store = get_context_store(ws_id)
-                item_id = f"mh_{memory_id}"
-                context_store.purge({item_id})
-            except Exception as exc:
-                logging.getLogger("memory_governance.delete").warning(
-                    "ContextStore delete failed for memory %s: %s", memory_id, exc,
-                )
+            self.delete_projection(ws_id, memory_id)
             return True
         return False
 
@@ -228,8 +279,9 @@ class MemoryStore:
         records = [record.to_dict() for record in self.list_all(ws_id)]
         if not str(query or "").strip():
             return records[:limit]
-        from core.context.unified_retriever import rank_documents
-        return rank_documents(str(query), records, top_k=limit)
+        if _rank_hook is not None:
+            return _rank_hook(str(query), records, limit)
+        return _rank_records(str(query), records, limit)
 
     def find_conflicts(self, record: MemoryRecord) -> list[MemoryRecord]:
         """Find conflicting records with same scope+type+similar content."""
@@ -444,30 +496,49 @@ def expire_memory(ws_id: str, memory_id: str) -> dict:
 # ── Helpers ──
 
 def _redact(text: str) -> str:
-    try:
-        from core.tools.redaction import redact_string
-        return redact_string(text)
-    except Exception:
-        for kw in _REDACT_KEYS:
-            text = _obfuscate_kv(text, kw)
-        return text
+    return redact_text(str(text or "")).replace("[REDACTED_SECRET]", "[REDACTED]")
+
+
+def _redact_structured(value: Any) -> Any:
+    if isinstance(value, dict):
+        return _normalize_redaction_mask(redact_dict(value))
+    if isinstance(value, list):
+        return [_redact_structured(item) for item in value]
+    if isinstance(value, str):
+        return _redact(value)
+    return value
+
+
+def _normalize_redaction_mask(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _normalize_redaction_mask(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalize_redaction_mask(item) for item in value]
+    if value == "[REDACTED_SECRET]":
+        return "[REDACTED]"
+    if isinstance(value, str):
+        return value.replace("[REDACTED_SECRET]", "[REDACTED]")
+    return value
 
 def _obfuscate_kv(text: str, key: str) -> str:
     import re
     return re.sub(rf'({key}\s*[=:]\s*)(\S+)', r'\1[REDACTED]', text, flags=re.I)
 
 def _contains_secret_pattern(data) -> bool:
-    try:
-        from core.tools.redaction import contains_secret
-        return contains_secret(data)
-    except Exception:
-        import re
-        text = str(data)
-        patterns = [r'sk-[a-zA-Z0-9]{20,}', r'Bearer\s+[a-zA-Z0-9\-_\.]{20,}',
-                    r'AKIA[A-Z0-9]{16}', r'ghp_[a-zA-Z0-9]{36}']
-        for p in patterns:
-            if re.search(p, text): return True
+    return _structured_contains_secret(data)
+
+
+def _structured_contains_secret(data: Any) -> bool:
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if any(marker in str(key).lower() for marker in _REDACT_KEYS):
+                return True
+            if _structured_contains_secret(value):
+                return True
         return False
+    if isinstance(data, list):
+        return any(_structured_contains_secret(item) for item in data)
+    return storage_contains_secret(str(data or ""))
 
 
 def _is_low_value_memory(record: MemoryRecord) -> bool:
@@ -513,43 +584,21 @@ def _llm_gate_record(record: MemoryRecord) -> tuple[Optional[bool], list[dict]]:
     evaluation (stored in candidate.metadata during planning), reuse it
     instead of calling the LLM again.
     """
+    if record.metadata and isinstance(record.metadata, dict):
+        cached_score = record.metadata.get("llm_score")
+        if cached_score is not None:
+            record.metadata["llm_score"] = int(cached_score)
+            cached_keep = record.metadata.get("llm_keep", True)
+            if cached_keep and int(cached_score) >= 3:
+                cached_summary = record.metadata.get("llm_summary", "")
+                if cached_summary:
+                    record.summary = str(cached_summary)[:200]
+                return True, []
+            return False, [{"reason": f"llm_score_too_low ({cached_score})"}]
+    if _llm_hook is None:
+        return None, [{"reason": "llm_gate_unavailable"}]
     try:
-        from agent.runtime.memory_write.llm_gate import MemoryLLMGate
-        from agent.runtime.memory_write.models import MemoryCandidate
-
-        # If planner already evaluated this candidate via batch LLM,
-        # use the cached score — avoid double LLM call
-        if record.metadata and isinstance(record.metadata, dict):
-            cached_score = record.metadata.get("llm_score")
-            if cached_score is not None:
-                record.metadata["llm_score"] = int(cached_score)
-                cached_keep = record.metadata.get("llm_keep", True)
-                if cached_keep and int(cached_score) >= 3:
-                    cached_summary = record.metadata.get("llm_summary", "")
-                    if cached_summary:
-                        record.summary = str(cached_summary)[:200]
-                    return True, []
-                return False, [{"reason": f"llm_score_too_low ({cached_score})"}]
-
-        candidate = MemoryCandidate(
-            candidate_id=record.memory_id,
-            memory_type=record.memory_type,
-            content=record.content,
-            source=record.source,
-            task_id=record.task_id,
-            confidence=record.confidence,
-        )
-        accepted, skipped = MemoryLLMGate().gate([candidate])
-        if accepted:
-            meta = accepted[0].metadata or {}
-            summary = meta.get("summary") or meta.get("llm_summary")
-            if summary:
-                record.summary = str(summary)[:200]
-            record.metadata.update(meta)
-            return True, skipped
-        if any(item.get("reason") == "llm_gate_unavailable" for item in skipped):
-            return None, skipped
-        return False, skipped
+        return _llm_hook(record)
     except Exception:
         return None, [{"reason": "llm_gate_unavailable"}]
 
@@ -579,22 +628,32 @@ def _text_similarity(a: str, b: str) -> float:
     return max(jaccard, containment)
 
 def _emit_event(ws_id: str, rec: MemoryRecord, event_type: str):
+    if _event_hook is None:
+        return
     try:
-        from agent.runtime.durable import RuntimeEvent
-        from agent.runtime.durable.store import append_event
-        append_event(RuntimeEvent(
-            event_id=f"evt-mem-{uuid.uuid4().hex[:8]}",
-            task_id=rec.task_id, workspace_id=ws_id,
-            session_id=rec.session_id, run_id="",
-            type=event_type, status="ok",
-            title=f"Memory {rec.memory_id[:8]}: {event_type}",
-            summary=rec.summary[:200],
-            payload_redacted={"memory_id": rec.memory_id, "memory_type": rec.memory_type},
-        ))
+        _event_hook(ws_id, rec, event_type)
     except Exception:
         logging.getLogger("memory_governance.events").debug(
             "memory lifecycle event append failed", exc_info=True,
         )
+
+
+def _rank_records(query: str, records: list[dict], limit: int) -> list[dict]:
+    terms = _tokens(query)
+    if not terms:
+        return records[:limit]
+
+    def score(record: dict) -> tuple[int, str]:
+        text = " ".join(str(record.get(key, "")) for key in ("summary", "content", "memory_type"))
+        record_terms = _tokens(text)
+        return (len(terms & record_terms), str(record.get("updated_at") or record.get("created_at") or ""))
+
+    ranked = sorted(records, key=score, reverse=True)
+    return [record for record in ranked if score(record)[0] > 0][:limit]
+
+
+def _tokens(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9_./:-]+|[\u4e00-\u9fff]", str(text or "").lower()))
 
 
 def get_memory_gate_mode(workspace_id: str) -> str:

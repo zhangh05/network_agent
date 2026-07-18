@@ -5,7 +5,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Optional
 
-from agent.runtime.utils import now_iso
+from storage.time_utils import now_iso
 
 ARTIFACT_TYPES = {
     "input_config", "output_config", "report",

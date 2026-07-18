@@ -9,7 +9,7 @@ This file is the handoff contract for AI coding agents working in this repositor
 3. All tools must be one of the 24 network-agent canonical IDs in `core/tools/canonical_registry.py` (single source of truth).
 4. `workspace_id` must be explicit and validated at API boundaries. Empty values return 400.
 5. Approval is for high-risk/destructive actions, not for ordinary read/list/query operations.
-6. Memory writes go through `workspace.memory_governance.MemoryWriteGate`.
+6. Memory writes go through `storage.memory_governance.MemoryWriteGate`.
 7. Do not commit runtime data, provider secrets, logs, build output, caches, or workspace contents.
 8. Tool definitions are the single source of truth for tool capabilities — do not hardcode tool lists in prompts.
 
@@ -85,9 +85,9 @@ User input
 
 ## Canonical Tools
 
-There are exactly 23 public tool IDs:
+There are exactly 24 public tool IDs:
 
-`agent.manage`, `browser.manage`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `inspection.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `spawn_config_translate_agent`, `spawn_network_diag_agent`, `spawn_security_agent`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
+`agent.manage`, `assurance.manage`, `browser.manage`, `config.manage`, `data.manage`, `device.manage`, `exec.run`, `inspection.manage`, `knowledge.manage`, `memory.manage`, `pcap.manage`, `report.manage`, `skill.manage`, `spawn_config_translate_agent`, `spawn_network_diag_agent`, `spawn_security_agent`, `system.manage`, `text.analyze`, `web.manage`, `workspace.artifact`, `workspace.document.pdf.extract_text`, `workspace.file`, `workspace.filestore`, `workspace.metadata.get`
 
 If a change needs a new operation, add it behind an existing canonical tool unless there is a strong product reason to create a new public tool.
 

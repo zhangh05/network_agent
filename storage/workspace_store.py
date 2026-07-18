@@ -80,7 +80,6 @@ def update_workspace_state(ws_id: str, patch: dict) -> dict:
 
 
 def list_workspaces() -> list[dict]:
-    ensure_workspace("default")
     workspaces: list[dict] = []
     base = get_workspace_root()
     if not base.is_dir():
@@ -248,32 +247,65 @@ def _count_sessions(ws_id: str) -> int:
 
 def _count_artifacts(ws_id: str) -> int:
     ws_id = validate_workspace_id(ws_id)
-    try:
-        from artifacts.store import list_artifacts
-
-        return len(list_artifacts(ws_id, include_deleted=False))
-    except Exception:
+    path = workspace_root(ws_id) / "index" / "artifacts.jsonl"
+    if not path.is_file():
         return 0
+    count = 0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict) and data.get("lifecycle", "active") != "deleted":
+            count += 1
+    return count
 
 
 def _count_knowledge_sources(ws_id: str) -> int:
     ws_id = validate_workspace_id(ws_id)
-    try:
-        from core.context.context_store import get_context_store
-
-        return get_context_store(ws_id).count(item_type="knowledge_source")
-    except Exception:
-        return 0
+    return _count_context_items(ws_id, "knowledge_source")
 
 
 def _count_memory(ws_id: str) -> int:
     ws_id = validate_workspace_id(ws_id)
-    try:
-        from core.context.context_store import get_context_store
+    memory_dir = workspace_root(ws_id) / "memory"
+    if memory_dir.is_dir():
+        count = 0
+        for path in memory_dir.glob("*.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if data.get("status") == "active":
+                count += 1
+        return count
+    return _count_context_items(ws_id, "memory_hit")
 
-        return get_context_store(ws_id).count(item_type="memory_hit")
-    except Exception:
+
+def _count_context_items(ws_id: str, item_type: str) -> int:
+    context_dir = workspace_root(ws_id) / "context"
+    if not context_dir.is_dir():
         return 0
+    count = 0
+    for path in context_dir.glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if data.get("item_type") == item_type and data.get("deleted_at", "") == "":
+            count += 1
+    items_path = context_dir / "items.jsonl"
+    if items_path.is_file():
+        latest: dict[str, dict] = {}
+        for line in items_path.read_text(encoding="utf-8").splitlines():
+            try:
+                data = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(data, dict) and data.get("item_type") == item_type:
+                latest[str(data.get("item_id", ""))] = data
+        count += sum(1 for data in latest.values() if data.get("deleted_at", "") == "")
+    return count
 
 
 def _workspace_display_name(ws_id: str) -> str:

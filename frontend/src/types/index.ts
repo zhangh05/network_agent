@@ -438,7 +438,7 @@ export interface Session {
 /* ────────────────────────── SessionMessage ──────────────────────────
  *
  * Wire shape from GET /api/sessions/<id>/messages (see
- * workspace/session_store.py::get_session_messages). The backend
+ * storage/session_store.py::get_session_messages). The backend
  * reconstructs chat messages from run records (one user + one assistant
  * per run). Frontend maps these to ChatMsg in the workbench store.
  *

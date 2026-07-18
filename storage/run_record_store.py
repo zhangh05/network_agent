@@ -86,6 +86,45 @@ def write_run_record(state: SimpleNamespace, workspace_id: str = "default") -> s
     return run_id
 
 
+def write_sub_agent_run(
+    *,
+    ws_id: str,
+    child_session_id: str,
+    parent_run_id: str,
+    child_run_id: str,
+    instruction: str,
+    ok: bool,
+    final_response: str = "",
+    tool_calls_count: int = 0,
+    steps: int = 0,
+    visible_tool_ids: list[str] | None = None,
+) -> str:
+    """Persist a child-agent run record without depending on legacy stores."""
+    run_id = validate_run_id(child_run_id)
+    record = {
+        "run_id": run_id,
+        "workspace_id": ws_id,
+        "session_id": str(child_session_id or ""),
+        "child_session_id": str(child_session_id or ""),
+        "parent_run_id": validate_run_id(parent_run_id),
+        "child_run_id": run_id,
+        "is_sub_agent": True,
+        "created_at": _now_iso(),
+        "started_at": _now_iso(),
+        "finished_at": _now_iso(),
+        "status": "ok" if ok else "error",
+        "user_input_summary": redact_text(str(instruction or ""))[:120],
+        "final_response_summary": redact_text(str(final_response or ""))[:300],
+        "tool_calls_count": max(0, int(tool_calls_count or 0)),
+        "steps": max(0, int(steps or 0)),
+        "visible_tool_ids": [str(item) for item in (visible_tool_ids or [])[:50]],
+        "sensitivity": "internal",
+        "redaction_applied": True,
+    }
+    atomic_save_json(ws_id, ("runs", f"{run_id}.json"), record)
+    return run_id
+
+
 def save_trace_record(workspace_id: str, run_id: str, record: dict[str, Any]) -> None:
     rid = validate_run_id(run_id)
     atomic_save_json(workspace_id, ("runs", f"{rid}.trace.json"), record)

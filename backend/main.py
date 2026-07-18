@@ -72,6 +72,8 @@ def _validated_workspace_id(raw=""):
 def create_app():
     app = Flask(__name__, static_folder=None)
     app.config["PORT"] = UNIFIED_PORT
+    from agent.runtime.memory_hooks import install_memory_governance_hooks
+    install_memory_governance_hooks()
 
     # ── CORS: allow configured workbench origins (Vite / LAN access) ──
     def _allowed_cors_origin():

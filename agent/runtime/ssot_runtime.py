@@ -266,8 +266,10 @@ def _write_turn_memories(
 ) -> None:
     gate_mode = "rule_only"
     try:
+        from agent.runtime.memory_hooks import install_memory_governance_hooks
         from storage.memory_governance import MemoryRecord, MemoryWriteGate, get_memory_gate_mode
 
+        install_memory_governance_hooks()
         gate_mode = get_memory_gate_mode(workspace_id)
         items: list[dict] = []
 

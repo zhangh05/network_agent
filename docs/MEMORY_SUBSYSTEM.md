@@ -35,7 +35,7 @@ Only `active`, non-expired records are retrievable. User-confirmed records may b
 
 ## Write Gate
 
-Every production write reaches `workspace.memory_governance.MemoryWriteGate`:
+Every production write reaches `storage.memory_governance.MemoryWriteGate`:
 
 1. Validate workspace, gate mode, scope, type, and scope identifiers.
 2. Detect secrets before redaction.

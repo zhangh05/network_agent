@@ -8,10 +8,10 @@ All durable user and Agent payloads live in `files/data/`. `files/tmp/` is trans
 
 | Store | Module |
 | --- | --- |
-| Sessions | `workspace/session_store.py` |
-| Messages | `workspace/message_store.py` |
-| Runs | `workspace/run_store.py` |
-| Memory | `workspace/memory_governance.py` |
+| Sessions | `storage/session_store.py` |
+| Messages | `storage/message_store.py` |
+| Runs | `storage/run_record_store.py` |
+| Memory | `storage/memory_governance.py` |
 | Artifacts | `artifacts/store.py` |
 | Generic workspace records | `storage/records.py` |
 | Workspace discovery | `storage/workspace_store.py` |
@@ -24,9 +24,9 @@ All durable user and Agent payloads live in `files/data/`. `files/tmp/` is trans
 | Run record facade | `storage/run_record_store.py` |
 | Session checkpoints | `storage/session_checkpoint_store.py` |
 | Tool execution history | `storage/tool_history_store.py` |
-| Jobs | `jobs/store.py` |
-| Durable runtime | `agent/runtime/durable/store.py` |
-| Tool history | `backend/api/runtime_routes.py` |
+| Jobs | `jobs/store.py` through `storage/records.py` |
+| Durable runtime | `agent/runtime/durable/store.py` through storage path helpers |
+| Tool history | `storage/tool_history_store.py` |
 
 ## Current Guarantees
 

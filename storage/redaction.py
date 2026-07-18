@@ -48,7 +48,10 @@ def redact_dict(data: dict) -> dict:
         return data
     result = {}
     for key, value in data.items():
-        if any(marker in str(key).lower() for marker in ["password", "secret", "key", "token", "community"]):
+        if any(marker in str(key).lower() for marker in [
+            "password", "secret", "key", "token", "community",
+            "authorization", "auth", "credential",
+        ]):
             result[key] = MASK
         elif isinstance(value, dict):
             result[key] = redact_dict(value)

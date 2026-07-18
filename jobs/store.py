@@ -1,7 +1,7 @@
 # jobs/store.py
 """Job store — CRUD for jobs, events, logs in workspace directories."""
 
-import json, os, time, shutil
+import json, shutil
 import logging
 from pathlib import Path
 from typing import Optional
@@ -12,7 +12,9 @@ from jobs.redaction import (
     sanitize_job_event_for_storage, sanitize_job_event_for_api,
     sanitize_job_log_for_storage, sanitize_job_log_for_api,
 )
-from agent.runtime.utils import now_iso
+from storage.time_utils import now_iso
+from storage.atomic_io import atomic_write_json
+from storage.records import append_jsonl, read_jsonl
 
 _LOG = logging.getLogger("jobs.store")
 
@@ -44,7 +46,7 @@ def create_job(rec: JobRecord) -> JobRecord:
     d = _ensure(rec.workspace_id, rec.job_id)
     # Sanitize before writing to disk
     safe = sanitize_job_record_for_storage(rec.as_dict())
-    _write_atomic(d / f"{rec.job_id}.json", json.dumps(safe, indent=2, ensure_ascii=False))
+    atomic_write_json(d / f"{rec.job_id}.json", safe)
     # Apply sanitization to rec before returning
     for k, v in safe.items():
         if hasattr(rec, k):
@@ -84,7 +86,7 @@ def update_job(ws_id, job_id, patch: dict) -> Optional[JobRecord]:
     rec.updated_at = now_iso()
     d = _ensure(ws_id, job_id)
     safe = sanitize_job_record_for_storage(rec.as_dict())
-    _write_atomic(d / f"{job_id}.json", json.dumps(safe, indent=2, ensure_ascii=False))
+    atomic_write_json(d / f"{job_id}.json", safe)
     for k, v in safe.items():
         if hasattr(rec, k):
             setattr(rec, k, v)
@@ -161,47 +163,26 @@ def delete_job(ws_id, job_id, soft=True) -> bool:
 
 def append_event(ws_id, job_id, event: JobEvent) -> JobEvent:
     _ensure(ws_id, job_id)
-    p = _job_dir(ws_id, job_id) / f"{job_id}.events.jsonl"
-    with open(p, "a", encoding="utf-8") as f:
-        f.write(json.dumps(sanitize_job_event_for_storage(event.as_dict()), ensure_ascii=False) + "\n")
+    append_jsonl(ws_id, ("jobs", job_id, f"{job_id}.events.jsonl"),
+                 sanitize_job_event_for_storage(event.as_dict()))
     return event
 
 
 def list_events(ws_id, job_id, limit=200) -> list:
-    p = _job_dir(ws_id, job_id) / f"{job_id}.events.jsonl"
-    if not p.is_file(): return []
-    events = []
-    for line in p.read_text().strip().split("\n"):
-        if not line: continue
-        try:
-            events.append(json.loads(line))
-        except Exception:
-            _LOG.warning("jobs.store: silent exception", exc_info=True)
-    return events[-limit:]
+    return read_jsonl(ws_id, ("jobs", job_id, f"{job_id}.events.jsonl"))[-limit:]
 
 
 def append_log(ws_id, job_id, message, level="info", meta=None):
     _ensure(ws_id, job_id)
-    p = _job_dir(ws_id, job_id) / f"{job_id}.log.jsonl"
     entry = {"ts": now_iso(), "level": level,
              "msg": message[:1000], "meta": meta or {}}
     # Sanitize before writing
     safe = sanitize_job_log_for_storage(entry)
-    with open(p, "a", encoding="utf-8") as f:
-        f.write(json.dumps(safe, ensure_ascii=False) + "\n")
+    append_jsonl(ws_id, ("jobs", job_id, f"{job_id}.log.jsonl"), safe)
 
 
 def list_logs(ws_id, job_id, limit=200) -> list:
-    p = _job_dir(ws_id, job_id) / f"{job_id}.log.jsonl"
-    if not p.is_file(): return []
-    logs = []
-    for line in p.read_text().strip().split("\n"):
-        if not line: continue
-        try:
-            logs.append(json.loads(line))
-        except Exception:
-            _LOG.warning("jobs.store: silent exception", exc_info=True)
-    return logs[-limit:]
+    return read_jsonl(ws_id, ("jobs", job_id, f"{job_id}.log.jsonl"))[-limit:]
 
 
 def get_next_queued_job() -> Optional[JobRecord]:
@@ -230,13 +211,7 @@ def _update_index(ws_id, rec):
     if rec.job_id not in idx.setdefault("job_ids", []):
         idx["job_ids"].append(rec.job_id)
     idx["updated_at"] = now_iso()
-    p.write_text(json.dumps(idx, indent=2, ensure_ascii=False))
-
-def _write_atomic(path, content):
-    tmp = str(path) + ".tmp." + str(int(time.time()))
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(content)
-    os.replace(tmp, str(path))
+    atomic_write_json(p, idx)
 
 def _update_workspace_stats(ws_id):
     """Update workspace state with job counts."""

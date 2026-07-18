@@ -47,7 +47,7 @@ jobs:
 
       - name: Lint with ruff
         run: |
-          ruff check . --ignore=E501,W291 --exclude=__pycache__,.git,venv,node_modules || true
+          ruff check . --select=E9 --exclude=__pycache__,.git,venv,node_modules
       - name: Check CSS tokens
         run: |
           python scripts/check_css_tokens.py
@@ -69,7 +69,8 @@ jobs:
           if errors:
               for e in errors[:20]:
                   print(e)
-          " || true
+              sys.exit(1)
+          "
 
   windows-smoke:
     runs-on: windows-latest

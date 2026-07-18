@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import io
+import ast
 
 
 def test_new_workspace_creates_current_storage_dirs(monkeypatch, tmp_path):
@@ -83,3 +84,38 @@ def test_text_artifact_upload_reuses_one_file_record(monkeypatch, tmp_path):
     active = list_files("upload_ws")
     assert len(active) == 1
     assert active[0]["file_id"] == body["artifact"]["file_id"]
+
+
+def test_storage_layer_has_no_control_plane_imports():
+    project_root = Path(__file__).resolve().parents[1]
+    forbidden = {"agent", "artifacts", "backend", "core", "jobs"}
+    violations: list[str] = []
+    for path in sorted((project_root / "storage").glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            module = ""
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                names = [node.module or ""]
+            else:
+                continue
+            for name in names:
+                module = name.split(".", 1)[0]
+                if module in forbidden:
+                    violations.append(f"{path.relative_to(project_root)} imports {name}")
+    assert violations == []
+
+
+def test_jsonl_transaction_is_reentrant(monkeypatch, tmp_path):
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
+    from storage.records import append_jsonl, jsonl_transaction, read_jsonl, rewrite_jsonl
+
+    parts = ("cmdb", "assets.jsonl")
+    append_jsonl("lock_ws", parts, {"asset_id": "a1", "name": "PE1"})
+    with jsonl_transaction("lock_ws", parts):
+        rows = read_jsonl("lock_ws", parts)
+        rows.append({"asset_id": "a2", "name": "PE2"})
+        rewrite_jsonl("lock_ws", parts, rows)
+
+    assert [row["asset_id"] for row in read_jsonl("lock_ws", parts)] == ["a1", "a2"]

@@ -234,21 +234,21 @@ class SessionMessageStore:
     # ── Artifact storage for large content ──
 
     def _write_artifact(self, content: str, role: str, run_id: str) -> dict:
-        """Write content > ARTIFACT_THRESHOLD as a managed artifact.
-
-        Returns a dict with artifact_id, file_id, etc.
-        """
+        """Write content > ARTIFACT_THRESHOLD as a managed file reference."""
         try:
-            from artifacts.store import save_artifact
+            from storage.file_store import write_agent_output
+            from storage.reference_index import add_reference
+
             title = f"Large message: {run_id}:{role}"
-            rec = save_artifact(
+            rec = write_agent_output(
                 workspace_id=self.ws_id,
                 content=content,
-                artifact_type="message_large_content",
+                logical_type="message_large_content",
+                file_kind="txt",
                 title=title,
-                scope="session",
                 sensitivity="internal",
                 run_id=run_id,
+                source="message_store",
                 metadata={
                     "session_id": self.session_id,
                     "role": role,
@@ -256,17 +256,30 @@ class SessionMessageStore:
                 },
             )
             if rec:
-                try:
-                    from storage.reference_index import add_reference
-                    if rec.file_id:
-                        add_reference(self.ws_id, rec.file_id, "message",
-                                      f"{run_id}:{role}", "large_content",
-                                      metadata={"artifact_id": rec.artifact_id,
-                                                 "session_id": self.session_id})
-                except Exception:
-                    pass
+                from storage.artifact_metadata_store import create_artifact_metadata
+
+                artifact = create_artifact_metadata(
+                    workspace_id=self.ws_id,
+                    file_record=rec,
+                    artifact_type="message_large_content",
+                    title=title,
+                    scope="session",
+                    sensitivity="internal",
+                    run_id=run_id,
+                    session_id=self.session_id,
+                    source="message_store",
+                    metadata={
+                        "session_id": self.session_id,
+                        "role": role,
+                        "storage_managed": True,
+                    },
+                )
+                add_reference(self.ws_id, rec.file_id, "message",
+                              f"{run_id}:{role}", "large_content",
+                              metadata={"artifact_id": artifact["artifact_id"],
+                                        "session_id": self.session_id})
                 return {
-                    "artifact_id": rec.artifact_id,
+                    "artifact_id": artifact["artifact_id"],
                     "file_id": rec.file_id,
                     "artifact_type": "message_large_content",
                     "title": title,
@@ -303,12 +316,12 @@ def _sanitize_assistant_content(content: str) -> str:
     """
     if not content:
         return ""
-    try:
-        from agent.llm.runtime import sanitize_provider_output
-        cleaned, _ = sanitize_provider_output(str(content))
-        return cleaned if isinstance(cleaned, str) else ""
-    except Exception:
-        return ""
+    text = str(content)
+    text = re.sub(r"<think\b[^>]*>.*?</think>", "", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<reasoning\b[^>]*>.*?</reasoning>", "", text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"(?ism)^\s*(reasoning|思考过程)\s*[:：].*?(?=\n\s*(answer|回答|结论)\s*[:：]|\Z)", "", text)
+    text = re.sub(r"(?i)</?(think|reasoning)\b[^>]*>", "", text)
+    return text.strip()
 
 
 def _atomic_write(path: Path, data: dict) -> None:

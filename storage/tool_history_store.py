@@ -7,8 +7,9 @@ from typing import Any
 
 from storage.atomic_io import atomic_write_json, safe_read_json
 from storage.ids import validate_workspace_id
+from storage.paths import get_workspace_root
 
-_DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
+_RUNTIME_WS = "_runtime"
 
 
 def save_history(workspace_id: str, entries: list[dict[str, Any]]) -> None:
@@ -22,5 +23,6 @@ def load_history(workspace_id: str) -> list[dict[str, Any]]:
 
 def _history_path(workspace_id: str) -> Path:
     safe_ws = validate_workspace_id(workspace_id)
-    _DATA_ROOT.mkdir(parents=True, exist_ok=True)
-    return _DATA_ROOT / f"tool_history_{safe_ws}.json"
+    data_root = get_workspace_root() / _RUNTIME_WS / "tool_history"
+    data_root.mkdir(parents=True, exist_ok=True)
+    return data_root / f"{safe_ws}.json"

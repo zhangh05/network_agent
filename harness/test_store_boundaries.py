@@ -168,7 +168,7 @@ class TestRunStoreWriteSafety:
     def test_write_run_record_excludes_sensitive(self):
         """write_run_record serialized output must not include sensitive fields."""
         import inspect
-        from workspace import run_store as rs
+        from storage import run_record_store as rs
 
         source = inspect.getsource(rs.write_run_record)
 
