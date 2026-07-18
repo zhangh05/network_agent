@@ -6,7 +6,6 @@ import logging
 import os
 import threading
 from collections import OrderedDict
-from pathlib import Path
 
 from flask import jsonify, request
 
@@ -21,12 +20,6 @@ _tool_exec_history: dict[str, OrderedDict] = {}  # ws_id -> OrderedDict
 _lock = threading.Lock()
 
 
-def _history_path(ws_id: str) -> Path:
-    from workspace.ids import validate_workspace_id
-    safe_ws = validate_workspace_id(ws_id)
-    return Path(__file__).resolve().parent.parent.parent / 'data' / f'tool_history_{safe_ws}.json'
-
-
 def _persist_history(ws_id: str):
     # v5.0.0: write through workspace.atomic_io for crash-safe persistence
     # (was a non-atomic open(...).write(...), which could leave the JSON
@@ -34,8 +27,8 @@ def _persist_history(ws_id: str):
     with _lock:
         snapshot = list(_tool_exec_history.get(ws_id, OrderedDict()).values())
     try:
-        from workspace.atomic_io import atomic_write_json
-        atomic_write_json(_history_path(ws_id), snapshot, indent=2)
+        from storage.tool_history_store import save_history
+        save_history(ws_id, snapshot)
     except Exception:
         _LOG.warning("_persist_history atomic write failed (non-fatal)", exc_info=True)
 
@@ -46,9 +39,8 @@ def _ensure_ws_history(ws_id: str) -> OrderedDict:
         if ws_id not in _tool_exec_history:
             _tool_exec_history[ws_id] = OrderedDict()
     # Load persisted entries (outside lock — only reads)
-    from workspace.atomic_io import safe_read_json
-    hp = _history_path(ws_id)
-    items = safe_read_json(hp, default=[]) or []
+    from storage.tool_history_store import load_history
+    items = load_history(ws_id)
     if isinstance(items, list):
         with _lock:
             ws_hist = _tool_exec_history[ws_id]

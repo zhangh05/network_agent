@@ -267,7 +267,7 @@ def register_workspace_routes(app):
             if err:
                 return err
 
-        from workspace.run_store import list_runs, run_sort_key
+        from storage.run_record_store import list_runs, run_sort_key
         from workspace.session_store import get_session, list_sessions
 
         # Fetch more runs than needed to account for filtering
@@ -342,7 +342,7 @@ def register_workspace_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        from workspace.run_store import get_run
+        from storage.run_record_store import get_run
         result = get_run(run_id, ws_id)
         if not result:
             return jsonify({"ok": False, "error": "run not found"}), 404
@@ -356,7 +356,7 @@ def register_workspace_routes(app):
         limit, err = _validated_limit(default=100, max_value=500)
         if err:
             return err
-        from workspace.run_store import list_runs
+        from storage.run_record_store import list_runs
         return jsonify({"runs": list_runs(ws_id, limit=limit)})
 
     @app.route("/api/workspaces/<ws_id>/history")
@@ -367,7 +367,7 @@ def register_workspace_routes(app):
         limit, err = _validated_limit(default=100, max_value=500)
         if err:
             return err
-        from workspace.run_store import list_runs, run_sort_key
+        from storage.run_record_store import list_runs, run_sort_key
         runs = sorted(list_runs(ws_id, limit=limit), key=run_sort_key, reverse=True)
         return jsonify({"workspace_id": ws_id, "runs": runs, "count": len(runs)})
 
@@ -376,7 +376,7 @@ def register_workspace_routes(app):
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
-        from workspace.run_store import get_run
+        from storage.run_record_store import get_run
         result = get_run(run_id, ws_id)
         if not result:
             return jsonify({"ok": False, "error": "run not found"}), 404

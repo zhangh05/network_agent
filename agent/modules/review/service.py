@@ -24,9 +24,9 @@ sidecar only. translated_config is preserved verbatim.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
-from pathlib import Path
+
+from storage import review_store
 
 
 VALID_STATUSES = {"pending", "accepted", "ignored", "modified"}
@@ -76,25 +76,6 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _ws_root() -> Path:
-    """Workspace root. Mirrors artifacts.store._get_ws_root() but
-    respects monkey-patches (e.g. harness/conftest.py) by reading the
-    workspace.manager.WS_ROOT at call time, not import time.
-    """
-    try:
-        import workspace.manager as wm
-        return wm.WS_ROOT
-    except Exception:
-        from artifacts.store import _get_ws_root
-        return _get_ws_root()
-
-
-def _sidecar_path(workspace_id: str, artifact_id: str) -> Path:
-    # Validate artifact_id to prevent path traversal
-    safe_id = _validate_artifact_id(artifact_id)
-    return _ws_root() / workspace_id / "sys/reviews" / f"{safe_id}.json"
-
-
 def _validate_artifact_id(artifact_id: str) -> str:
     """Ensure artifact_id is safe for use in file paths."""
     clean = str(artifact_id).strip()
@@ -104,13 +85,11 @@ def _validate_artifact_id(artifact_id: str) -> str:
 
 
 def _load_sidecar(workspace_id: str, artifact_id: str) -> dict:
-    p = _sidecar_path(workspace_id, artifact_id)
-    if not p.exists():
-        return {"workspace_id": workspace_id, "artifact_id": artifact_id,
-                "items": {}, "updated_at": _now_iso()}
     try:
-        with open(p, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        data = review_store.load_sidecar(workspace_id, _validate_artifact_id(artifact_id))
+        if data is None:
+            return {"workspace_id": workspace_id, "artifact_id": artifact_id,
+                    "items": {}, "updated_at": _now_iso()}
         if not isinstance(data, dict):
             return {"workspace_id": workspace_id, "artifact_id": artifact_id,
                     "items": {}, "updated_at": _now_iso()}
@@ -122,11 +101,8 @@ def _load_sidecar(workspace_id: str, artifact_id: str) -> dict:
 
 
 def _save_sidecar(workspace_id: str, artifact_id: str, data: dict) -> None:
-    p = _sidecar_path(workspace_id, artifact_id)
-    p.parent.mkdir(parents=True, exist_ok=True)
     data["updated_at"] = _now_iso()
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    review_store.save_sidecar(workspace_id, _validate_artifact_id(artifact_id), data)
 
 
 def _get_artifact_meta_items(workspace_id: str, artifact_id: str) -> list:

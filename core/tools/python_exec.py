@@ -11,13 +11,8 @@ import ast
 import os
 import subprocess
 import sys
-import uuid
-from pathlib import Path
 
-from core.tools.path_security import safe_workspace_path, PathSecurityError
-
-ROOT = Path(__file__).resolve().parents[2]
-WS_ROOT = ROOT / "workspaces"
+from storage.records import workspace_record_dir
 
 # ── Safe environment allowlist ──
 # Only these environment variables are passed to the subprocess.
@@ -224,8 +219,7 @@ def execute_python_code(code: str, workspace_id: str, run_id: str,
 
     # ── 3. Setup temp directory and script path ──
     safe_run_id = re.sub(r"[^a-zA-Z0-9_-]", "_", str(run_id) or "unknown") or "unknown"
-    temp_dir = WS_ROOT / workspace_id / "sys" / "tmp" / "python_exec" / safe_run_id
-    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_dir = workspace_record_dir(workspace_id, "sys", "tmp", "python_exec", safe_run_id)
 
     script_path = temp_dir / "script.py"
 

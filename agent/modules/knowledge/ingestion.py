@@ -90,12 +90,6 @@ def _now_iso() -> str:
 
 # ── Path security ──
 
-def _ws_root() -> Path:
-    """Workspace root for managed storage."""
-    from storage.paths import get_workspace_root
-    return get_workspace_root()
-
-
 def _allowed_import_roots(workspace_id: str) -> List[Path]:
     """Allowlist of directories import_file will accept from.
 
@@ -103,12 +97,8 @@ def _allowed_import_roots(workspace_id: str) -> List[Path]:
       - workspace/{ws_id}/files/  (explicit user upload)
       - workspace/{ws_id}/inbox/    (staging area)
     """
-    base = _ws_root() / workspace_id
-    return [
-        base / "files" / "data",
-        base / "files" / "tmp",
-        base / "inbox",
-    ]
+    from storage.workspace_files import allowed_import_roots
+    return allowed_import_roots(workspace_id)
 
 
 def _validate_import_path(workspace_id: str, path: Union[str, Path]) -> dict:

@@ -227,23 +227,8 @@ def _handle_inspection_managed(inv: ToolInvocation) -> dict:
         )
     if not session_id and inv.run_id:
         try:
-            # Check run record (.json, written after turn) and trace (.trace.json, written at turn start)
-            from pathlib import Path as _P
-            import json as _json
-            ws_root = _P(__file__).resolve().parent.parent.parent / "workspaces"
-            rid = str(inv.run_id)
-            for suffix in (".json", ".trace.json"):
-                p = ws_root / ws / "runs" / f"{rid}{suffix}"
-                if p.is_file():
-                    try:
-                        data = _json.loads(p.read_text())
-                        sid = data.get("session_id", "") if isinstance(data, dict) else ""
-                        if sid:
-                            session_id = sid
-                            break
-                    except Exception:
-                        import logging as _sj
-                        _sj.getLogger(__name__).debug("inspection session_id trace read failed for %s", p, exc_info=True)
+            from storage.run_record_store import get_run_session_id
+            session_id = get_run_session_id(ws, str(inv.run_id))
         except Exception:
             import logging as _sil
             _sil.getLogger(__name__).warning(
@@ -2022,23 +2007,9 @@ def handle_audit_log_query(inv: ToolInvocation) -> dict:
     log_level = str(args.get("log_level", "info")).lower()
     limit = max(1, min(int(args.get("limit", 20) or 20), 100))
     try:
-        import json
-        from storage.paths import workspace_root
+        from storage.audit_store import list_audit_entries
         ws_id = _inv_workspace(inv)
-        log_dir = workspace_root(ws_id) / "audit"
-        files = sorted(log_dir.glob("*.json"))[-limit:] if log_dir.exists() else []
-        entries = []
-        for f in files:
-            try:
-                parsed = json.loads(f.read_text(encoding="utf-8")[:20000])
-                level = str(parsed.get("level", parsed.get("severity", "info"))).lower() if isinstance(parsed, dict) else "info"
-                if log_level == "error" and level != "error":
-                    continue
-                if log_level == "warn" and level not in {"warn", "warning", "error"}:
-                    continue
-                entries.append(parsed)
-            except Exception:
-                logger.debug("handle_audit_log_query: <pass>", exc_info=True)
+        entries = list_audit_entries(ws_id, log_level=log_level, limit=limit)
         return {"ok": True, "entries": entries, "count": len(entries)}
     except Exception as e:
         return {"ok": True, "entries": [], "count": 0, "note": f"Audit log not available: {e}"}

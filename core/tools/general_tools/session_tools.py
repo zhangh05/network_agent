@@ -75,7 +75,7 @@ def handle_run_list_recent(inv: ToolInvocation) -> dict:
     limit = min(int(inv.arguments.get("limit", 5)), 20)
     try:
         validate_workspace_id(ws)
-        from workspace.run_store import list_runs
+        from storage.run_record_store import list_runs
         runs = list_runs(ws, limit=limit)
         results = []
         for r in runs:
@@ -94,7 +94,7 @@ def handle_run_get_summary(inv: ToolInvocation) -> dict:
     run_id = inv.arguments.get("run_id", "")
     try:
         validate_workspace_id(ws)
-        from workspace.run_store import get_run
+        from storage.run_record_store import get_run
         r = get_run(run_id, ws)
         if not r:
             return _error_inv(inv, "run not found")
@@ -187,9 +187,6 @@ def handle_session_checkpoint(inv: ToolInvocation) -> dict:
             return _error_inv(inv, "session not found")
         import uuid
         cid = str(uuid.uuid4())[:8]
-        from workspace.manager import WS_ROOT
-        checkpoints_dir = WS_ROOT / ws / "sessions" / sid / "checkpoints"
-        checkpoints_dir.mkdir(parents=True, exist_ok=True)
         messages = s.get("messages", [])
         checkpoint = {
             "checkpoint_id": cid,
@@ -201,13 +198,8 @@ def handle_session_checkpoint(inv: ToolInvocation) -> dict:
             "artifact_refs": s.get("artifact_refs", []),
             "created_at": now_iso(),
         }
-        checkpoint_path = checkpoints_dir / f"{cid}.json"
-        # P1 fix (round 7): write checkpoint atomically. A crash mid-write
-        # previously left a truncated JSON file that subsequent loads
-        # raised on; atomic_write_json via workspace.atomic_io gives us
-        # tmp+os.replace with pid+uuid tmp names.
-        from workspace.atomic_io import atomic_write_json
-        atomic_write_json(checkpoint_path, checkpoint)
+        from storage.session_checkpoint_store import save_checkpoint
+        save_checkpoint(ws, sid, cid, checkpoint)
         return _ok(inv, "", {
             "checkpoint_id": cid,
             "message_count": len(messages),

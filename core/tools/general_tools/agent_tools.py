@@ -202,7 +202,7 @@ def handle_agent_get_result(inv: ToolInvocation) -> dict:
 
         # Fall back to run records
         try:
-            from workspace.run_store import list_runs
+            from storage.run_record_store import list_runs
             runs = list_runs(ws, session_id=child_session_id, limit=10)
             if runs:
                 return _ok(inv, "", {

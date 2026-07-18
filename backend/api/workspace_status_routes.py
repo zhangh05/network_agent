@@ -25,9 +25,8 @@ def register_workspace_status_routes(app):
                       "storage_health": "unknown", "index_health": "unknown"}
 
         # Check workspace exists
-        from storage.paths import workspace_root
-        ws = workspace_root(ws_id)
-        if not ws.is_dir():
+        from storage.status_store import index_health, workspace_exists
+        if not workspace_exists(ws_id):
             body, code = error_response("WORKSPACE_NOT_FOUND", "workspace not found", 404)
             return jsonify(body), code
         data["workspace_exists"] = True
@@ -56,21 +55,13 @@ def register_workspace_status_routes(app):
 
         # PCAP session count
         try:
-            idx_path = ws / "index" / "pcap_sessions.jsonl"
-            if idx_path.exists():
-                lines = [l for l in idx_path.read_text(encoding="utf-8").strip().split("\n") if l.strip()]
-                data["pcap_session_count"] = len(lines)
+            from storage.pcap_store import list_sessions
+            data["pcap_session_count"] = len(list_sessions(ws_id, limit=10000))
         except Exception:
             pass
 
         # Index health
-        for idx_name in ("files.jsonl", "references.jsonl", "artifacts.jsonl"):
-            idx = ws / "index" / idx_name
-            if idx.exists() and idx.is_file():
-                data["index_health"] = "ok"
-                break
-        else:
-            data["index_health"] = "missing"
+        data["index_health"] = index_health(ws_id)
 
         # Storage health
         if data["file_count"] > 0 or data["index_health"] == "ok":

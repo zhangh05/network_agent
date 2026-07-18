@@ -105,24 +105,19 @@ def handle_file_write_agent_output(
 
 def handle_file_import_workspace_path(inv, *, filepath: str = "") -> dict[str, Any]:
     """Import a workspace-managed file into FileStore."""
-    from pathlib import Path
     from storage.file_store import import_user_upload
-    from storage.paths import workspace_root
+    from storage.workspace_files import resolve_importable_workspace_path
 
     if not filepath:
         return _fail("workspace.filestore", "filepath_required")
 
     ws = getattr(inv, "workspace_id", None) or ""
-    root = workspace_root(ws)
-    target = (root / filepath).resolve()
     try:
-        target.relative_to(root)
-    except ValueError:
+        target = resolve_importable_workspace_path(ws, filepath)
+    except ValueError as exc:
+        if str(exc) == "path_not_allowed":
+            return _fail("workspace.filestore", "path_not_allowed", filepath=filepath)
         return _fail("workspace.filestore", "path_not_in_workspace", filepath=filepath)
-
-    allowed = {"inbox"}
-    if not any(str(target.relative_to(root)).startswith(a) for a in allowed):
-        return _fail("workspace.filestore", "path_not_allowed", filepath=filepath)
 
     if not target.exists():
         return _fail("workspace.filestore", "file_not_found", filepath=filepath)

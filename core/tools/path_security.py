@@ -21,17 +21,13 @@ import re
 import urllib.parse
 from pathlib import Path
 
+from storage.workspace_files import resolve_workspace_path
 from workspace.ids import validate_workspace_id
 
 
 class PathSecurityError(ValueError):
     """Raised when a path violates workspace security boundaries."""
     pass
-
-
-# ── Workspace root ──
-ROOT = Path(__file__).resolve().parents[2]
-WS_ROOT = ROOT / "workspaces"
 
 
 # ── Patterns for traversal detection ──
@@ -117,7 +113,7 @@ def safe_workspace_path(workspace_id: str, subpath: str = "") -> Path:
     except ValueError as e:
         raise PathSecurityError(f"invalid_workspace_id: {e}") from e
 
-    base = (WS_ROOT / ws_id).resolve()
+    base = resolve_workspace_path(ws_id, "").resolve()
 
     # ── 2. Check for traversal in raw subpath ──
     if _contains_traversal(subpath):

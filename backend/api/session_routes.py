@@ -113,7 +113,7 @@ def handle_session_detail(session_id):
 
     # v3.10: Attach session context from most recent run
     try:
-        from workspace.run_store import list_runs
+        from storage.run_record_store import list_runs
         recent_runs = [r for r in list_runs(ws_id, limit=10) if r.get("session_id") == session_id]
         if recent_runs:
             latest = recent_runs[0]

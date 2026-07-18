@@ -15,7 +15,6 @@ from core.tools.path_security import PathSecurityError, safe_workspace_path
 from workspace.ids import validate_workspace_id
 
 ROOT = Path(__file__).resolve().parents[3]
-WS_ROOT = ROOT / "workspaces"
 
 _SHELL_TIMEOUT = 30
 _SHELL_MAX_OUTPUT = 50000
@@ -205,20 +204,12 @@ def _generate_diff_preview(old: str, new: str, max_lines: int = 6) -> str:
 
 
 def _persist_artifact_tags(ws: str, art_id: str, tags: list) -> None:
-    """Best-effort: write updated tags to the artifact's meta.json file."""
-    import json
-    from pathlib import Path
-    from workspace.run_store import WS_ROOT
-    for src in ("upload", "agent"):
-        meta_path = WS_ROOT / ws / "files" / src / f"{art_id}.meta.json"
-        if meta_path.is_file():
-            try:
-                data = json.loads(meta_path.read_text())
-                data["tags"] = tags
-                meta_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-            except Exception:
-                pass
-            return
+    """Best-effort: persist artifact tags through the artifact store."""
+    try:
+        from artifacts.store import update_artifact_tags
+        update_artifact_tags(ws, art_id, tags)
+    except Exception:
+        pass
 
 
 

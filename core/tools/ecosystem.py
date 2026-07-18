@@ -2,14 +2,12 @@
 """Phase 11: MCP / Skill / Plugin ecosystem interfaces."""
 
 from __future__ import annotations
-import json, hashlib, logging, uuid, time as _time
+import hashlib, logging, uuid, time as _time
 from dataclasses import dataclass, field, asdict
-from pathlib import Path
 from typing import Optional, Literal
-from workspace.run_store import WS_ROOT
-from workspace.atomic_io import atomic_write_json
 from agent.runtime.utils import now_iso
 from workspace.ids import validate_workspace_id
+from storage import ecosystem_store
 
 _LOG = logging.getLogger(__name__)
 
@@ -72,35 +70,24 @@ class ExternalProvider:
 class EcoRegistry:
     """Per-workspace ecosystem registry."""
 
-    def _dir(self, ws_id: str) -> Path:
-        return WS_ROOT / validate_workspace_id(ws_id) / "ecosystem"
-
-    def _prov_path(self, ws_id: str, pid: str) -> Path:
-        return self._dir(ws_id) / "providers" / f"{pid}.json"
-
     def save_provider(self, ws_id: str, prov: ExternalProvider):
-        d = self._dir(ws_id) / "providers"; d.mkdir(parents=True, exist_ok=True)
-        atomic_write_json(self._prov_path(ws_id, prov.provider_id), prov.to_dict())
+        ecosystem_store.save_provider(validate_workspace_id(ws_id), prov.provider_id, prov.to_dict())
 
     def get_provider(self, ws_id: str, pid: str) -> Optional[ExternalProvider]:
-        p = self._prov_path(ws_id, pid)
-        if not p.exists(): return None
-        try: return ExternalProvider.from_dict(json.loads(p.read_text()))
+        try:
+            data = ecosystem_store.get_provider(validate_workspace_id(ws_id), pid)
+            return ExternalProvider.from_dict(data) if data else None
         except Exception: return None
 
     def list_providers(self, ws_id: str) -> list[ExternalProvider]:
-        d = self._dir(ws_id) / "providers"
-        if not d.exists(): return []
         provs = []
-        for f in sorted(d.glob("*.json")):
-            try: provs.append(ExternalProvider.from_dict(json.loads(f.read_text())))
+        for data in ecosystem_store.list_providers(validate_workspace_id(ws_id)):
+            try: provs.append(ExternalProvider.from_dict(data))
             except Exception: continue
         return provs
 
     def delete_provider(self, ws_id: str, pid: str):
-        p = self._prov_path(ws_id, pid)
-        if p.exists():
-            p.unlink()
+        if ecosystem_store.delete_provider(validate_workspace_id(ws_id), pid):
             _audit(ws_id, pid, "provider_deleted")
 
     def enable(self, ws_id: str, pid: str) -> bool:

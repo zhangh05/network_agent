@@ -1,35 +1,21 @@
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 from core.tools.schemas import ToolInvocation
 from workspace.ids import validate_workspace_id
+from storage.workspace_files import (
+    is_current_workspace_write_path,
+    write_text_atomic,
+)
 
 from core.tools.general_tools.shared import _caller_workspace, _contract, _error, _error_inv, _generate_diff_preview, _ok, _result, _safe_preview, _unavailable, _workspace_path
 """Split general tool handlers."""
 
 
-_CURRENT_WRITE_DIRS = (
-    "user_upload",
-    "agent_output",
-    "knowledge",
-    "inbox",
-)
-
-
 def _is_current_workspace_write_path(ws: str, target: Path) -> bool:
-    files_root = (WS_ROOT / ws / "files").resolve()
-    inbox_root = (WS_ROOT / ws / "inbox").resolve()
-    try:
-        target.relative_to(inbox_root)
-        return True
-    except ValueError:
-        pass
-    for src in _CURRENT_WRITE_DIRS[:3]:
-        try:
-            target.relative_to((files_root / src).resolve())
-            return True
-        except ValueError:
-            continue
-    return False
+    return is_current_workspace_write_path(ws, target)
 
 
 def handle_file_list(inv: ToolInvocation) -> dict:
@@ -154,8 +140,7 @@ def handle_file_edit(inv: ToolInvocation) -> dict:
                 "diff": diff_preview,
                 "diff_lines": abs(new_content.count("\n") - content.count("\n")),
             })
-        from workspace.atomic_io import atomic_write_text
-        atomic_write_text(target, new_content)
+        write_text_atomic(target, new_content)
         lines_changed = abs(new_content.count("\n") - content.count("\n")) or count
         return _ok(inv, "", {
             "lines_changed": lines_changed,
@@ -205,8 +190,7 @@ def handle_file_patch(inv: ToolInvocation) -> dict:
                     new_lines.append(line[1:] + "\n")
             result_lines[old_start:old_start + old_count] = new_lines
         new_content = "".join(result_lines)
-        from workspace.atomic_io import atomic_write_text
-        atomic_write_text(target, new_content)
+        write_text_atomic(target, new_content)
         return _ok(inv, "", {
             "lines_added": lines_added,
             "lines_removed": lines_removed,
