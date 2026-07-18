@@ -6,6 +6,7 @@ import {
   CodeBlock,
   InlineCode,
 } from "../../components/common";
+import { PageHeader, FilterBar, DataTable } from "../../components/ui";
 import { PortalModal } from "../../components/PortalModal";
 import { knowledgeApi, artifactsApi, storageApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
@@ -251,36 +252,143 @@ export function KnowledgeLibrary() {
       setUploading(false);
     }
   }
+  const knowledgeColumns = [
+    {
+      key: "title",
+      header: "文档名",
+      render: (s: KnowledgeSource) =>
+        editingId === s.source_id ? (
+          <div className="row-flex" style={{ gap: 4 }}>
+            <input
+              className="input"
+              style={{ width: 180, height: 26, fontSize: 13 }}
+              value={editingTitle}
+              onChange={(e) => setEditingTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void saveRename(s.source_id);
+                if (e.key === "Escape") cancelRename();
+              }}
+              autoFocus
+            />
+            <button className="btn sm" style={{ height: 26, padding: "0 8px" }} onClick={() => void saveRename(s.source_id)} type="button">保存</button>
+            <button className="btn sm ghost" style={{ height: 26, padding: "0 6px" }} onClick={cancelRename} type="button">×</button>
+          </div>
+        ) : (
+          <>
+            <div className="text-sm cursor-pointer" onClick={() => startRename(s.source_id, s.title || "")} title="点击编辑名称">
+              {s.title || "未命名文档"}
+            </div>
+            <details className="collapse mt-1">
+              <summary className="text-xs muted">技术详情</summary>
+              <div className="text-xs muted mt-1">
+                source: <InlineCode>{s.source_id}</InlineCode>
+                {s.artifact_id && <> · artifact: <InlineCode>{s.artifact_id}</InlineCode></>}
+                {typeof s.chunk_count === "number" && <> · chunks: {s.chunk_count}</>}
+              </div>
+            </details>
+          </>
+        ),
+    },
+    {
+      key: "summary",
+      header: "简要",
+      render: (s: KnowledgeSource) => (
+        <div className="text-xs truncate" style={{ maxWidth: 260 }}>
+          {s.summary || <span className="muted">—</span>}
+        </div>
+      ),
+    },
+    {
+      key: "type",
+      header: "内容类型",
+      render: (s: KnowledgeSource) => <Badge kind="muted">{sourceTypeLabel(s.source_type)}</Badge>,
+    },
+    {
+      key: "searchable",
+      header: "是否可检索",
+      render: (s: KnowledgeSource) => (
+        <Badge kind={isSearchableSource(s) ? "ok" : "warn"}>
+          {isSearchableSource(s) ? "可检索" : "待整理"}
+        </Badge>
+      ),
+    },
+    {
+      key: "updated",
+      header: "最后更新",
+      render: (s: KnowledgeSource) => (
+        <span className="text-xs muted">{formatDate(s.updated_at || s.created_at, "compact")}</span>
+      ),
+    },
+    {
+      key: "actions",
+      header: "操作",
+      width: 270,
+      render: (s: KnowledgeSource) => (
+        <>
+          <button
+            className="btn sm"
+            onClick={() => void onReindex(s.source_id)}
+            data-testid={`btn-reindex-${s.source_id}`}
+            type="button"
+          >
+            <IconRefresh size={11} /> 整理
+          </button>
+          <button
+            className="btn sm"
+            style={{ marginLeft: 4 }}
+            onClick={() => void onToggleEnabled(s)}
+            type="button"
+          >
+            {s.enabled === false ? "启用" : "停用"}
+          </button>
+          <button
+            className="btn sm"
+            style={{ marginLeft: 4 }}
+            onClick={() => void onViewDetail(s.source_id)}
+            disabled={detailLoading}
+            type="button"
+          >
+            详情
+          </button>
+          <button
+            className="btn sm danger"
+            style={{ marginLeft: 4 }}
+            onClick={() => void onDelete(s.source_id, s.title || s.source_id)}
+            data-testid={`btn-delete-${s.source_id}`}
+            type="button"
+          >
+            删除
+          </button>
+        </>
+      ),
+    },
+  ];
 
   return (
     <div className="page" data-testid="page-knowledge">
-      <div className="page-header">
-        <div>
-          <h1>
-            知识库{" "}
-            <span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14 }}>
-              · Knowledge Library
-            </span>
-          </h1>
-          <div className="subtitle">
-            文档检索 / 安全摘录 / 重新整理 · 当前范围: {scope === "workspace" ? "工作区" : scope === "global" ? "全局" : "会话"}
-          </div>
+      <PageHeader
+        title={
+          <>
+            知识库 <span>· Knowledge Library</span>
+          </>
+        }
+        subtitle={`文档检索 / 安全摘录 / 重新整理 · 当前范围: ${
+          scope === "workspace" ? "工作区" : scope === "global" ? "全局" : "会话"
+        }`}
+      >
+        <div className="segmented">
+          {(["workspace", "global", "session"] as const).map((s) => (
+            <button
+              key={s}
+              type="button"
+              className={scope === s ? "active" : ""}
+              onClick={() => setScope(s)}
+            >
+              {s === "workspace" ? "工作区" : s === "global" ? "全局" : "会话"}
+            </button>
+          ))}
         </div>
-        <div className="row-flex">
-          <div className="segmented">
-            {(["workspace", "global", "session"] as const).map((s) => (
-              <button
-                key={s}
-                type="button"
-                className={scope === s ? "active" : ""}
-                onClick={() => setScope(s)}
-              >
-                {s === "workspace" ? "工作区" : s === "global" ? "全局" : "会话"}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+      </PageHeader>
 
       <div className="page-body">
         <details style={{ marginBottom: 16, fontSize: "var(--fs-12)", color: "var(--text-3)" }}>
@@ -423,105 +531,13 @@ export function KnowledgeLibrary() {
             emptyHint="点击「导入」从 artifact 创建"
           >
             {(d) => (
-              <table className="tbl" data-testid="knowledge-source-tbl">
-                <thead>
-                  <tr>
-                    <th>文档名</th>
-                    <th>简要</th>
-                    <th>内容类型</th>
-                    <th>是否可检索</th>
-                    <th>最后更新</th>
-                    <th style={{ width: 270 }}>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(d.sources ?? []).map((s) => (
-                    <tr key={s.source_id} data-testid={`src-${s.source_id}`}>
-                      <td>
-                        {editingId === s.source_id ? (
-                          <div className="row-flex" style={{ gap: 4 }}>
-                            <input
-                              className="input"
-                              style={{ width: 180, height: 26, fontSize: 13 }}
-                              value={editingTitle}
-                              onChange={(e) => setEditingTitle(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") void saveRename(s.source_id);
-                                if (e.key === "Escape") cancelRename();
-                              }}
-                              autoFocus
-                            />
-                            <button className="btn sm" style={{ height: 26, padding: "0 8px" }} onClick={() => void saveRename(s.source_id)} type="button">保存</button>
-                            <button className="btn sm ghost" style={{ height: 26, padding: "0 6px" }} onClick={cancelRename} type="button">×</button>
-                          </div>
-                        ) : (
-                          <div className="text-sm" style={{ cursor: "pointer" }} onClick={() => startRename(s.source_id, s.title || "")} title="点击编辑名称">
-                            {s.title || "未命名文档"}
-                          </div>
-                        )}
-                        <details className="collapse mt-1">
-                          <summary className="text-xs muted">技术详情</summary>
-                          <div className="text-xs muted mt-1">
-                            source: <InlineCode>{s.source_id}</InlineCode>
-                            {s.artifact_id && <> · artifact: <InlineCode>{s.artifact_id}</InlineCode></>}
-                            {typeof s.chunk_count === "number" && <> · chunks: {s.chunk_count}</>}
-                          </div>
-                        </details>
-                      </td>
-                      <td className="text-xs" style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {s.summary || <span className="muted">—</span>}
-                      </td>
-                      <td>
-                        <Badge kind="muted">{sourceTypeLabel(s.source_type)}</Badge>
-                      </td>
-                      <td>
-                        <Badge kind={isSearchableSource(s) ? "ok" : "warn"}>
-                          {isSearchableSource(s) ? "可检索" : "待整理"}
-                        </Badge>
-                      </td>
-                      <td className="text-xs muted">
-                        {formatDate(s.updated_at || s.created_at, "compact")}
-                      </td>
-                      <td>
-                        <button
-                          className="btn sm"
-                          onClick={() => void onReindex(s.source_id)}
-                          data-testid={`btn-reindex-${s.source_id}`}
-                          type="button"
-                        >
-                          <IconRefresh size={11} /> 整理
-                        </button>
-                        <button
-                          className="btn sm"
-                          style={{ marginLeft: 4 }}
-                          onClick={() => void onToggleEnabled(s)}
-                          type="button"
-                        >
-                          {s.enabled === false ? "启用" : "停用"}
-                        </button>
-                        <button
-                          className="btn sm"
-                          style={{ marginLeft: 4 }}
-                          onClick={() => void onViewDetail(s.source_id)}
-                          disabled={detailLoading}
-                          type="button"
-                        >
-                          详情
-                        </button>
-                        <button
-                          className="btn sm danger"
-                          style={{ marginLeft: 4 }}
-                          onClick={() => void onDelete(s.source_id, s.title || s.source_id)}
-                          data-testid={`btn-delete-${s.source_id}`}
-                          type="button"
-                        >
-                          删除
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <DataTable
+                data-testid="knowledge-source-tbl"
+                columns={knowledgeColumns}
+                rows={d.sources ?? []}
+                keyExtractor={(s) => s.source_id}
+                empty={{ text: "暂无知识源", hint: "点击「导入」从 artifact 创建" }}
+              />
             )}
           </AsyncView>
         </div>
@@ -531,7 +547,7 @@ export function KnowledgeLibrary() {
             <IconSearch size={12} />
             检索
           </div>
-          <div className="row-flex mb-3" style={{ gap: 8 }}>
+          <FilterBar className="mb-3">
             <input
               className="input"
               placeholder="输入关键词（CJK / 英文）"
@@ -551,7 +567,7 @@ export function KnowledgeLibrary() {
             >
               <IconSearch size={12} /> 检索
             </button>
-          </div>
+          </FilterBar>
 
           {search.state.kind === "loading" && (
             <div className="text-sm muted row-flex" style={{ gap: 8 }}>

@@ -4630,3 +4630,104 @@ summary:focus-visible,
 
 /* ── Dim 组件扩展 ── */
 .dim-ok-text { color: var(--ok, #2e7d32) !important; }
+
+/* ── UI 组件库 (Phase 2) ── */
+
+.ui-page-header {
+  align-items: flex-start;
+  min-height: auto;
+}
+
+.ui-page-header-actions {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ui-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-8);
+}
+
+.ui-filter-bar > .spacer {
+  flex: 1 1 120px;
+}
+
+.data-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.data-table tbody tr.cursor-pointer {
+  cursor: pointer;
+}
+
+.ui-detail-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  overflow: auto;
+  animation: surface-in var(--dur-4) var(--ease-out) both;
+}
+
+.ui-detail-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.ui-detail-panel-title {
+  font-size: var(--fs-18);
+  font-weight: 720;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-detail-panel-subtitle {
+  margin-top: 4px;
+  font-size: var(--fs-12);
+  color: var(--text-3);
+}
+
+.ui-detail-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ui-detail-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.ui-detail-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+@media (max-width: 900px) {
+  .ui-filter-bar {
+    padding: 10px;
+  }
+  .ui-detail-panel {
+    padding: 16px;
+  }
+  .ui-detail-panel-head {
+    flex-wrap: wrap;
+  }
+}
+

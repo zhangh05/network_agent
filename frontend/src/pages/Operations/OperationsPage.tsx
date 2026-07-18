@@ -13,6 +13,7 @@ import { useSessionStore } from "../../stores/session";
 import { APP_EVENTS } from "../../utils/appEvents";
 import { useToastStore } from "../../stores/toast";
 import { Badge, StatusDot, EmptyState, LoadingState, CodeBlock } from "../../components/common";
+import { PageHeader, DetailPanel } from "../../components/ui";
 import { IconRefresh, IconDocument, IconHistory, IconBolt, IconAlert } from "../../components/Icon";
 import { TraceDetailPanel } from "../../components/TraceDetailPanel";
 import { deriveRunTraceStats } from "../../utils/runTraceStats";
@@ -326,7 +327,7 @@ export function OperationsPage() {
   if (!loading && !error && jobs.length === 0) {
     return (
       <div className="page">
-        <PageHeader count={0} onRefresh={loadJobs} />
+        <OperationsPageHeader count={0} onRefresh={loadJobs} />
         <div className="page-body">
           <div className="hero">
             <div className="hero-mark" style={{ fontSize: 22, fontWeight: 700 }}>
@@ -346,7 +347,7 @@ export function OperationsPage() {
   // ── Main ──
   return (
     <div className="page">
-      <PageHeader count={jobs.length} onRefresh={loadJobs} />
+      <OperationsPageHeader count={jobs.length} onRefresh={loadJobs} />
 
       {error && (
         <div style={{ margin: "12px 24px 0", padding: "10px 14px", color: "var(--danger)", background: "var(--danger-soft)", borderRadius: "var(--r-6)", fontSize: "var(--fs-13)", fontWeight: 650 }}>
@@ -448,20 +449,21 @@ export function OperationsPage() {
    Sub-components
    ═══════════════════════════════════════════════════════ */
 
-function PageHeader({ count, onRefresh }: { count: number; onRefresh: () => void }) {
+function OperationsPageHeader({ count, onRefresh }: { count: number; onRefresh: () => void }) {
   return (
-    <div className="page-header" style={{ background: "var(--surface)" }}>
-      <div>
-        <h1>运行与作业<span style={{ color: "var(--ink-mute)", fontWeight: 400, fontSize: 14, marginLeft: 6 }}>· Operations</span></h1>
-        <p className="subtitle">任务全貌与执行细节：作业追踪、运行记录、Trace 调试</p>
-      </div>
-      <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-        {count > 0 && (
-          <div className="status-pill"><span className="dot" style={{ background: "var(--accent)" }} />{count} 项</div>
-        )}
-        <button className="btn sm ghost" onClick={onRefresh} title="刷新"><IconRefresh size={14} /></button>
-      </div>
-    </div>
+    <PageHeader
+      title={
+        <>
+          运行与作业 <span>· Operations</span>
+        </>
+      }
+      subtitle="任务全貌与执行细节：作业追踪、运行记录、Trace 调试"
+    >
+      {count > 0 && (
+        <div className="status-pill"><span className="dot" style={{ background: "var(--accent)" }} />{count} 项</div>
+      )}
+      <button className="btn sm ghost" onClick={onRefresh} title="刷新"><IconRefresh size={14} /></button>
+    </PageHeader>
   );
 }
 
@@ -484,17 +486,12 @@ function JobDetail({
 }) {
   if (!job) {
     return (
-      <div className="split-detail" style={{ padding: "24px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div className="empty" style={{ textAlign: "center" }}>
-          <div className="empty-icon" style={{ background: "var(--surface-2)" }}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="3" width="20" height="14" rx="2" ry="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
-            </svg>
-          </div>
-          <div className="empty-text" style={{ fontSize: "var(--fs-14)", fontWeight: 680 }}>选择一个作业</div>
-          <p className="empty-hint" style={{ maxWidth: 280 }}>点击左侧列表中的作业，查看运行记录、统计与任务概要。</p>
-        </div>
-      </div>
+      <DetailPanel
+        empty={{
+          text: "选择一个作业",
+          hint: "点击左侧列表中的作业，查看运行记录、统计与任务概要。",
+        }}
+      />
     );
   }
 
