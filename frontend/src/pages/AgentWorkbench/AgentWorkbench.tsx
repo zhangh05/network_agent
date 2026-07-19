@@ -8,6 +8,7 @@ import { isApiError } from "../../types";
 import type { AgentResult, ToolCallResult, InlineToolCall, SourceSummary } from "../../types";
 import { sanitizeAssistantText, renderAssistantHtml, toolLabel, filterStreamingThink } from "../../utils/displayText";
 import { beginModelStep, discardToolCallDraft, finalizeStreamText } from "../../utils/agentStream";
+import { humanFailure } from "../../utils/humanizeError";
 import "./WorkbenchHighlight";
 import hljs from "highlight.js/lib/core";
 import { agentResultFromWsDone } from "../../utils/wsResult";
@@ -28,6 +29,24 @@ interface WorkbenchAutoPrompt {
   metadata?: Record<string, unknown>;
 }
 
+/* ── timing constants ── */
+// Auto-send delay for prompts pulled out of sessionStorage (e.g. pcap_ai_prompt)
+// — short enough to feel responsive, long enough for the input frame to mount.
+const AUTO_SEND_DELAY_MS = 500;
+// Initial backoff for the system-WS reconnect loop; subsequent attempts grow
+// exponentially up to WS_RECONNECT_MAX_MS.
+const WS_RECONNECT_BASE_MS = 1000;
+// Cap on the exponential reconnect delay.
+const WS_RECONNECT_MAX_MS = 5000;
+// Interval between HTTP polls of an in-flight CMDB inspection task.
+const INSPECTION_POLL_MS = 3000;
+// Hard ceiling for the WS stream "ws_timeout" race (websocket_message vs.
+// the server-side response). If the WS doesn't deliver within this window,
+// the caller falls back to the HTTP path.
+const WS_TIMEOUT_MS = 3000;
+// Visual feedback duration for the "已复制" toast on code-copy clicks.
+const COPY_FEEDBACK_MS = 2000;
+
 /* ── safe storage wrappers ── */
 function safeGetLocal(key: string): string | null {
   try { return typeof localStorage !== "undefined" ? localStorage.getItem(key) : null; } catch { return null; }
@@ -45,32 +64,9 @@ function safeRemoveSession(key: string): void {
   try { if (typeof sessionStorage !== "undefined") sessionStorage.removeItem(key); } catch { /* noop */ }
 }
 
-/** Enhanced error classification with recovery hints.
- *  Now uses error_type from AgentResult for precise messaging. */
-function _humanFailure(errorType: string | undefined, errorText: string): { msg: string; retryable: boolean } {
-  const et = (errorType ?? "").toLowerCase();
-  const text = (errorText ?? "").toLowerCase();
-  // Provider errors
-  if (et.includes("provider_timeout") || text.includes("timed out") || text.includes("超时"))
-    return { msg: "模型请求超时，可能是供应商响应慢或网络抖动。可重试或缩短问题。", retryable: true };
-  if (et.includes("provider_error") || text.includes("provider"))
-    return { msg: "模型服务异常，请稍后重试。", retryable: true };
-  // Auth/permission
-  if (text.includes("disabled") || text.includes("llm is disabled"))
-    return { msg: "LLM 未启用，请前往系统设置开启并配置 API Key。", retryable: false };
-  if (text.includes("api_key") || text.includes("authentication"))
-    return { msg: "API 密钥未配置或已失效，请重新设置。", retryable: false };
-  // Tool sandbox
-  if (text.includes("forbidden function") || text.includes("forbidden_import"))
-    return { msg: "Agent 尝试使用被限制的操作，系统自动拦截。可重新提问让 Agent 换一种方式。", retryable: true };
-  if (text.includes("syntax error") || text.includes("unterminated"))
-    return { msg: "Agent 生成的代码有语法错误，重新生成通常可解决。", retryable: true };
-  // Caller identity
-  if (text.includes("caller_identity") || text.includes("requested_by"))
-    return { msg: "系统调用链身份缺失，请刷新页面后重试。", retryable: false };
-  // Default
-  return { msg: text, retryable: true };
-}
+/** Enhanced error classification lives in utils/humanizeError — re-exported
+ *  under the legacy name so internal callsites stay short. */
+const _humanFailure = humanFailure;
 
 function retryStats(result?: AgentResult) {
   const summary = result?.metadata?.retry_summary || {};
@@ -319,12 +315,12 @@ export function TaskWorkbench() {
         ws = new WebSocket(wsUrl);
       } catch {
         // constructor can throw (e.g. invalid URL); schedule reconnect
-        if (!closed) reconnectTimer = setTimeout(connect, 5000);
+        if (!closed) reconnectTimer = setTimeout(connect, WS_RECONNECT_MAX_MS);
         return;
       }
       systemWsRef.current = ws;
       ws.onopen = () => {
-        retryDelay = 1000; // reset on successful connection
+        retryDelay = WS_RECONNECT_BASE_MS; // reset on successful connection
         try {
           ws?.send(JSON.stringify({
             type: "ping",
@@ -345,7 +341,7 @@ export function TaskWorkbench() {
         systemWsRef.current = null;
         if (!closed) {
           reconnectTimer = setTimeout(connect, retryDelay);
-          retryDelay = Math.min(retryDelay * 2, 30000);
+          retryDelay = Math.min(retryDelay * 2, WS_RECONNECT_MAX_MS * 6);
         }
       };
       ws.onerror = () => {
@@ -415,7 +411,7 @@ export function TaskWorkbench() {
       pendingAutoMetadataRef.current = { source: "packet_analysis" };
       setInput(prompt);
       // Auto-send after a short delay; use ref to avoid stale-closure/cleanup race
-      const t = setTimeout(() => onSendRef.current(prompt, { source: "packet_analysis" }), 500);
+      const t = setTimeout(() => onSendRef.current(prompt, { source: "packet_analysis" }), AUTO_SEND_DELAY_MS);
       return () => clearTimeout(t);
     }
   }, [currentWorkspaceId]); // do NOT include onSend — use ref to avoid re-render killing timeout
@@ -570,7 +566,7 @@ export function TaskWorkbench() {
           // Still running — poll again
         }
       } catch { /* best-effort */ }
-      if (!done) pollTimer = setTimeout(poll, 3000);
+      if (!done) pollTimer = setTimeout(poll, INSPECTION_POLL_MS);
     };
 
     setInspectionTaskId(task_id);
@@ -709,7 +705,7 @@ export function TaskWorkbench() {
       const TOKEN_FLUSH_MS = 50;
       const tokenBufferRef = { pending: "" };
       const wsReady: Promise<void> = new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { reject(new Error("ws_timeout")); }, 3000);
+        const timer = setTimeout(() => { reject(new Error("ws_timeout")); }, WS_TIMEOUT_MS);
         ws!.onopen = () => { clearTimeout(timer); resolve(); };
         ws!.onerror = () => { clearTimeout(timer); reject(new Error("ws_error")); };
       });
@@ -1452,7 +1448,7 @@ function handleCodeCopyClick(event: React.MouseEvent<HTMLDivElement>) {
   button.textContent = "已复制";
   window.setTimeout(() => {
     button.textContent = "复制";
-  }, 2000);
+  }, COPY_FEEDBACK_MS);
 }
 
 /** Streaming content with live thinking block support */

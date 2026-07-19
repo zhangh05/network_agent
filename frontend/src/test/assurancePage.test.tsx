@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { AssurancePage } from "../pages/Assurance/AssurancePage";
 import { useSessionStore } from "../stores/session";
 import { enqueue, getRequests, installMockApi, resetMocks } from "./mockServer";
+import * as confirmModule from "../components/ConfirmDialog";
 
 function enqueueAssurance() {
   const overview = {
@@ -80,15 +81,15 @@ describe("Network Assurance user flow", () => {
   });
 
   it("clears assurance records only after confirmation", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const confirmSpy = vi.spyOn(confirmModule, "confirm").mockResolvedValue(true);
     enqueue("/assurance/records/clear", { status: 200, data: { ok: true, deleted: 4, deleted_by_kind: {}, preserved: ["artifacts"] } });
     enqueueAssurance();
-    render(<AssurancePage />);
+    render(<MemoryRouter><AssurancePage /></MemoryRouter>);
     await screen.findByText("还没有确立权威状态基线");
     fireEvent.click(screen.getByRole("button", { name: "清除记录" }));
-    expect(confirm).toHaveBeenCalledOnce();
+    expect(confirmSpy).toHaveBeenCalledOnce();
     await waitFor(() => expect(getRequests().some((request) => request.url === "/assurance/records/clear")).toBe(true));
-    confirm.mockRestore();
+    confirmSpy.mockRestore();
   });
 
   it("shows baseline comparison, LLM status, citations and next actions for incidents", async () => {

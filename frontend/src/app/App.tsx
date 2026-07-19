@@ -4,6 +4,7 @@ import { ErrorBoundary } from "../components/ErrorBoundary";
 import { SkeletonList, SkeletonTable } from "../components/common";
 import { AppLayout } from "../layouts/AppLayout";
 import { ToastHost } from "../components/ToastHost";
+import { ConfirmHost } from "../components/ConfirmDialog";
 import { useUIStore } from "../stores/session";
 import { initWebVitals } from "../utils/webVitals";
 import { systemApi } from "../api";
@@ -87,6 +88,7 @@ function RouteFallback() {
 }
 
 function AppShell() {
+  const confirmHost = ConfirmHost();
   const [version, setVersion] = useState<string | null>(null);
   const theme = useUIStore((s) => s.theme);
   const setTheme = useUIStore((s) => s.setTheme);
@@ -213,6 +215,7 @@ function AppShell() {
         </AppLayout>
       </div>
       <ToastHost />
+      {confirmHost}
     </div>
   );
 }

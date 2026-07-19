@@ -2736,6 +2736,28 @@ details.collapse[open] summary::before {
   margin-top: 18px;
 }
 
+.confirm-dialog {
+  min-width: 280px;
+}
+
+.confirm-dialog-title {
+  margin: 0 0 8px;
+  font-size: var(--fs-15);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.confirm-dialog-body {
+  margin-bottom: 16px;
+  font-size: var(--fs-13);
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
+.confirm-dialog-actions {
+  justify-content: flex-end;
+}
+
 .toast-host {
   position: fixed;
   right: 18px;

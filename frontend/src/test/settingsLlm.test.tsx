@@ -10,7 +10,22 @@ import { render, screen, waitFor, act, fireEvent } from "@testing-library/react"
 import { Settings } from "../pages/Settings/Settings";
 import { settingsApi } from "../api";
 import { useSessionStore } from "../stores/session";
+import * as confirmModule from "../components/ConfirmDialog";
 import type { ProviderConfig, ProviderListResponse, LlmTestResult } from "../types";
+
+// Settings.reset() now uses the shared `confirm()` portal modal — swap the
+// module export for a promise-returning stub so consumers always auto-approve
+// and the tests don't need to drive the dialog DOM. Stubbing at the module
+// level ensures the same function reference is returned to Settings.tsx and
+// to the test, so the spy assertion matches.
+vi.mock("../components/ConfirmDialog", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../components/ConfirmDialog")>();
+  return {
+    ...actual,
+    confirm: vi.fn(() => Promise.resolve(true)),
+    ConfirmHost: () => null,
+  };
+});
 
 const baseProvider: ProviderConfig = {
   provider: "minimax",
@@ -26,6 +41,11 @@ const baseProvider: ProviderConfig = {
   hint: "api.minimaxi.com",
   is_active: false,
 };
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  useSessionStore.setState({ currentWorkspaceId: "ws-settings", currentSessionId: null });
+});
 
 function makeProviders(active: string = "minimax"): ProviderListResponse {
   const ids = ["minimax", "deepseek", "ark", "openai", "anthropic", "ollama", "custom"];
@@ -85,7 +105,6 @@ function mockApi(overrides: Partial<{
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  window.confirm = vi.fn().mockReturnValue(true);
   useSessionStore.setState({ currentWorkspaceId: "ws-settings", currentSessionId: null });
 });
 
@@ -229,8 +248,8 @@ describe("Settings — LLM Provider configuration v2", () => {
     await act(async () => {
       fireEvent.click(screen.getByTestId("btn-reset-llm"));
     });
+    await waitFor(() => expect(confirmModule.confirm).toHaveBeenCalled());
 
-    expect(window.confirm).toHaveBeenCalled();
     expect(del).toHaveBeenCalled();
   });
 

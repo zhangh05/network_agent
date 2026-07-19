@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { settingsApi } from "../../api";
 import { EmptyState, LoadingState } from "../../components/common";
 import { Button, Input, FormField } from "../../components/ui";
+import { confirm } from "../../components/ConfirmDialog";
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
@@ -271,7 +272,8 @@ export function Settings() {
   async function onReset() {
     if (!selectedId) return;
     const label = draft?.label ?? selectedId;
-    if (!window.confirm(`确认重置 ${label} 配置？将恢复为默认值。`)) return;
+    const ok = await confirm({ title: `确认重置 ${label} 配置？`, body: "将恢复为默认值。", destructive: true, confirmLabel: "重置" });
+    if (!ok) return;
     setSaving(true);
     try {
       await settingsApi.providerDelete(selectedId);

@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { scriptsApi, type VendorScriptDetailResponse, type VendorScriptsListResponse } from "../api/index";
+import { confirm } from "./ConfirmDialog";
 
 interface Props {
   workspaceId: string;
@@ -175,7 +176,13 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
     setSaving(false);
   };
   const handleReset = async () => {
-    if (!window.confirm("确认恢复为默认？这将删除所有已保存的自定义命令、前置和后置命令。")) return;
+    const ok = await confirm({
+      title: "恢复为默认？",
+      body: "将删除所有已保存的自定义命令、前置和后置命令。",
+      destructive: true,
+      confirmLabel: "恢复",
+    });
+    if (!ok) return;
     setSaving(true); setError(""); setSuccessMsg("");
     try {
       const r = await scriptsApi.resetScript(workspaceId, activeVendor, scriptType);
@@ -213,12 +220,28 @@ export function ScriptManagerModal({ workspaceId, scriptType, onClose }: Props) 
 
   const isModified = source === "file" || JSON.stringify(commands) !== JSON.stringify(builtinCommands);
 
-  const switchVendor = (v: string) => {
-    if (dirty && !window.confirm("当前脚本有未保存的修改，切换厂商将丢失更改。是否继续？")) return;
+  const switchVendor = async (v: string) => {
+    if (dirty) {
+      const ok = await confirm({
+        title: "切换厂商？",
+        body: "当前脚本有未保存的修改，切换厂商将丢失更改。是否继续？",
+        destructive: true,
+        confirmLabel: "继续",
+      });
+      if (!ok) return;
+    }
     setActiveVendor(v);
   };
-  const handleClose = () => {
-    if (dirty && !window.confirm("当前脚本有未保存的修改，关闭将丢失更改。是否继续？")) return;
+  const handleClose = async () => {
+    if (dirty) {
+      const ok = await confirm({
+        title: "关闭脚本编辑？",
+        body: "当前脚本有未保存的修改，关闭将丢失更改。是否继续？",
+        destructive: true,
+        confirmLabel: "继续",
+      });
+      if (!ok) return;
+    }
     onClose();
   };
 

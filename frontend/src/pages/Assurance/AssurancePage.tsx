@@ -17,6 +17,7 @@ import { IconBolt, IconCheck, IconRefresh, IconShield, IconTrash } from "../../c
 import { useSessionStore } from "../../stores/session";
 import { useToastStore } from "../../stores/toast";
 import { PageHeader } from "../../components/ui";
+import { confirm } from "../../components/ConfirmDialog";
 import "./AssurancePage.css";
 
 type View = "overview" | "baseline" | "topology" | "incident" | "change" | "continuous";
@@ -329,9 +330,12 @@ export function AssurancePage() {
 
   const clearRecords = async () => {
     if (!workspaceId || busy) return;
-    const accepted = window.confirm(
-      "清除当前工作区的全部网络保障记录？\n\n将删除：权威基线、异常记录、故障传播分析、故障调查、变更计划、定期检查和保障任务记录。\n将保留：CMDB 资产、巡检任务、巡检原始制品、会话和报告。",
-    );
+    const accepted = await confirm({
+      title: "清除全部网络保障记录？",
+      body: "将删除：权威基线、异常记录、故障传播分析、故障调查、变更计划、定期检查和保障任务记录。\n将保留：CMDB 资产、巡检任务、巡检原始制品、会话和报告。",
+      destructive: true,
+      confirmLabel: "清除",
+    });
     if (!accepted) return;
     setBusy("clear-records");
     try {

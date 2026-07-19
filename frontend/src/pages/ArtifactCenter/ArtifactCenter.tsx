@@ -2,7 +2,7 @@
  * ArtifactCenter — 制品中心
  */
 import { useEffect, useState, useCallback } from "react";
-import { artifactsApi, reportsApi, storageApi } from "../../api";
+import { artifactsApi, reportsApi, storageApi, type ReportSummary } from "../../api";
 import type { ArtifactGovernanceSummary } from "../../api";
 import { useAsync, AsyncView, Badge, CodeBlock, InlineCode, LoadingState, ErrorState } from "../../components/common";
 import { PageHeader, FilterBar, Button, Input, Textarea } from "../../components/ui";
@@ -444,7 +444,7 @@ function triggerLabel(value: string): string {
 function ReportSection() {
   const { currentWorkspaceId: wsId } = useSessionStore();
   const toast = useToastStore((s) => s.show);
-  const [reports, setReports] = useState<any[]>([]);
+  const [reports, setReports] = useState<ReportSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [show, setShow] = useState(false);
   const [title, setTitle] = useState("");
@@ -487,8 +487,8 @@ function ReportSection() {
 
       {loading ? <LoadingState text="加载报告…" /> :
         reports.length === 0 ? <div className="muted text-sm">暂无报告</div> :
-          reports.map((r: any, i: number) => (
-            <div key={r.artifact_id || i}
+          reports.map((r, i) => (
+            <div key={r.artifact_id || `${i}`}
               className="report-row"
               onClick={() => { if (!wsId) return; reportsApi.content(wsId, r.artifact_id).then((d) => toast({ kind: "success", title: "报告内容", body: (d.content ?? "").slice(0, 200) + "…" })).catch(() => {}); }}>
               <span className="text-sm artifact-report-row-title">{r.title || r.artifact_id || `#${i + 1}`}</span>

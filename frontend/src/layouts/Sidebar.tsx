@@ -308,9 +308,12 @@ export function Sidebar() {
           emptyText="暂无活跃会话"
           emptyHint="点击 + 新建"
         >
-          {(d) => (
+          {(d) => {
+            const preview = previewSessions(d.sessions ?? [], currentSessionId);
+            const hiddenCount = hiddenSessionCount(d.sessions ?? [], currentSessionId);
+            return (
             <div className="list" data-testid="sess-list">
-              {previewSessions(d.sessions ?? [], currentSessionId).map((sess) => (
+              {preview.map((sess) => (
                 <div
                   key={sess.session_id}
                   className={
@@ -386,15 +389,16 @@ export function Sidebar() {
                   )}
                 </div>
               ))}
-              {hiddenSessionCount(d.sessions ?? [], currentSessionId) > 0 && (
+              {hiddenCount > 0 && (
                 <div className="list-item muted-row">
                   <span className="meta">
-                    另有 {hiddenSessionCount(d.sessions ?? [], currentSessionId)} 个活跃会话
+                    另有 {hiddenCount} 个活跃会话
                   </span>
                 </div>
               )}
             </div>
-          )}
+            );
+          }}
         </AsyncView>
       </div>
 

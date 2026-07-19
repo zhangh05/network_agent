@@ -909,6 +909,13 @@ export const agentUsageApi = {
     }>({ method: "GET", url: "/agent/usage", params: { workspace_id } }, signal),
 };
 
+export interface ReportSummary {
+  artifact_id: string;
+  title?: string;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
 export const reportsApi = {
   /** POST /api/reports/create */
   create: (data: { workspace_id: string; title?: string; content?: string }) =>
@@ -916,7 +923,7 @@ export const reportsApi = {
 
   /** GET /api/workspaces/:ws/reports */
   list: (workspace_id: string, signal?: AbortSignal) =>
-    apiRequest<{ reports: unknown[] }>({ method: "GET", url: `/workspaces/${workspace_id}/reports` }, signal),
+    apiRequest<{ reports: ReportSummary[] }>({ method: "GET", url: `/workspaces/${workspace_id}/reports` }, signal),
 
   /** GET /api/workspaces/:ws/reports/:artifact_id/content */
   content: (workspace_id: string, artifact_id: string, signal?: AbortSignal) =>

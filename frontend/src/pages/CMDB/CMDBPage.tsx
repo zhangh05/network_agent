@@ -6,6 +6,7 @@ import { apiRequest } from "../../api/client";
 import { isApiError } from "../../types";
 import { RemoteTerminal } from "../../components/RemoteTerminal/RemoteTerminal";
 import { ScriptManagerModal } from "../../components/ScriptManagerModal";
+import { confirm } from "../../components/ConfirmDialog";
 import { PageHeader, FilterBar, Button, Input, Select, FormField } from "../../components/ui";
 
 interface Asset {
@@ -167,7 +168,8 @@ export function CMDBPage() {
   };
 
   const doDelete = async (aid: string) => {
-    if (!window.confirm("确认删除此资产？")) return;
+    const ok = await confirm({ title: "确认删除此资产？", destructive: true, confirmLabel: "删除" });
+    if (!ok) return;
     try {
       await apiRequest({ method: "DELETE", url: `/cmdb/assets/${aid}`, params: { workspace_id: wsId } });
       load();

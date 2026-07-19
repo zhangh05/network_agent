@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useSessionStore } from "../stores/session";
 import { inspectionApi } from "../api";
+import { confirm } from "./ConfirmDialog";
 
 const FADE_AFTER_MS = 8000;
 const DEFAULT_POLL_MS = 5000;
@@ -153,7 +154,13 @@ export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props
 
   const onCancel = useCallback(async () => {
     if (!currentWorkspaceId) return;
-    if (!window.confirm(`取消巡检 ${taskId}? 正在跑的设备会跑完, 剩余设备会跳过。`)) return;
+    const ok = await confirm({
+      title: `取消巡检 ${taskId}?`,
+      body: "正在跑的设备会跑完, 剩余设备会跳过。",
+      destructive: true,
+      confirmLabel: "取消巡检",
+    });
+    if (!ok) return;
     setCancelling(true);
     setCancelError("");
     try {

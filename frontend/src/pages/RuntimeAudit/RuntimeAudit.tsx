@@ -9,7 +9,7 @@ import {
   InlineCode,
 } from "../../components/common";
 import { useSessionStore } from "../../stores/session";
-import type { RuntimeAuditTurn } from "../../types";
+import type { RuntimeAuditTurn, RuntimeEvent } from "../../types";
 import { IconAlert, IconClock } from "../../components/Icon";
 import { APP_EVENTS } from "../../utils/appEvents";
 import { formatEventTime, formatEventDetail, formatEventLabel } from "../../utils/runEvent";
@@ -190,17 +190,17 @@ export function RuntimeAudit() {
                       {(() => {
                         // Extract failure summary for failed turns
                         const failedEv = trace.state.data.events.find(
-                          (ev: any) => ev.event_type === "turn_failed" || ev.type === "turn_failed",
+                          (ev: RuntimeEvent) => ev.event_type === "turn_failed" || ev.type === "turn_failed",
                         );
                         const failedDetails = failedEv ? formatEventDetail(failedEv) : {};
                         const error = failedDetails.error || failedEv?.summary || failedDetails || "";
                         // Extract timeout duration if available
                         const timeoutSecs = (() => {
                           const modelReq = trace.state.data.events.find(
-                            (ev: any) => ev.type === "model_request" || ev.event_type === "model_request",
+                            (ev: RuntimeEvent) => ev.type === "model_request" || ev.event_type === "model_request",
                           );
                           const modelResp = trace.state.data.events.find(
-                            (ev: any) => ev.type === "model_response" || ev.event_type === "model_response",
+                            (ev: RuntimeEvent) => ev.type === "model_response" || ev.event_type === "model_response",
                           );
                           const reqTime = modelReq ? formatEventTime(modelReq) : "";
                           const respTime = modelResp ? formatEventTime(modelResp) : "";
