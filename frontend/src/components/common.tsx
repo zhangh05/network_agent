@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import type { ApiError, AsyncState } from "../types";
 import { isApiError, isError, isLoading } from "../types";
 
@@ -102,11 +102,28 @@ export function EmptyState({
 
 /* ── Skeleton loading placeholders ── */
 
+type CssVars = CSSProperties & Record<`--${string}`, string>;
+
+function skeletonSizeStyle(w: string, h: number): CssVars {
+  return {
+    "--skeleton-width": w,
+    "--skeleton-height": `${h}px`,
+  };
+}
+
+function skeletonListStyle(gap: number): CssVars {
+  return { "--skeleton-gap": `${gap}px` };
+}
+
+function skeletonDelayStyle(index: number, step: number): CssVars {
+  return { "--skeleton-delay": `${index * step}s` };
+}
+
 function sk(w: string, h: number) {
   return (
     <span
       className="skeleton"
-      style={{ width: w, height: h }}
+      style={skeletonSizeStyle(w, h)}
     />
   );
 }
@@ -121,11 +138,11 @@ export function SkeletonBlock({ h = 120, w = "100%" }: { h?: number; w?: string 
 
 export function SkeletonList({ rows = 5, gap = 10 }: { rows?: number; gap?: number }) {
   return (
-    <div className="skeleton-list" style={{ gap }}>
+    <div className="skeleton-list" style={skeletonListStyle(gap)}>
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className="skeleton-list-row">
-          <span className="skeleton skeleton-avatar" style={{ animationDelay: `${i * 0.1}s` }} />
-          <span className="skeleton skeleton-line" style={{ animationDelay: `${i * 0.1}s` }} />
+          <span className="skeleton skeleton-avatar" style={skeletonDelayStyle(i, 0.1)} />
+          <span className="skeleton skeleton-line" style={skeletonDelayStyle(i, 0.1)} />
         </div>
       ))}
     </div>
@@ -138,7 +155,7 @@ export function SkeletonTable({ rows = 4, cols = 3 }: { rows?: number; cols?: nu
       {Array.from({ length: rows }, (_, r) => (
         <div key={r} className="skeleton-table-row">
           {Array.from({ length: cols }, (_, c) => (
-            <span key={c} className="skeleton skeleton-cell" style={{ animationDelay: `${(r * cols + c) * 0.08}s` }} />
+            <span key={c} className="skeleton skeleton-cell" style={skeletonDelayStyle(r * cols + c, 0.08)} />
           ))}
         </div>
       ))}

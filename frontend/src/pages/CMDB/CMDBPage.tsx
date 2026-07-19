@@ -34,8 +34,27 @@ const REGION_TEXT: Record<string, string> = {
   "华西": "var(--region-purple)", "华东-核心": "var(--info)", "华东-汇聚": "var(--info)", "华东-接入": "var(--text-3)",
   "华南-核心": "var(--ok)", "华北-核心": "var(--info)", "海外": "var(--region-amber)",
 };
+type CssVars = CSSProperties & Record<`--${string}`, string>;
 
-// v3.9.13: vendor / region are user-typed strings. The combobox
+function regionChipStyle(region: string, active: boolean): CssVars | undefined {
+  if (!active) return undefined;
+  return {
+    "--chip-bg": REGION_TINT[region] || "var(--surface-3)",
+    "--chip-color": REGION_TEXT[region] || "var(--text)",
+    "--chip-border": REGION_TEXT[region] || "var(--text-3)",
+  };
+}
+
+function assetCardStyle(asset: Asset): CssVars {
+  const region = asset.region || "";
+  return {
+    "--asset-strip": VENDOR_STRIP[asset.vendor] || "var(--accent)",
+    "--asset-region-bg": REGION_TINT[region] || "var(--surface-3)",
+    "--asset-region-color": REGION_TEXT[region] || "var(--text-3)",
+  };
+}
+
+// Vendor and region are user-typed strings. The combobox
 // (``<datalist>``) lets the operator pick a preset or type anything
 // for a custom entry — no more "select + extra input field" ceremony.
 const VENDOR_PRESETS_LIST = [
@@ -73,14 +92,14 @@ export function CMDBPage() {
   });
   const ufv = (k: string, v: string) => setFv((p) => ({ ...p, [k]: v }));
 
-  // v3.9.13: vendor / region are user-typed strings. The combobox
+  // Vendor and region are user-typed strings. The combobox
   // (``<datalist>``) lets the operator pick a preset or type anything
   // for a custom entry — no more "select + extra input field" ceremony.
   // We collect the union of preset + previously-typed values so the
   // combobox stays helpful as the CMDB grows.
   const [savedVendors] = useState<string[]>([...VENDOR_PRESETS_LIST]);
   const [savedRegions, setSavedRegions] = useState<string[]>([...REGION_PRESETS]);
-  // v3.9.13: protocol picker shows the two primary live-terminal
+  // Protocol picker shows the two primary live-terminal
   // choices (SSH / Telnet) as chips; everything else is collapsed
   // behind "其它协议".
   const [showAdvancedProtocol, setShowAdvancedProtocol] = useState(false);
@@ -117,7 +136,7 @@ export function CMDBPage() {
       username: a.username, password: "", region: a.region || "",
       location: a.location, description: a.description || "", tags: (a.tags || []).join(", "), err: "",
     });
-    // v3.9.13: SSH / Telnet live on the primary chip row; everything
+    // SSH / Telnet live on the primary chip row; everything
     // else pops the "其它协议" disclosure.
     const adv = !["ssh", "telnet"].includes((a.protocol || "").toLowerCase());
     setShowAdvancedProtocol(adv);
@@ -273,7 +292,7 @@ export function CMDBPage() {
       {opts.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
     </Select>
   );
-  // v3.9.13: custom input helper removed — vendor/region are
+  // Custom input helper removed — vendor/region are
   // ``<input list="...">`` comboboxes tied to ``<datalist>``s that
   // grow with previously-saved values. No extra "select + 自定义填
   // 写" switch any more.
@@ -293,7 +312,7 @@ export function CMDBPage() {
     ["load_balancer", "负载均衡"], ["wireless", "无线"], ["other", "其他"],
   ];
 
-  // v3.9.13: SSH/Telnet are the *primary* live-terminal protocols and
+  // SSH/Telnet are the *primary* live-terminal protocols and
   // render as toggle chips next to the host field. The remaining
   // protocols sit behind a collapsed "其它协议" disclosure because
   // they are non-interactive (we just persist the asset metadata).
@@ -355,16 +374,8 @@ export function CMDBPage() {
                   key={r}
                   onClick={() => setRegionFilter(active ? "" : r)}
                   className={`filter-chip region ${active ? "active" : ""}`}
-              style={{
-                ...(active
-                  ? {
-                      "--chip-bg": REGION_TINT[r] || "var(--surface-3)",
-                      "--chip-color": REGION_TEXT[r] || "var(--text)",
-                      "--chip-border": REGION_TEXT[r] || "var(--text-3)",
-                    }
-                  : {}),
-              } as React.CSSProperties}
-            >{r}</button>
+                  style={regionChipStyle(r, active)}
+                >{r}</button>
           );
         })}
         <div className="spacer" />
@@ -533,7 +544,7 @@ export function CMDBPage() {
                   <div className="password-hint-box">
                     {editingAsset
                       ? "保存时密码留空 → 后端保留原 password_secret；填入新值才替换。"
-                      : "保存后，LLM 和远程终端通过 asset_id 发起连接，看不到明文密码。"}
+                      : "保存后，LLM 和远程终端通过内部设备编号发起连接，看不到明文密码。"}
                   </div>
                 </div>
               </div>
@@ -566,12 +577,11 @@ export function CMDBPage() {
         {/* ── 设备卡片 ── */}
         <div className="asset-card-grid">
           {filtered.map(a => {
-            const strip = VENDOR_STRIP[a.vendor] || "var(--accent)";
             const regionName = a.region || "";
             const canOpenTerminal = ["ssh", "telnet"].includes((a.protocol || "").toLowerCase());
             return (
-            <div key={a.asset_id} className="asset-card">
-              <div className="asset-card-header" style={{ borderBottomColor: strip }}>
+            <div key={a.asset_id} className="asset-card" style={assetCardStyle(a)}>
+              <div className="asset-card-header">
                 <div className="asset-card-title">
                   <div className="asset-card-name">{a.name || a.host}</div>
                   <div className="asset-card-meta">
@@ -580,7 +590,7 @@ export function CMDBPage() {
                       <span className="asset-card-vendor">{a.vendor}</span>
                     )}
                     {regionName && (
-                      <span className="asset-card-region" style={{ background: REGION_TINT[regionName], color: REGION_TEXT[regionName] }}>
+                      <span className="asset-card-region">
                         {regionName}
                       </span>
                     )}

@@ -1,6 +1,6 @@
 // frontend/src/components/InspectionProgressCard.tsx
 //
-// v3.10: when the workbench auto-launches a CMDB inspection
+// When the workbench auto-launches a CMDB inspection
 // (intent=cmdb_region_inspection or cmdb_asset_inspection), this
 // card sits at the top of the workbench message stream and
 // shows the live task state with a cancel button.
@@ -11,12 +11,13 @@
 // safety net now, and it is paused while the tab is hidden to avoid wasted
 // requests. The card fades out 8s after the task reaches a terminal state.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useSessionStore } from "../stores/session";
 import { inspectionApi } from "../api";
 
 const FADE_AFTER_MS = 8000;
 const DEFAULT_POLL_MS = 5000;
+type CssVars = CSSProperties & Record<`--${string}`, string>;
 
 interface InspectionTaskSnapshot {
   status?: string;
@@ -186,6 +187,7 @@ export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props
       ))
     : 0;
   const statusClass = snap.status || "pending";
+  const progressStyle: CssVars = { "--inspection-progress": `${progressPct}%` };
 
   return (
     <div className={`inspection-progress-card ${phase === "fading" ? "inspection-progress-card--fading" : ""}`}>
@@ -217,7 +219,7 @@ export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props
       <div className="inspection-progress-bar-bg">
         <div
           className={`inspection-progress-bar-fill inspection-progress-bar-fill--${statusClass}`}
-          style={{ width: `${progressPct}%` }}
+          style={progressStyle}
         />
       </div>
       {snap.cancel_requested_at && (
@@ -238,4 +240,3 @@ export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props
     </div>
   );
 }
-

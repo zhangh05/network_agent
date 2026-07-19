@@ -120,7 +120,7 @@ describe("Network Assurance user flow", () => {
     expect(screen.getByText("LLM 已完成证据分析")).toBeInTheDocument();
     expect(screen.getByText("CE1 疑似对端撤销路由")).toBeInTheDocument();
     expect(screen.getByText("CE1 对端停止发布目标前缀")).toBeInTheDocument();
-    expect(screen.getByText("依据：artifact:art-1")).toBeInTheDocument();
+    expect(screen.getByText("依据：证据制品 art-1")).toBeInTheDocument();
     expect(screen.getByText("检查 CE1 对端路由发布")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "查看本次巡检制品" })).toHaveAttribute("href", "/artifacts?producer_id=ins-fault");
   });

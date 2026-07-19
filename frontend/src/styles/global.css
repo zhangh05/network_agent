@@ -5830,7 +5830,7 @@ summary:focus-visible,
 
 .asset-card-header {
   padding: 14px 16px 10px;
-  border-bottom: 3px solid var(--accent);
+  border-bottom: 3px solid var(--asset-strip, var(--accent));
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -5883,8 +5883,8 @@ summary:focus-visible,
   font-weight: 600;
   padding: 1px 8px;
   border-radius: 4px;
-  background: var(--surface-3);
-  color: var(--text-3);
+  background: var(--asset-region-bg, var(--surface-3));
+  color: var(--asset-region-color, var(--text-3));
 }
 
 .asset-card-body {
@@ -7811,14 +7811,18 @@ summary:focus-visible,
 
 .skeleton {
   display: inline-block;
+  width: var(--skeleton-width, auto);
+  height: var(--skeleton-height, 14px);
   background: var(--surface-2);
   border-radius: 4px;
   animation: sk-pulse 1.4s ease-in-out infinite;
+  animation-delay: var(--skeleton-delay, 0s);
 }
 
 .skeleton-list {
   display: flex;
   flex-direction: column;
+  gap: var(--skeleton-gap, 10px);
 }
 
 .skeleton-list-row {
@@ -7990,6 +7994,7 @@ summary:focus-visible,
 
 .inspection-progress-bar-fill {
   height: 100%;
+  width: var(--inspection-progress, 0%);
   border-radius: var(--r-pill);
   transition: width 0.5s;
 }
@@ -8634,4 +8639,3 @@ summary:focus-visible,
 .packet-col-delta { width: 75px; }
 .packet-col-dir { width: 30px; }
 .packet-col-flags { width: 80px; }
-

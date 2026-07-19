@@ -5,7 +5,7 @@
  * groups messages by `run_id` (one user + one assistant per run) and renders
  * each pair as a card. If the assistant message has an attached
  * `AgentResult`, the expanded view shows the full event timeline; otherwise
- * v3.9.1: on first expand, fires `loadRunDetail(workspace_id, run_id)` to
+ * On first expand, fires `loadRunDetail(workspace_id, run_id)` to
  * fetch /api/runs/<id> + /api/runs/<id>/trace and attach the merged result
  * to the assistant message. While loading we show a spinner; on error we
  * fall back to the user/assistant text pair with a retry hint.
@@ -15,6 +15,7 @@ import type { AgentResult, RuntimeEvent, ToolCallResult } from "../types";
 import type { ChatMsg } from "../stores/workbench";
 import { useWorkbenchStore } from "../stores/workbench";
 import { useSessionStore } from "../stores/session";
+import { shortId } from "../utils/displayText";
 
 /* ── helpers ── */
 
@@ -185,7 +186,7 @@ const ResultBody: React.FC<{ result: AgentResult }> = React.memo(({ result }) =>
           <span className={`rt-tracking-chip ${trackingSummary.done ? "ok" : "live"}`}>
             {trackingStatus || "unknown"}
           </span>
-          <span className="rt-tracking-id">{trackingTaskId}</span>
+          <span className="rt-tracking-id" title={trackingTaskId}>{shortId(trackingTaskId)}</span>
           {trackingSummary.progress?.percent != null && (
             <span className="rt-tracking-chip">{trackingSummary.progress.percent}%</span>
           )}
@@ -309,7 +310,7 @@ const RunCard: React.FC<{ group: RunGroup; runIdx: number }> = React.memo(({ gro
   const workspaceId = result?.metadata?.workspace_id;
   const hasResultBody = !!result;
 
-  // v3.9.1: when expanded and no result yet, fetch the full trace lazily.
+  // When expanded and no result yet, fetch the full trace lazily.
   // We do NOT auto-fetch on mount — only when the user explicitly expands.
   const currentWorkspaceId = useSessionStore((s) => s.currentWorkspaceId);
   const loadRunDetail = useWorkbenchStore((s) => s.loadRunDetail);

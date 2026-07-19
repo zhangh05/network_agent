@@ -58,12 +58,12 @@ export interface ChatMsg {
   error?: string;
   /** Trace ID for context linking */
   trace_id?: string;
-  /** P0 fix: friendly Chinese label for the current SSOT Runtime stage, updated
+  /** Friendly Chinese label for the current SSOT Runtime stage, updated
    *  by realtime ``stage_*`` events from the WebSocket. Replaces the
    *  12s "思考中" blank with a live "正在分析任务…", "正在执行工具…",
    *  "整理最终回复…" label. Set during streaming, kept for history. */
   progressText?: string;
-  /** P0 fix: monotonic timer (ms) for the latest SSOT Runtime stage, used to
+  /** Monotonic timer (ms) for the latest SSOT Runtime stage, used to
    *  render the small "(已等待 5.4s)" suffix. */
   progressElapsedMs?: number;
 }
@@ -184,13 +184,13 @@ interface WorkbenchState {
   sending: boolean;
   lastUserInput: string;
   /**
-   * v3.9.1: lazy-loaded run detail cache, keyed by run_id (not by session).
+   * Lazy-loaded run detail cache, keyed by run_id (not by session).
    * Populated when the Timeline tab expands a card and we need the full
    * events/tool_calls trace. Not persisted — re-fetched on reload.
    */
   runDetails: Record<string, AgentResult>;
   /**
-   * FIX 6: Track in-flight run detail loads as shared Promises so concurrent
+   * Track in-flight run detail loads as shared Promises so concurrent
    * callers await the same load instead of polling. Replaces the old
    * `Record<string, boolean>` + 6s polling loop.
    */
@@ -221,7 +221,7 @@ interface WorkbenchState {
   clear: (session_id?: string) => void;
   mergeFromBackend: (session_id: string, serverMsgs: SessionMessage[]) => void;
   /**
-   * v3.9.1: Lazily fetch the full run detail (GET /runs/<id> + /runs/<id>/trace)
+   * Lazily fetch the full run detail (GET /runs/<id> + /runs/<id>/trace)
    * and attach the merged AgentResult to the matching assistant message in
    * `sid`. Cached by run_id so repeat expansions are instant.
    *
@@ -321,7 +321,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
           const cur = s.bySession[sid] ?? [];
           const idx = cur.findIndex((m) => m.id === msgId);
           if (idx < 0) return s;
-          // FIX 1: Skip set() if all patch fields are already identical to
+          // Skip set() if all patch fields are already identical to
           // the current message — avoids triggering re-renders for no-op
           // updates during high-frequency streaming (every 50ms flush).
           const existing = cur[idx];
@@ -371,7 +371,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       },
 
       // ────────────────────────────────────────────────────────────────────
-      // v3.9.1: loadRunDetail — lazy fetch full run trace/tool_calls.
+      // Load run detail — lazy fetch full run trace/tool_calls.
       //
       // Timeline cards start with no AgentResult attached (the messages API
       // doesn't include events/tool_calls). When the user expands a card and
@@ -382,7 +382,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       //      and stores in `runDetails` cache for repeat expansions.
       // ────────────────────────────────────────────────────────────────────
       loadRunDetail: function loadRunDetailImpl(workspace_id, run_id, sid) {
-        // FIX 6: Return a shared Promise so concurrent callers await the
+        // Return a shared Promise so concurrent callers await the
         // same load instead of polling. This avoids the 6s polling loop
         // and eliminates the need for cancellation mechanisms.
         const targetSid = sid ?? get().currentSessionId;

@@ -102,6 +102,23 @@ function deviceText(value: unknown, nodeNames: Map<string, string>) {
   return text;
 }
 
+function displayFact(value: unknown, nodeNames: Map<string, string>) {
+  return deviceText(factValue(value), nodeNames);
+}
+
+function evidenceText(value: unknown, nodeNames: Map<string, string>) {
+  const text = deviceText(String(value || ""), nodeNames);
+  if (!text) return "";
+  if (text.startsWith("artifact:")) return `证据制品 ${text.slice("artifact:".length)}`;
+  if (text.startsWith("task:")) return `巡检任务 ${text.slice("task:".length)}`;
+  return text;
+}
+
+function evidenceListText(values: unknown[] | undefined, nodeNames: Map<string, string>) {
+  const refs = (values || []).map((item) => evidenceText(item, nodeNames)).filter(Boolean);
+  return refs.join("、");
+}
+
 function IncidentCard({ incident, operation, baselineName, nodeNames, onClose }: {
   incident: AssuranceIncident;
   operation?: AssuranceOperation;
@@ -147,7 +164,7 @@ function IncidentCard({ incident, operation, baselineName, nodeNames, onClose }:
             {llm.ranked_hypotheses.map((hypothesis, index) => <div key={`${index}-${hypothesis.statement}`}>
               <Status value={hypothesis.confidence} />
               <span>{deviceText(hypothesis.statement, nodeNames)}</span>
-              {!!hypothesis.evidence_refs?.length && <small>依据：{hypothesis.evidence_refs.join("、")}</small>}
+              {!!hypothesis.evidence_refs?.length && <small>依据：{evidenceListText(hypothesis.evidence_refs, nodeNames)}</small>}
             </div>)}
           </div>}
         </>}
@@ -157,15 +174,15 @@ function IncidentCard({ incident, operation, baselineName, nodeNames, onClose }:
         <summary>查看基线差异明细（{changes.length} 项）</summary>
         <div className="incident-changes">{changes.slice(0, 100).map((change, index) => <div key={`${change.key}-${index}`}>
           <Status value={change.severity || "info"} />
-          <span><b>{nodeNames.get(String(change.asset_id)) || change.asset_id || "未知设备"}</b> · {change.resource_id || change.key}</span>
-          <small>{change.rationale || "状态发生变化"}：{factValue(change.before)} → {factValue(change.after)}</small>
-          {change.evidence_ref && <code>{change.evidence_ref}</code>}
+          <span><b>{nodeNames.get(String(change.asset_id)) || change.asset_id || "未知设备"}</b> · {deviceText(change.resource_id || change.key, nodeNames)}</span>
+          <small>{change.rationale || "状态发生变化"}：{displayFact(change.before, nodeNames)} → {displayFact(change.after, nodeNames)}</small>
+          {change.evidence_ref && <code>{evidenceText(change.evidence_ref, nodeNames)}</code>}
         </div>)}</div>
       </details>}
 
       {!!incident.hypotheses?.length && <details>
         <summary>规则确认与调查假设（{incident.hypotheses.length} 项）</summary>
-        <div className="assurance-hypotheses">{incident.hypotheses.map((hypothesis) => <p key={hypothesis.hypothesis_id}><Status value={hypothesis.confidence} /> {deviceText(hypothesis.statement, nodeNames)}{hypothesis.evidence_ref && <code>{hypothesis.evidence_ref}</code>}</p>)}</div>
+        <div className="assurance-hypotheses">{incident.hypotheses.map((hypothesis) => <p key={hypothesis.hypothesis_id}><Status value={hypothesis.confidence} /> {deviceText(hypothesis.statement, nodeNames)}{hypothesis.evidence_ref && <code>{evidenceText(hypothesis.evidence_ref, nodeNames)}</code>}</p>)}</div>
       </details>}
 
       {!!incident.next_actions?.length && <section>
@@ -414,7 +431,7 @@ export function AssurancePage() {
             <div className="assurance-list">{baselines.length ? baselines.map((item) => {
               const scopeLabel = [item.scope?.region, item.scope?.location, item.scope?.vendor].filter(Boolean).join(" · ") || "全部设备";
               return <article className="stack" key={item.baseline_id}>
-                <div><span className="assurance-status ok">权威基线</span><b>{item.name}</b><span>{scopeLabel} · 定调于 {dateText(item.created_at)}</span><span>结构化事实 {item.quality?.typed_fact_count ?? 0} 项 · 覆盖 {(item.quality?.categories || []).join("、") || "暂无分类"}</span><span>来源巡检任务：{item.source_task_id}</span>{item.quality?.evidence_complete === false ? <em>该权威基线的原始证据覆盖不完整：{item.quality.fallback_assets || 0} 台设备仅保留截断片段。后续功能不得把未覆盖事实判成异常。</em> : null}</div>
+                <div><span className="assurance-status ok">权威基线</span><b>{item.name}</b><span>{scopeLabel} · 定调于 {dateText(item.created_at)}</span><span>结构化事实 {item.quality?.typed_fact_count ?? 0} 项 · 覆盖 {(item.quality?.categories || []).join("、") || "暂无分类"}</span>{item.source_task_id && <span>来源巡检：可查看基线来源证据</span>}{item.quality?.evidence_complete === false ? <em>该权威基线的原始证据覆盖不完整：{item.quality.fallback_assets || 0} 台设备仅保留截断片段。后续功能不得把未覆盖事实判成异常。</em> : null}</div>
                 {item.source_task_id && <Link className="btn sm" to={`/artifacts?producer_id=${encodeURIComponent(item.source_task_id)}`}>查看基线来源证据</Link>}
               </article>;
             }) : <div className="assurance-empty compact">还没有保存正常状态</div>}</div>
@@ -464,8 +481,8 @@ export function AssurancePage() {
           <div className="assurance-pane narrow"><div className="assurance-section-title"><div><h2>准备一次网络变更</h2><p>系统只生成检查和回退方案，不会向设备下发配置。</p></div></div>
             <label>变更标题<input value={changeForm.title} onChange={(e) => setChangeForm({ ...changeForm, title: e.target.value })} /></label>
             <label>变更摘要<textarea value={changeForm.summary} onChange={(e) => setChangeForm({ ...changeForm, summary: e.target.value })} /></label>
-            <label>预期会变化的事实（每行一个键，可用 *）<textarea value={changeForm.expected} onChange={(e) => setChangeForm({ ...changeForm, expected: e.target.value })} placeholder="例如：asset.asset_id.route.20.0.0.0_24" /></label>
-            <label>绝不能变化的事实（每行一个键，可用 *）<textarea value={changeForm.invariants} onChange={(e) => setChangeForm({ ...changeForm, invariants: e.target.value })} placeholder="例如：asset.asset_id.protocol.bgp.peer.*.state" /></label>
+            <label>预期会变化的事实（每行一个键，可用 *）<textarea value={changeForm.expected} onChange={(e) => setChangeForm({ ...changeForm, expected: e.target.value })} placeholder="例如：目标设备的 20.0.0.0/24 路由下一跳会变化" /></label>
+            <label>绝不能变化的事实（每行一个键，可用 *）<textarea value={changeForm.invariants} onChange={(e) => setChangeForm({ ...changeForm, invariants: e.target.value })} placeholder="例如：目标设备的 BGP 邻居状态不能中断" /></label>
             <label>选择目标设备</label><div className="assurance-device-picker">{(topology?.nodes || []).map((node) => <button type="button" className={changeForm.asset_ids.includes(node.asset_id) ? "selected" : ""} key={node.asset_id} onClick={() => toggleChangeAsset(node.asset_id)}><span>{changeForm.asset_ids.includes(node.asset_id) ? "✓" : ""}</span><b>{node.name || node.host}</b><small>{node.region || "未分区"}</small></button>)}</div>
             <button className="btn primary" disabled={!changeForm.title || !changeForm.summary || !changeForm.asset_ids.length || !!busy} onClick={() => run("change", () => assuranceApi.createChange({ workspace_id: workspaceId, title: changeForm.title, summary: changeForm.summary, asset_ids: changeForm.asset_ids, expected_changes: changeForm.expected.split("\n").map((key_pattern) => key_pattern.trim()).filter(Boolean).map((key_pattern) => ({ key_pattern, required: true })), invariants: changeForm.invariants.split("\n").map((key_pattern) => key_pattern.trim()).filter(Boolean).map((key_pattern) => ({ key_pattern, required: true })) }), "变更验证方案已创建", () => setChangeForm({ title: "", summary: "", asset_ids: [], expected: "", invariants: "" }))}>生成验证方案</button>
           </div>
@@ -486,7 +503,7 @@ export function AssurancePage() {
             <label>连续恢复几次后关闭<select value={scheduleForm.recover_after} onChange={(e) => setScheduleForm({ ...scheduleForm, recover_after: e.target.value })}><option value="1">1 次</option><option value="2">2 次</option><option value="3">3 次</option></select></label>
             <button className="btn primary" disabled={!scheduleForm.baseline_id || !!busy} onClick={() => run("schedule", () => assuranceApi.createSchedule({ workspace_id: workspaceId, name: scheduleForm.name || "定期网络状态检查", baseline_id: scheduleForm.baseline_id, interval_minutes: Number(scheduleForm.interval), confirm_after: Number(scheduleForm.confirm_after), recover_after: Number(scheduleForm.recover_after) }), "持续保障已启用", () => setScheduleForm({ name: "", baseline_id: "", interval: "60", confirm_after: "2", recover_after: "2" }))}>启用持续保障</button>
           </div>
-          <div className="assurance-pane"><div className="assurance-section-title"><div><h2>持续保障任务</h2><p>每轮重新采集并与指定 B0 对比；最近结果、差异、证据与告警均可追溯。</p></div></div><div className="assurance-list">{schedules.length ? schedules.map((item) => <ScheduleCard key={item.schedule_id} item={item} baselineName={baselines.find((entry) => entry.baseline_id === item.baseline_id)?.name || ""} drift={drifts.find((entry) => entry.drift_id === item.last_drift_id)} nodeNames={nodeNames} busy={Boolean(busy)} onRun={() => run(`run-${item.schedule_id}`, () => assuranceApi.runSchedule(workspaceId, item.schedule_id), "持续检查已启动")} onToggle={() => run(item.schedule_id, () => assuranceApi.updateSchedule(workspaceId, item.schedule_id, { enabled: !item.enabled }), item.enabled ? "持续保障已暂停" : "持续保障已启用")} />) : <div className="assurance-empty compact">暂无持续保障任务</div>}</div><h3 className="assurance-subhead">事实告警</h3><div className="assurance-list">{alarms.filter((item) => item.state !== "resolved").map((item) => <article className="alarm-card" key={item.alarm_id}><div><b>{nodeNames.get(item.asset_id) || item.asset_id} · {item.fact_key}</b><span>连续命中 {item.consecutive_hits} 次 · 连续恢复 {item.consecutive_clears} 次 · {dateText(item.last_seen_at)}</span><span>{factValue(item.latest_change?.before)} → {factValue(item.latest_change?.after)}</span>{item.latest_change?.evidence_ref && <code>{String(item.latest_change.evidence_ref)}</code>}</div><Status value={item.state} /></article>)}</div></div>
+          <div className="assurance-pane"><div className="assurance-section-title"><div><h2>持续保障任务</h2><p>每轮重新采集并与指定 B0 对比；最近结果、差异、证据与告警均可追溯。</p></div></div><div className="assurance-list">{schedules.length ? schedules.map((item) => <ScheduleCard key={item.schedule_id} item={item} baselineName={baselines.find((entry) => entry.baseline_id === item.baseline_id)?.name || ""} drift={drifts.find((entry) => entry.drift_id === item.last_drift_id)} nodeNames={nodeNames} busy={Boolean(busy)} onRun={() => run(`run-${item.schedule_id}`, () => assuranceApi.runSchedule(workspaceId, item.schedule_id), "持续检查已启动")} onToggle={() => run(item.schedule_id, () => assuranceApi.updateSchedule(workspaceId, item.schedule_id, { enabled: !item.enabled }), item.enabled ? "持续保障已暂停" : "持续保障已启用")} />) : <div className="assurance-empty compact">暂无持续保障任务</div>}</div><h3 className="assurance-subhead">事实告警</h3><div className="assurance-list">{alarms.filter((item) => item.state !== "resolved").map((item) => <article className="alarm-card" key={item.alarm_id}><div><b>{nodeNames.get(item.asset_id) || item.asset_id} · {deviceText(item.fact_key, nodeNames)}</b><span>连续命中 {item.consecutive_hits} 次 · 连续恢复 {item.consecutive_clears} 次 · {dateText(item.last_seen_at)}</span><span>{displayFact(item.latest_change?.before, nodeNames)} → {displayFact(item.latest_change?.after, nodeNames)}</span>{item.latest_change?.evidence_ref && <code>{evidenceText(item.latest_change.evidence_ref, nodeNames)}</code>}</div><Status value={item.state} /></article>)}</div></div>
         </section>}
       </main>
     </div>
@@ -503,12 +520,12 @@ function LlmResult({ llm, nodeNames = new Map(), emptyText = "该环节由确定
     : llm.error === "no_structured_changes" ? "没有结构化变化可供分析。"
       : llm.error === "no_evidence_based_propagation" ? "没有基于证据的传播路径可供分析。" : llm.error;
   if (llm.status !== "completed") return <div className="assurance-analysis-note warn"><b>{llm.status === "skipped" ? "LLM 未调用" : "LLM 调用未完成"}</b><span>{skippedReason || llm.status || "没有返回结果"}</span></div>;
-  return <div className="assurance-analysis-note ok"><b>LLM 已完成证据分析</b><span>{deviceText(llm.summary || "已完成，但没有返回摘要。", nodeNames)}</span>{(llm.ranked_hypotheses || []).map((item: any, index: number) => <small key={`${index}-${item.statement}`}>{index + 1}. {deviceText(item.statement, nodeNames)}{item.evidence_refs?.length ? `（依据：${item.evidence_refs.join("、")}）` : ""}</small>)}</div>;
+  return <div className="assurance-analysis-note ok"><b>LLM 已完成证据分析</b><span>{deviceText(llm.summary || "已完成，但没有返回摘要。", nodeNames)}</span>{(llm.ranked_hypotheses || []).map((item: any, index: number) => <small key={`${index}-${item.statement}`}>{index + 1}. {deviceText(item.statement, nodeNames)}{item.evidence_refs?.length ? `（依据：${evidenceListText(item.evidence_refs, nodeNames)}）` : ""}</small>)}</div>;
 }
 
 function EvidenceChanges({ changes = [], nodeNames, title = "查看差异明细" }: { changes?: Array<Record<string, any>>; nodeNames: Map<string, string>; title?: string }) {
   if (!changes.length) return <div className="assurance-analysis-note"><b>没有状态差异</b><span>规则引擎未发现可展示的事实变化。</span></div>;
-  return <details className="assurance-evidence-details"><summary>{title}（{changes.length} 项）</summary><div className="incident-changes">{changes.slice(0, 100).map((change, index) => <div key={`${change.key}-${index}`}><Status value={String(change.severity || "info")} /><span><b>{nodeNames.get(String(change.asset_id)) || change.asset_id || "未知设备"}</b> · {change.resource_id || change.key}</span><small>{change.rationale || "状态发生变化"}：{factValue(change.before)} → {factValue(change.after)}</small>{change.evidence_ref && <code>{String(change.evidence_ref)}</code>}</div>)}</div></details>;
+  return <details className="assurance-evidence-details"><summary>{title}（{changes.length} 项）</summary><div className="incident-changes">{changes.slice(0, 100).map((change, index) => <div key={`${change.key}-${index}`}><Status value={String(change.severity || "info")} /><span><b>{nodeNames.get(String(change.asset_id)) || change.asset_id || "未知设备"}</b> · {deviceText(change.resource_id || change.key, nodeNames)}</span><small>{change.rationale || "状态发生变化"}：{displayFact(change.before, nodeNames)} → {displayFact(change.after, nodeNames)}</small>{change.evidence_ref && <code>{evidenceText(change.evidence_ref, nodeNames)}</code>}</div>)}</div></details>;
 }
 
 function ImpactResult({ result, nodeNames }: { result: Record<string, any>; nodeNames: Map<string, string> }) {
@@ -519,11 +536,11 @@ function ImpactResult({ result, nodeNames }: { result: Record<string, any>; node
     <div className="assurance-result-heading"><Status value={validation.status || result.confidence || "unverified"} /><strong>{(result.affected_assets || []).length} 台可能受传播设备</strong></div>
     <span>{result.conclusion}</span>
     <span>故障源：{(result.source_assets || []).map((id: string) => nodeNames.get(id) || id).join("、") || "未指定"}</span>
-    <div className="assurance-analysis-note"><b>{validation.mode === "hypothetical" ? "假设分析" : "故障确认"}</b><span>{validation.message || "尚无源设备验证结果"}{validation.baseline_id ? ` · 权威基线 ${validation.baseline_id}` : ""}</span></div>
+    <div className="assurance-analysis-note"><b>{validation.mode === "hypothetical" ? "假设分析" : "故障确认"}</b><span>{validation.message || "尚无源设备验证结果"}{validation.baseline_id ? " · 已绑定权威基线" : ""}</span></div>
     <span>传播计算使用 {result.edge_count || 0} 组设备关系、{result.evidence_claim_count || 0} 项关系证据、{result.dependency_count || 0} 条有向依赖。</span>
     {(result.propagation || []).map((item: any) => <div className="impact-path" key={`${item.asset_id}-${item.layer}`}><b>{item.layer === 1 ? "直接传播" : `间接传播 ${item.layer}`}</b><span>{(item.path || []).map((id: string) => nodeNames.get(id) || id).join(" → ")}</span><small>{(item.via || []).map(relationshipLabel).join("、")} · 证据 {item.evidence_refs?.length || 0} 项 · <Status value={item.redundancy?.status || "unverified"} />{item.redundancy?.alternate_sources?.length ? `：${item.redundancy.alternate_sources.map((id: string) => nodeNames.get(id) || id).join("、")}` : ""}</small></div>)}
     <EvidenceChanges changes={result.trigger_changes || []} nodeNames={nodeNames} title="查看故障源确认事实" />
-    <details className="assurance-evidence-details"><summary>查看可能受影响的网络资源（{resources.length} 项）</summary><div className="incident-changes">{resources.length ? resources.slice(0, 100).map((item: any, index: number) => <div key={`${item.asset_id}-${item.resource_type}-${item.resource_id}-${index}`}><Status value="info" /><span><b>{nodeNames.get(String(item.asset_id)) || item.asset_id}</b> · {item.resource_type}</span><small>{item.resource_id}</small>{item.evidence_refs?.[0] && <code>{item.evidence_refs[0]}</code>}</div>) : <p>没有从巡检证据中提取到资源。</p>}</div></details>
+    <details className="assurance-evidence-details"><summary>查看可能受影响的网络资源（{resources.length} 项）</summary><div className="incident-changes">{resources.length ? resources.slice(0, 100).map((item: any, index: number) => <div key={`${item.asset_id}-${item.resource_type}-${item.resource_id}-${index}`}><Status value="info" /><span><b>{nodeNames.get(String(item.asset_id)) || item.asset_id}</b> · {item.resource_type}</span><small>{deviceText(item.resource_id, nodeNames)}</small>{item.evidence_refs?.[0] && <code>{evidenceText(item.evidence_refs[0], nodeNames)}</code>}</div>) : <p>没有从巡检证据中提取到资源。</p>}</div></details>
     <div className="assurance-analysis-note"><b>业务影响</b><span>{services.length ? `CMDB 映射到 ${services.length} 项业务：${services.map((item: any) => item.service).join("、")}` : result.business_impact?.reason || "没有业务映射，不能判断客户或业务影响。"}</span></div>
     <LlmResult llm={result.llm} nodeNames={nodeNames} emptyText="没有足够的故障传播证据，LLM 未参与解释。" />
   </div>;
@@ -590,7 +607,7 @@ function ScheduleCard({ item, baselineName, drift, nodeNames, busy, onRun, onTog
   onToggle: () => void;
 }) {
   return <article className="stack schedule-card">
-    <div><b>{item.name}</b><span>比较基准：{baselineName || item.baseline_id}</span><span>每 {item.interval_minutes} 分钟 · 下次检查 {dateText(item.next_run_at)}</span><span>告警确认 {item.confirm_after || 2} 次 · 恢复确认 {item.recover_after || 2} 次 · 当前打开 {item.open_alarm_count || 0} 条</span><span>已运行 {item.run_count || 0} 次 · 最近结果 {item.last_status || "尚未执行"}</span>{item.error && <em>最近一次运行失败：{item.error}</em>}</div>
+    <div><b>{item.name}</b><span>比较基准：{baselineName || "已保存的权威基线"}</span><span>每 {item.interval_minutes} 分钟 · 下次检查 {dateText(item.next_run_at)}</span><span>告警确认 {item.confirm_after || 2} 次 · 恢复确认 {item.recover_after || 2} 次 · 当前打开 {item.open_alarm_count || 0} 条</span><span>已运行 {item.run_count || 0} 次 · 最近结果 {item.last_status || "尚未执行"}</span>{item.error && <em>最近一次运行失败：{item.error}</em>}</div>
     <Status value={item.state} />
     {drift && <div className="schedule-latest"><b>最近一轮：{dateText(drift.created_at)}</b><span>严重 {drift.summary?.critical || 0} · 警告 {drift.summary?.warning || 0} · 信息 {drift.summary?.info || 0}</span><EvidenceChanges changes={drift.changes as Array<Record<string, any>>} nodeNames={nodeNames} title="查看最近一轮基线差异" /><LlmResult llm={item.last_analysis} nodeNames={nodeNames} emptyText="正常轮次不调用 LLM；告警达到连续确认门槛后才调用 LLM 归纳关联和处置优先级。" /></div>}
     {!drift && item.run_count > 0 && <div className="incident-warning">最近检查没有可读取的基线差异记录。</div>}

@@ -1,5 +1,5 @@
 /**
- * ArtifactCenter — 制品中心 (v3.3.1 美化)
+ * ArtifactCenter — 制品中心
  */
 import { useEffect, useState, useCallback } from "react";
 import { artifactsApi, reportsApi, storageApi } from "../../api";
@@ -11,13 +11,13 @@ import { useToastStore } from "../../stores/toast";
 import { isApiError } from "../../types";
 import type { Artifact } from "../../types";
 import { IconDocument, IconPlus } from "../../components/Icon";
-import { formatCompactDate } from "../../utils/displayText";
+import { formatCompactDate, shortId } from "../../utils/displayText";
 import { formatFileSize } from "../../utils/format";
 
 const SENS_LABEL: Record<string, string> = { public: "公开", internal: "内部", sensitive: "敏感", secret: "机密" };
 const LC_KIND: Record<string, "ok" | "warn" | "muted"> = { active: "ok", archived: "warn", deleted: "muted" };
 const LC_LABEL: Record<string, string> = { active: "活跃", archived: "归档", deleted: "已删" };
-const SRC_LABEL: Record<string, string> = { user_upload: "用户上传", module_output: "模块产出", agent_run: "Agent run", inspection_runner: "设备巡检" };
+const SRC_LABEL: Record<string, string> = { user_upload: "用户上传", module_output: "模块产出", agent_run: "智能体任务", inspection_runner: "设备巡检" };
 
 export function ArtifactCenter() {
   const { currentWorkspaceId } = useSessionStore();
@@ -78,7 +78,7 @@ export function ArtifactCenter() {
       <PageHeader
         title={
           <>
-            制品中心 <span>· Artifacts</span>
+            制品中心
           </>
         }
         subtitle="统一管理巡检证据、历史版本与业务交付物"
@@ -87,7 +87,7 @@ export function ArtifactCenter() {
       </PageHeader>
 
       <FilterBar>
-        {producerId && <div className="status-pill">任务 <InlineCode>{producerId}</InlineCode><Button size="sm" iconOnly className="btn-xs-compact" title="清除任务筛选" onClick={() => { window.history.replaceState({}, "", window.location.pathname); setProducerId(""); }}>×</Button></div>}
+        {producerId && <div className="status-pill" title={producerId}>任务 {shortId(producerId)}<Button size="sm" iconOnly className="btn-xs-compact" title="清除任务筛选" onClick={() => { window.history.replaceState({}, "", window.location.pathname); setProducerId(""); }}>×</Button></div>}
         {([
           ["", "全部制品"], ["current", "当前证据"], ["history", "历史与不完整"], ["deliverables", "业务交付物"],
         ] as const).map(([key, label]) => (
@@ -160,7 +160,7 @@ export function ArtifactCenter() {
                       <span aria-hidden="true" className="artifact-arrow">▶</span>
                       <span className="flex-1">
                         <b className="artifact-card-title">{group.label}</b>
-                        <code className="artifact-card-date artifact-card-date-block">{group.taskId || "无任务 ID"}</code>
+                        <span className="artifact-card-date artifact-card-date-block" title={group.taskId}>{group.taskId ? `任务 ${shortId(group.taskId)}` : "未归属任务"}</span>
                       </span>
                       <Badge kind={group.taskId ? "info" : "muted"}>{group.artifacts.length} 个</Badge>
                     </summary>
@@ -245,10 +245,10 @@ function Detail({ artifact: a, tab, onTab, onDel }: { artifact: Artifact; tab: s
           <Info label="大小">{formatFileSize(a.size_bytes)}</Info>
           {a.sha256_short && <Info label="SHA-256" mono>{a.sha256_short}</Info>}
           {a.capability_id && <Info label="能力">{a.capability_id}</Info>}
-          {a.run_id && <Info label="Run" mono>{a.run_id}</Info>}
+          {a.run_id && <Info label="关联任务" mono>{shortId(a.run_id)}</Info>}
           <Info label="证据地位">{authorityLabel(a)}</Info>
           {typeof a.metadata?.asset_name === "string" && <Info label="设备">{a.metadata.asset_name}</Info>}
-          {typeof a.metadata?.producer_id === "string" && <Info label="巡检任务" mono>{a.metadata.producer_id}</Info>}
+          {typeof a.metadata?.producer_id === "string" && <Info label="巡检任务" mono>{shortId(a.metadata.producer_id)}</Info>}
           {typeof a.metadata?.producer_trigger === "string" && <Info label="触发场景">{triggerLabel(a.metadata.producer_trigger)}</Info>}
           {a.governance?.version_count && <Info label="证据版本">第 {a.governance.version} / {a.governance.version_count} 版</Info>}
         </div>
@@ -308,7 +308,7 @@ function ContentTab({ artifact: a }: { artifact: Artifact }) {
     <div className="card artifact-empty-content">
       <div className="muted mb-1">无可用内容</div>
       <div className="faint text-sm">
-        {a.redaction_applied ? "已脱敏，原始内容不可读" : a.artifact_type ? `artifact_type=${a.artifact_type}，无内容` : "后端未返回 content"}
+        {a.redaction_applied ? "已脱敏，原始内容不可读" : a.artifact_type ? `${typeLabel(a)}暂无可预览内容` : "服务端未返回可预览内容"}
       </div>
     </div>
   );

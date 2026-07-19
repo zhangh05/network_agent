@@ -30,10 +30,10 @@ export function RemoteTerminal({ onClose, initial }: {
   const xtermRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  // FIX 2: Ref to hold syncResize so cleanup can always access the latest
+  // Keep syncResize in a ref so cleanup can always access the latest
   // reference even if initTerm hasn't finished assigning it yet.
   const syncResizeRef = useRef<(() => void) | null>(null);
-  // FIX 4: Ref to hold the connection timeout timer ID for cleanup.
+  // Keep the connection timeout timer in a ref for cleanup.
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Form state
@@ -120,7 +120,7 @@ export function RemoteTerminal({ onClose, initial }: {
           }
         } catch { /* ignore transient layout races */ }
       };
-      // FIX 2: Store syncResize in a ref so cleanup can remove the listener
+      // Store syncResize in a ref so cleanup can remove the listener
       // even if the reference hasn't been captured in the closure directly.
       syncResizeRef.current = syncResize;
       resizeObserverRef.current = new ResizeObserver(() => {
@@ -147,8 +147,7 @@ export function RemoteTerminal({ onClose, initial }: {
     initTerm();
     return () => {
       disposed = true;
-      // FIX 2: Use syncResizeRef.current instead of the local syncResize
-      // variable — the local may still be null at cleanup time if it
+      // Use syncResizeRef.current instead of the local syncResize variable — the local may still be null at cleanup time if it
       // hasn't been assigned yet in the async closure.
       if (syncResizeRef.current) window.removeEventListener("resize", syncResizeRef.current);
       resizeObserverRef.current?.disconnect();
@@ -157,10 +156,10 @@ export function RemoteTerminal({ onClose, initial }: {
     };
   }, []);
 
-  // Cleanup WebSocket + connection timeout on unmount (FIX 4)
+  // Cleanup WebSocket and connection timeout on unmount
   useEffect(() => {
     return () => {
-      // FIX 4: Clear any pending connection timeout timer.
+      // Clear any pending connection timeout timer.
       if (connectTimeoutRef.current) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null; }
       const ws = wsRef.current;
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -253,7 +252,7 @@ export function RemoteTerminal({ onClose, initial }: {
       if (term) term.writeln("\r\n\u26a0\ufe0f WebSocket 连接失败");
     };
 
-    // FIX 4: Connection timeout (15s) — store timer ID so it can be
+    // Connection timeout (15s) — store timer ID so it can be
     // cleared on disconnect or unmount.
     connectTimeoutRef.current = setTimeout(() => {
       connectTimeoutRef.current = null;
@@ -266,7 +265,7 @@ export function RemoteTerminal({ onClose, initial }: {
   };
 
   const doDisconnect = () => {
-    // FIX 4: Clear connection timeout timer on manual disconnect.
+    // Clear connection timeout timer on manual disconnect.
     if (connectTimeoutRef.current) { clearTimeout(connectTimeoutRef.current); connectTimeoutRef.current = null; }
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {

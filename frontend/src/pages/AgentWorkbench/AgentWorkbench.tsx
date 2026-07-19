@@ -20,7 +20,7 @@ import { formatFileSize } from "../../utils/format";
 import { QUICK_CHIPS } from "./WorkbenchQuickChips";
 import { TaskTrackingCard } from "../../components/TaskTrackingCard";
 
-/* ── v3.9 View mode ── */
+/* ── View mode ── */
 type ViewMode = "chat" | "timeline";
 
 interface WorkbenchAutoPrompt {
@@ -146,7 +146,7 @@ function trackingStats(result?: AgentResult) {
   };
 }
 
-// P0 fix: stage label table mirrors core.runtime_engine/stage_events.py
+// Stage label table mirrors core.runtime_engine/stage_events.py
 // so we can translate backend events to friendly Chinese text.
 const STAGE_LABELS: Record<string, string> = {
   turn_started:        "轮次开始",
@@ -260,13 +260,13 @@ export function TaskWorkbench() {
   const [llmHealth, setLlmHealth] = useState<{ connected: boolean; provider?: string; model?: string; recentFailure?: string }>({ connected: false });
   const toast = useToastStore((s) => s.show);
   const abortRef = useRef<AbortController | null>(null);
-  // FIX 3: Separate refs for system WebSocket and message WebSocket
+  // System and message streams use separate refs for system WebSocket and message WebSocket
   // to prevent race conditions where message streaming overwrites the
   // system WS reference and vice versa.
   const systemWsRef = useRef<WebSocket | null>(null);
   const msgWsRef = useRef<WebSocket | null>(null);
   const pendingAutoMetadataRef = useRef<Record<string, unknown> | null>(null);
-  // v3.10: live inspection task surfaced from the workbench. When
+  // Live inspection task surfaced from the workbench. When
   // the user launches a CMDB inspection via the CMDB page, the
   // auto-prompt hands off the run to the LLM but we also kick off
   // the task ourselves so the UI has a cancel button + progress
@@ -277,7 +277,7 @@ export function TaskWorkbench() {
   useEffect(() => { onSendRef.current = onSend; }, [onSend]);
 
   // Stop generation: abort active request + close message WebSocket
-  // FIX 3: Only close msgWsRef (not systemWsRef).
+  // Only close the message WebSocket; the persistent system stream stays alive.
   const stopGeneration = useCallback(() => {
     if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
     if (msgWsRef.current) { try { msgWsRef.current.close(); } catch {} msgWsRef.current = null; }
@@ -303,8 +303,7 @@ export function TaskWorkbench() {
   }, []);
 
   // ── Persistent system WebSocket — replaces all polling ──
-  // FIX 3: Uses systemWsRef (separate from msgWsRef) to avoid race
-  // conditions where message streaming overwrites the system WS.
+  // Use systemWsRef for the persistent stream so message streaming cannot overwrite it.
   useEffect(() => {
     if (!currentWorkspaceId) return;
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -595,7 +594,7 @@ export function TaskWorkbench() {
     return () => ctrl.abort();
   }, [currentSessionId, currentWorkspaceId]);
 
-  // v3.9: SSE real-time timeline updates
+  // SSE real-time timeline updates
   useEffect(() => {
     if (!currentSessionId || !currentWorkspaceId || typeof EventSource === "undefined") return;
     let closed = false;
@@ -695,8 +694,7 @@ export function TaskWorkbench() {
 
     try {
       ws = new WebSocket(wsUrl);
-      // FIX 3: Use msgWsRef (separate from systemWsRef) so message
-      // streaming doesn't interfere with the persistent system WS.
+      // Use msgWsRef for one-off message streaming so it cannot interfere with the persistent system stream.
       msgWsRef.current = ws;
 
       // Track streaming state
@@ -705,7 +703,7 @@ export function TaskWorkbench() {
       thinkFilter.current = { mode: "idle" };
       let resolvedSid: string = currentSessionId || "";
 
-      // P2 fix: token batching — buffer tokens, flush every 50ms instead
+      // Token batching — buffer tokens, flush every 50ms instead
       // of one setState per token. Also pause persist during streaming;
       // we flush the final text on `done` and let persist run once.
       const TOKEN_FLUSH_MS = 50;
@@ -744,7 +742,7 @@ export function TaskWorkbench() {
       let terminalFrameReceived = false;
 
       await new Promise<void>((resolve) => {
-        // P2 fix: per-token setState is replaced with a 50ms flush so
+        // Per-token setState is replaced with a 50ms flush so
         // we only re-render the streaming message ~20 times/sec instead
         // of ~63 times/sec (the provider's actual burst rate).
         const flushTokenBuffer = () => {
@@ -759,7 +757,7 @@ export function TaskWorkbench() {
         };
         const flushTimer = setInterval(flushTokenBuffer, TOKEN_FLUSH_MS);
 
-        // P0 fix: set initial progress text on the assistant message so
+        // Set initial progress text on the assistant message so
         // the user sees "正在分析任务…" instead of an empty bubble.
         useWorkbenchStore.getState().updateAssistant(
           streamingMsgId, { progressText: "等待 SSOT Runtime 调度…" }, scratch,
@@ -770,7 +768,7 @@ export function TaskWorkbench() {
             const msg = JSON.parse(event.data);
             switch (msg.type) {
               case "token":
-                // P2 fix: accumulate into buffer, not into the live state.
+                // Accumulate into buffer, not into the live state.
                 // The 50ms timer (flushTokenBuffer) does the actual setState.
                 const raw = msg.content || "";
                 const visible = filterStreamingThink(raw, thinkFilter.current);
@@ -786,7 +784,7 @@ export function TaskWorkbench() {
                   streamedText = "";
                   useWorkbenchStore.getState().updateAssistant(streamingMsgId, { text: "" }, scratch);
                 }
-                // P0 fix: live SSOT Runtime stage label — replaces blank "思考中…"
+                // Live SSOT Runtime stage label — replaces blank "思考中…"
                 // with the actual current stage (planner / risk / exec / …)
                 // plus an elapsed counter for heartbeats.
                 if (STAGE_LABELS[stageName]) {
@@ -838,7 +836,7 @@ export function TaskWorkbench() {
                 keepAtBottom();
                 break;
               case "done":
-                // P2 fix: flush any remaining buffered tokens before
+                // Flush any remaining buffered tokens before
                 // the final text is computed.
                 flushTokenBuffer();
                 clearInterval(flushTimer);
@@ -856,7 +854,7 @@ export function TaskWorkbench() {
                 streamingResult.warnings = msg.warnings || [];
                 streamingResult.tool_decision = msg.tool_decision;
                 streamingResult.no_tool_reason = msg.no_tool_reason;
-                // P0 fix: clear the in-flight progress label since the
+                // Clear the in-flight progress label since the
                 // final assistant text replaces it.
                 useWorkbenchStore.getState().updateAssistant(
                   streamingMsgId, { progressText: "" }, scratch,
@@ -866,7 +864,7 @@ export function TaskWorkbench() {
               case "error":
                 clearInterval(flushTimer);
                 terminalFrameReceived = true;
-                // P2 fix: flush whatever we had buffered, then keep
+                // Flush whatever we had buffered, then keep
                 // the partial text visible to the user.
                 flushTokenBuffer();
                 streamingResult.errors = [msg.message || msg.error || "Unknown error"];
@@ -879,7 +877,7 @@ export function TaskWorkbench() {
           } catch { /* ignore parse errors */ }
         };
 
-        // FIX 5: onclose handler — ensure token buffer is flushed and
+        // Flush buffered tokens on close — ensure token buffer is flushed and
         // streamedText is updated even if the WS closes before `done`.
         // This prevents partial text from being lost on abnormal close.
         ws!.onclose = () => {
@@ -900,7 +898,7 @@ export function TaskWorkbench() {
         };
         ws!.onerror = () => {
           clearInterval(flushTimer);
-          // FIX 5: Same flush logic for error path.
+          // Flush buffered tokens on error path.
           flushTokenBuffer();
           if (tokenBufferRef.pending || streamState.draft !== streamedText) {
             streamState.draft += tokenBufferRef.pending;
@@ -924,7 +922,7 @@ export function TaskWorkbench() {
 
       try { ws.close(); } catch { /* already closed */ }
       ws = null;
-      // FIX 3: Clear msgWsRef (not wsRef which is now systemWsRef).
+      // Clear only the message WebSocket ref after the turn completes.
       msgWsRef.current = null;
 
       // Resolve new-session routing before writing the final assistant text.
@@ -1136,7 +1134,7 @@ export function TaskWorkbench() {
           )}
           {m.status === "streaming" ? (
             <div className="chat-bubble assistant sending-line">
-              {/* P0 fix: live progress label — replaces the static
+              {/* Live progress label — replaces the static
                   "思考中…" so the user sees which SSOT Runtime stage is running
                   (planner / risk / exec / response). Empty when not
                   streaming or before the first event arrives. */}
@@ -1206,7 +1204,7 @@ export function TaskWorkbench() {
           <span className={"dot " + (llmHealth.connected ? (llmHealth.recentFailure ? "warn" : "ok") : "err")} />
           <span>{llmStatusLabel}</span>
         </div>
-        {/* v3.9: Export session as Markdown */}
+        {/* Export session as Markdown */}
         {currentSessionId && visibleHistory && visibleHistory.length > 0 && (
           <button className="wb-export-btn" title="导出对话" onClick={() => {
             const md = visibleHistory.map((m) =>
