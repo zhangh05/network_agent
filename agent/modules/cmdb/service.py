@@ -20,6 +20,29 @@ from storage.credential_store import (
 def _now() -> str: return now_iso()
 
 
+def _rebuild_topology(workspace_id: str) -> None:
+    """Refresh the assurance topology after a CMDB write.
+
+    Topology is derived from CMDB assets, but earlier versions only
+    refreshed it on demand, leaving the Assurance UI's "device range"
+    picker empty until a manual rebuild. We now rebuild it eagerly
+    after successful CMDB writes so the frontend always reflects the
+    latest assets (including region/vendor fields).
+
+    Failures here are non-fatal: CMDB is the source of truth, topology
+    is a derived snapshot. Any error is logged and swallowed so CMDB
+    writes never regress.
+    """
+    try:
+        from agent.modules.assurance.service import build_topology
+        build_topology(workspace_id)
+    except Exception as exc:  # noqa: BLE001 — best-effort hook
+        import logging
+        logging.getLogger(__name__).warning(
+            "topology rebuild after CMDB write failed for %s: %s", workspace_id, exc,
+        )
+
+
 _VALID_TYPES = {"switch", "router", "firewall", "server", "load_balancer", "wireless", "other"}
 _VALID_PROTOCOLS = {"ssh", "telnet", "https", "snmp", "netconf", "restconf"}
 
@@ -89,6 +112,7 @@ def save_asset(workspace_id: str, asset: dict) -> dict:
             record["password_secret"] = seal_credential(workspace_id, str(existing_asset["password"]))
 
         append_asset(workspace_id, record)
+    _rebuild_topology(workspace_id)
     return {"ok": True, "asset_id": record["asset_id"], "name": record["name"]}
 
 
@@ -183,6 +207,7 @@ def delete_asset(workspace_id: str, asset_id: str) -> dict:
                 continue  # remove tombstone
             kept.append(rec)
         replace_assets(workspace_id, kept)
+    _rebuild_topology(workspace_id)
     return {"ok": True, "name": name}
 
 
