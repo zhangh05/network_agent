@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { Suspense, memo, useCallback, useEffect, useState } from "react";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { SkeletonList, SkeletonTable } from "../components/common";
@@ -136,12 +136,12 @@ function AppShell() {
           {mobileNavOpen ? <IconChevronLeft size={16} /> : <IconMenu size={16} />}
         </button>
 
-        <a className="brand" href="/" aria-label="Network Agent · Operations Console">
+        <Link className="brand" to="/" aria-label="Network Agent · Operations Console">
           <span className="brand-text">
             <span>Network Agent</span>
             <small>Operations Console{version ? ` · ${formatVersion(version)}` : ""}</small>
           </span>
-        </a>
+        </Link>
 
         <nav className="app-nav" aria-label="主导航">
           {NAV_ITEMS.map((item) => <NavItem key={item.to} {...item} />)}

@@ -44,8 +44,8 @@ export function MemoryPage() {
     try {
       const d = await memoryApi.list({ workspace_id: wsId, limit: 500 });
       if (d.ok) setEntries((d.records || []) as MemEntry[]);
-    } catch (e: any) {
-      setErr(e?.message || "加载失败");
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "加载失败");
     }
     setLoading(false);
   }, [wsId]);
@@ -78,8 +78,8 @@ export function MemoryPage() {
       setContent("");
       setShowCreate(false);
       load();
-    } catch (e: any) {
-      setErr(e?.message || "创建记忆失败");
+    } catch (e: unknown) {
+      setErr(e instanceof Error ? e.message : "创建记忆失败");
     }
   };
 
@@ -88,7 +88,7 @@ export function MemoryPage() {
       await memoryApi.deleteHard(memoryId, wsId);
       load();
       showToast("ok", "已永久删除");
-    } catch (e: any) {
+    } catch (e: unknown) {
       showToast("err", "删除失败");
     }
     setDeleteConfirm(null);

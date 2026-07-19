@@ -131,8 +131,8 @@ export function PacketAnalysis() {
       setResult(null); setActiveKey("");
       localStorage.setItem("pcap_session", JSON.stringify({ sessionId: res.session_id, filename: res.filename || file.name }));
       loadRecentSessions();
-    } catch (e: any) {
-      setError(e?.message || "上传失败");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "上传失败");
     } finally {
       setUploading(false);
     }
@@ -212,7 +212,7 @@ export function PacketAnalysis() {
         syn_count: aRes.syn_count, fin_count: aRes.fin_count,
         rst_count: aRes.rst_count, total_tcp_packets: aRes.total_tcp_packets,
       });
-    } catch (e: any) { setError(e?.message || "分析失败"); }
+    } catch (e: unknown) { setError(e instanceof Error ? e.message : "分析失败"); }
     finally { setLoading(false); }
   }
 
@@ -329,7 +329,7 @@ export function PacketAnalysis() {
                             setConnections(res.connections || []);
                             setResult(null); setActiveKey("");
                             localStorage.setItem("pcap_session", JSON.stringify({ sessionId: res.session_id, filename: res.filename }));
-                          } catch (e: any) { setError("加载失败：" + (e?.message || "unknown")); }
+                          } catch (e: unknown) { setError("加载失败：" + (e instanceof Error ? e.message : "unknown")); }
                           finally { setLoading(false); }
                         }}
                       >

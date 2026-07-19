@@ -216,6 +216,10 @@ export function AssurancePage() {
   const [schedules, setSchedules] = useState<AssuranceSchedule[]>(initialSnapshot?.schedules || []);
   const [alarms, setAlarms] = useState<AssuranceAlarm[]>(initialSnapshot?.alarms || []);
   const [operations, setOperations] = useState<AssuranceOperation[]>(initialSnapshot?.operations || []);
+  // Keep the latest operations accessible to the polling interval without
+  // tearing the interval down + recreating it on every state mutation.
+  const operationsRef = useRef(operations);
+  useEffect(() => { operationsRef.current = operations; }, [operations]);
   const [impact, setImpact] = useState<Record<string, any> | null>(null);
   const [baselineName, setBaselineName] = useState("");
   const [region, setRegion] = useState("");
@@ -296,9 +300,12 @@ export function AssurancePage() {
   }, [load, busy]);
 
   useEffect(() => {
-    const active = operations.filter((item) => item.status === "collecting");
-    if (!workspaceId || !active.length) return;
+    if (!workspaceId) return;
     const timer = window.setInterval(async () => {
+      // Read the latest snapshot of `operations` from the ref so we don't
+      // restart the timer when `setOperations` mutates state every 2s.
+      const active = operationsRef.current.filter((item) => item.status === "collecting");
+      if (!active.length) return;
       try {
         const results = await Promise.all(active.map((item) => assuranceApi.getOperation(workspaceId, item.operation_id)));
         const updates = new Map(results.map((result) => [result.operation.operation_id, result.operation]));
@@ -311,7 +318,7 @@ export function AssurancePage() {
       }
     }, 2_000);
     return () => window.clearInterval(timer);
-  }, [operations, workspaceId, load, fail]);
+  }, [workspaceId, load, fail]);
 
   const run = async (key: string, task: () => Promise<unknown>, success: string, after?: () => void) => {
     setBusy(key);

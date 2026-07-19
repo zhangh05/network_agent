@@ -61,13 +61,13 @@ export function ArtifactCenter() {
       await artifactsApi.batchDelete(currentWorkspaceId, [id]);
       toast({ kind: "success", title: "已删除" }); setSel(null);
       setChecked((p) => { const n = new Set(p); n.delete(id); return n; }); list.reload();
-    } catch (e: any) { toast({ kind: "error", title: "删除失败", body: isApiError(e) ? e.message : String(e) }); }
+    } catch (e: unknown) { toast({ kind: "error", title: "删除失败", body: isApiError(e) ? e.message : String(e) }); }
   };
 
   const delBatch = async () => {
     if (!currentWorkspaceId || checked.size === 0 || !confirm(`删除 ${checked.size} 个制品？`)) return;
     try { await artifactsApi.batchDelete(currentWorkspaceId, [...checked]); toast({ kind: "success", title: `已删除 ${checked.size} 个` }); setChecked(new Set()); list.reload(); }
-    catch (e: any) { toast({ kind: "error", title: "批量删除失败", body: isApiError(e) ? e.message : String(e) }); }
+    catch (e: unknown) { toast({ kind: "error", title: "批量删除失败", body: isApiError(e) ? e.message : String(e) }); }
   };
 
   const total = list.state.kind === "success" ? (list.state.data.artifacts ?? []).length : 0;
@@ -464,7 +464,7 @@ function ReportSection() {
     try {
       await reportsApi.create({ workspace_id: wsId, title: title.trim(), content: content.trim() || undefined });
       toast({ kind: "success", title: "报告已创建" }); setTitle(""); setContent(""); setShow(false); load();
-    } catch (e: any) { toast({ kind: "error", title: "创建失败", body: isApiError(e) ? e.message : String(e) }); }
+    } catch (e: unknown) { toast({ kind: "error", title: "创建失败", body: isApiError(e) ? e.message : String(e) }); }
   };
 
   return (

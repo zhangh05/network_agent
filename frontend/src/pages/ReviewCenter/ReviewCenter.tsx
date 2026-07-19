@@ -57,7 +57,7 @@ export function ReviewCenter() {
 
   async function onSave() {
     if (!editing || !currentWorkspaceId) return;
-    const artifact_id = (editing as ReviewItem & { artifact_id?: string }).artifact_id;
+    const artifact_id = editing.artifact_id;
     if (!artifact_id) {
       toast({
         kind: "error",
@@ -133,7 +133,7 @@ export function ReviewCenter() {
                     key: "reason",
                     header: "需要你看的问题",
                     render: (it) => {
-                      const artifactId = (it as ReviewItem & { artifact_id?: string }).artifact_id;
+                      const artifactId = it.artifact_id;
                       return (
                         <>
                           <div className="text-sm">{reviewReason(it)}</div>
@@ -142,8 +142,8 @@ export function ReviewCenter() {
                             <div className="text-xs muted mt-1">
                               item: <InlineCode>{it.item_id}</InlineCode>
                               {artifactId && <> · artifact: <InlineCode>{artifactId}</InlineCode></>}
-                              {(it as ReviewItem & { category?: string }).category && (
-                                <> · category: {(it as ReviewItem & { category?: string }).category}</>
+                              {it.category && (
+                                <> · category: {it.category}</>
                               )}
                             </div>
                           </details>
@@ -196,7 +196,7 @@ export function ReviewCenter() {
             </div>
             <div className="text-sm muted mb-3 review-reason-box">
               {editing.reason ||
-                (editing as ReviewItem & { category?: string }).category ||
+                editing.category ||
                 "(无说明)"}
             </div>
             <textarea
@@ -304,6 +304,6 @@ function severityLabel(severity: ReviewItem["severity"]): string {
 
 function reviewReason(item: ReviewItem): string {
   return item.reason ||
-    (item as ReviewItem & { category?: string }).category ||
+    item.category ||
     "需要人工确认后再继续";
 }

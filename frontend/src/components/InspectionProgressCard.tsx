@@ -163,8 +163,8 @@ export function InspectionProgressCard({ taskId, pollSeconds, onDismiss }: Props
       } else {
         window.setTimeout(() => refresh(), 600);
       }
-    } catch (e: any) {
-      setCancelError(String(e?.message || e));
+    } catch (e: unknown) {
+      setCancelError(e instanceof Error ? e.message : String(e));
     } finally {
       setCancelling(false);
     }

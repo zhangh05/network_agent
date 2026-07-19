@@ -90,10 +90,10 @@ function ToolTree({ cats, query, filter }: { cats: ToolCatalogCategory[]; query:
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return cats.map((c) => ({
-      ...c, groups: c.groups.map((g) => ({
-        ...g, tools: g.tools.filter((t) => matchT(t, q) && matchF(t, filter)),
-        count: g.tools.filter((t) => matchT(t, q) && matchF(t, filter)).length,
-      })).filter((g) => g.tools.length > 0),
+      ...c, groups: c.groups.map((g) => {
+        const tools = g.tools.filter((t) => matchT(t, q) && matchF(t, filter));
+        return { ...g, tools, count: tools.length };
+      }).filter((g) => g.tools.length > 0),
     })).filter((c) => c.groups.length > 0);
   }, [cats, query, filter]);
 

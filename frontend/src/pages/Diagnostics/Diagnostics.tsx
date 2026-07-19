@@ -5,7 +5,7 @@
  * 点击「开始检测」→ 调用全部 API → 缓存到 localStorage → 更新仪表盘。
  * 无缓存时显示空骨架 + 醒目的检测按钮。
  */
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo, useSyncExternalStore } from "react";
 import { runtimeApi, agentUsageApi, retentionApi, archiveApi, contextApi, promptsApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { LoadingState } from "../../components/common";
@@ -84,28 +84,56 @@ const COMP_DESC: Record<string, string> = {
 
 /* ──────────────────────── Cache helpers ──────────────────────── */
 
+// Singleton subscription handle for cross-component invalidation. Any
+// `writeCache` call bumps this value and notifies subscribers — the
+// `useSyncExternalStore` hook below re-reads on notification.
+const cacheStore = (() => {
+  let version = 0;
+  const listeners = new Set<() => void>();
+  return {
+    subscribe(listener: () => void): () => void {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    bump() { version++; listeners.forEach((l) => l()); },
+    getVersion() { return version; },
+  };
+})();
+
+function parseCache(json: string | null): DiagnosticsCache | null {
+  if (!json) return null;
+  try { return JSON.parse(json) as DiagnosticsCache; } catch { return null; }
+}
+
 function readCache(): DiagnosticsCache | null {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as DiagnosticsCache;
-  } catch {
-    return null;
-  }
+  if (typeof localStorage === "undefined") return null;
+  return parseCache(localStorage.getItem(CACHE_KEY));
 }
 
 function writeCache(data: Omit<DiagnosticsCache, "ts">) {
   try {
     const entry: DiagnosticsCache = { ts: new Date().toISOString(), ...data };
     localStorage.setItem(CACHE_KEY, JSON.stringify(entry));
+    cacheStore.bump();
   } catch { /* quota exceeded — silently ignore */ }
+}
+
+/** Subscribes to a (version, snapshot) pair. The version bumps on every write
+ *  so React reads the next snapshot. Returning the same reference until the
+ *  cache key changes is what makes the read safe to call during render. */
+function useCachedDiagnostics(): DiagnosticsCache | null {
+  return useSyncExternalStore(
+    cacheStore.subscribe,
+    () => readCache(),
+    () => null,
+  );
 }
 
 /* ──────────────────────── Component ──────────────────────── */
 
 export function Diagnostics() {
   const currentWorkspaceId = useSessionStore((s) => s.currentWorkspaceId);
-  const cache = readCache();
+  const cache = useCachedDiagnostics();
 
   // State: init from cache or null
   const [health, setHealth] = useState<HealthData | null>(cache?.health ?? null);

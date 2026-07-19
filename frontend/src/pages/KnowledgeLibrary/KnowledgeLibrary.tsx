@@ -35,6 +35,15 @@ export function KnowledgeLibrary() {
   const currentWorkspaceId = useSessionStore((s) => s.currentWorkspaceId);
   const toast = useToastStore((s) => s.show);
   const [query, setQuery] = useState("");
+  // Debounced query — avoids firing one search request per keystroke. The
+  // text input stays bound to `query` for instant feedback; the network
+  // round-trip waits until the user pauses for SEARCH_DEBOUNCE_MS.
+  const SEARCH_DEBOUNCE_MS = 250;
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  useEffect(() => {
+    const handle = setTimeout(() => setDebouncedQuery(query), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [query]);
   const [scope, setScope] = useState<"workspace" | "global" | "session">("workspace");
   const [importArtifactId, setImportArtifactId] = useState("");
   const [importing, setImporting] = useState(false);
@@ -61,10 +70,10 @@ export function KnowledgeLibrary() {
 
   const search = useAsync<Awaited<ReturnType<typeof knowledgeApi.search>> | null>(
     (s) =>
-      currentWorkspaceId && query.trim()
-        ? knowledgeApi.search(query, currentWorkspaceId, { scope }, s)
+      currentWorkspaceId && debouncedQuery.trim()
+        ? knowledgeApi.search(debouncedQuery, currentWorkspaceId, { scope }, s)
         : Promise.resolve(null),
-    [currentWorkspaceId, query],  // auto-search on workspace or query change; manual trigger via Enter/button
+    [currentWorkspaceId, debouncedQuery, scope],  // debounced: avoid one request per keystroke; manual trigger via Enter/button
   );
 
   const artifacts = useAsync<{ artifacts: { artifact_id: string; title?: string }[] }>(

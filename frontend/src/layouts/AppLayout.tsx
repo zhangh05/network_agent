@@ -57,18 +57,59 @@ export function AppLayout({ children }: AppLayoutProps) {
     mobileNavOpen ? "mobile-nav-open" : "",
   ].filter(Boolean).join(" ");
 
-  // Lock body scroll + wire Escape-to-close while the drawer is open.
+  // Lock body scroll + wire Escape-to-close + trap focus inside the drawer
+  // while it's open. WCAG 2.1 SC 2.4.3 (Focus Order) — Tab must not move
+  // focus to elements hidden behind the modal drawer.
+  const drawerRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (!mobileNavOpen) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+
+    // Move focus into the drawer so keyboard navigation starts inside it.
+    const drawer = drawerRef.current;
+    const firstFocusable = drawer?.querySelector<HTMLElement>(
+      'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"]), input, select, textarea',
+    );
+    // Remember the element that opened the drawer so we can restore focus.
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    firstFocusable?.focus({ preventScroll: true });
+
+    const getFocusable = (): HTMLElement[] => {
+      if (!drawer) return [];
+      return Array.from(
+        drawer.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])',
+        ),
+      );
+    };
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMobileNavOpen(false);
+      if (e.key === "Escape") {
+        setMobileNavOpen(false);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const items = getFocusable();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", onKey);
+
     return () => {
       document.body.style.overflow = prevOverflow;
       window.removeEventListener("keydown", onKey);
+      // Restore focus to the trigger so keyboard users land where they were.
+      previouslyFocused?.focus({ preventScroll: true });
     };
   }, [mobileNavOpen, setMobileNavOpen]);
 
@@ -86,9 +127,11 @@ export function AppLayout({ children }: AppLayoutProps) {
     <div className={rootClasses}>
       <a className="skip-link" href="#main">跳到主内容</a>
       <aside
+        ref={drawerRef}
         className={"app-sidebar" + (sidebarOpen ? "" : " collapsed")}
         data-testid="layout-left"
         aria-label="侧栏"
+        aria-modal={mobileNavOpen ? "true" : undefined}
       >
         {(sidebarOpen || mobileNavOpen) && (
           <div className="sidebar-scroll">

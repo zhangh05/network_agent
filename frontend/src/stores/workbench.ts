@@ -243,7 +243,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(
       sending: false,
       lastUserInput: "",
       runDetails: {},
-      runDetailLoading: /** @type {Record<string, Promise<AgentResult | null>>} */ ({}),
+      runDetailLoading: {},
       runDetailError: {},
 
       switchSession: (session_id) => {
@@ -410,10 +410,15 @@ export const useWorkbenchStore = create<WorkbenchState>()(
         // Kick off the actual fetch and store the Promise directly.
         const loadPromise = (async (): Promise<AgentResult | null> => {
           try {
-            const [runResp, traceResp] = await Promise.all([
+            // Use allSettled so a partial trace response (or a 5xx on the
+            // runtime endpoint) still surfaces whatever data is available —
+            // Promise.all would force-bail and lose both result + trace data.
+            const [runSettled, traceSettled] = await Promise.allSettled([
               runtimeAuditApi.run(workspace_id, run_id),
               runtimeAuditApi.trace(workspace_id, run_id),
             ]);
+            const runResp = runSettled.status === "fulfilled" ? runSettled.value : {};
+            const traceResp = traceSettled.status === "fulfilled" ? traceSettled.value : {};
             const runRecord = (runResp && typeof runResp === "object" ? runResp : {}) as Record<string, unknown>;
             const traceData = (traceResp && typeof traceResp === "object" ? traceResp : {}) as {
               events?: RuntimeEvent[];

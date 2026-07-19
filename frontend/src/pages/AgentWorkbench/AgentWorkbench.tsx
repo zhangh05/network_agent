@@ -1183,6 +1183,7 @@ export function TaskWorkbench() {
               <ResultInline
                 result={m.result}
                 fallbackText={sanitizeAssistantText(m.text)}
+                onRetryOriginal={lastUserInput ? () => onSendRef.current(lastUserInput) : undefined}
               />
             </>
           )}
@@ -1194,7 +1195,7 @@ export function TaskWorkbench() {
         </div>
       </div>
     );
-  }, [sending, lastUserInput, handleCodeCopyClick]);  // eslint-disable-line
+  }, [handleCodeCopyClick]);
 
   return (
     <div className="wb-shell">
