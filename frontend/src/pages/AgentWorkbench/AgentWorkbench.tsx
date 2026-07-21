@@ -116,6 +116,13 @@ interface InspectionCommandResult {
   error?: string;
 }
 
+// Stable fallback reference for `useWorkbenchStore` selectors that may
+// receive `undefined` from `bySession[sid]`. Returning a fresh `[]` on every
+// render trips Zustand's `Object.is` check and triggers an infinite
+// "Maximum update depth exceeded" loop. Module-level const keeps the
+// reference stable across renders.
+const EMPTY_CHAT_MESSAGES: ChatMsg[] = [];
+
 function terminalInspectionStatus(status: string): boolean {
   return ["succeeded", "partial", "failed", "cancelled", "crashed"].includes(status);
 }
@@ -189,11 +196,13 @@ export function TaskWorkbench() {
   const { currentWorkspaceId, currentSessionId } = useSessionStore();
   const sending = useWorkbenchStore((s) => s.sending);
   const lastUserInput = useWorkbenchStore((s) => s.lastUserInput);
-  // Granular selector: only re-render when THIS session's messages change
-  const visibleHistory = useWorkbenchStore((s) => {
-    const msgs = s.bySession?.[currentSessionId ?? "_scratch"];
-    return Array.isArray(msgs) ? msgs : [];
-  });
+  // Granular selector: only re-render when THIS session's messages change.
+  // The fallback must be a stable reference (module-level EMPTY_CHAT_MESSAGES);
+  // returning a fresh `[]` each call would fail Zustand's Object.is check and
+  // produce "Maximum update depth exceeded".
+  const visibleHistory = useWorkbenchStore(
+    (s) => s.bySession?.[currentSessionId ?? "_scratch"] ?? EMPTY_CHAT_MESSAGES,
+  );
   const appendUser = useWorkbenchStore((s) => s.appendUser);
   const appendAssistantStreaming = useWorkbenchStore((s) => s.appendAssistantStreaming);
   const updateAssistant = useWorkbenchStore((s) => s.updateAssistant);

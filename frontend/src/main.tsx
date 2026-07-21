@@ -32,6 +32,11 @@ if (!rootEl) {
   throw new Error("Root element #root not found in index.html");
 }
 
+// v3.27.1: StrictMode restored. The previous "Maximum update depth exceeded"
+// turned out to come from `Diagnostics.tsx` returning a fresh
+// `JSON.parse(...)` object from `useSyncExternalStore`'s getSnapshot on
+// every render, violating React 18's snapshot-stability contract — not
+// from StrictMode double-invocation.
 ReactDOM.createRoot(rootEl).render(
   <React.StrictMode>
     <ErrorBoundary>

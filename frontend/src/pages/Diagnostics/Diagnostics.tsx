@@ -35,6 +35,8 @@ type HealthData = {
 
 type SelfcheckIssue = {
   severity: "error" | "warning";
+  code?: string;
+  ref_id?: string;
   message: string;
   suggested_action?: string;
 };
@@ -84,19 +86,26 @@ const COMP_DESC: Record<string, string> = {
 
 /* ──────────────────────── Cache helpers ──────────────────────── */
 
-// Singleton subscription handle for cross-component invalidation. Any
-// `writeCache` call bumps this value and notifies subscribers — the
-// `useSyncExternalStore` hook below re-reads on notification.
+// Singleton subscription handle for cross-component invalidation. Keep the
+// parsed snapshot reference stable between writes; returning a fresh
+// JSON.parse() object from getSnapshot on every render makes React think the
+// external store changed forever and causes "Maximum update depth exceeded".
 const cacheStore = (() => {
-  let version = 0;
+  let snapshot: DiagnosticsCache | null | undefined;
   const listeners = new Set<() => void>();
   return {
     subscribe(listener: () => void): () => void {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    bump() { version++; listeners.forEach((l) => l()); },
-    getVersion() { return version; },
+    getSnapshot(): DiagnosticsCache | null {
+      if (snapshot === undefined) snapshot = readCache();
+      return snapshot;
+    },
+    publish(next: DiagnosticsCache) {
+      snapshot = next;
+      listeners.forEach((listener) => listener());
+    },
   };
 })();
 
@@ -114,19 +123,39 @@ function writeCache(data: Omit<DiagnosticsCache, "ts">) {
   try {
     const entry: DiagnosticsCache = { ts: new Date().toISOString(), ...data };
     localStorage.setItem(CACHE_KEY, JSON.stringify(entry));
-    cacheStore.bump();
+    cacheStore.publish(entry);
   } catch { /* quota exceeded — silently ignore */ }
 }
 
-/** Subscribes to a (version, snapshot) pair. The version bumps on every write
- *  so React reads the next snapshot. Returning the same reference until the
- *  cache key changes is what makes the read safe to call during render. */
+/** Subscribes to the stable cached snapshot. The reference changes only after
+ *  writeCache() publishes a new entry. */
 function useCachedDiagnostics(): DiagnosticsCache | null {
   return useSyncExternalStore(
     cacheStore.subscribe,
-    () => readCache(),
+    cacheStore.getSnapshot,
     () => null,
   );
+}
+
+function selfcheckIssueCopy(issue: SelfcheckIssue): { message: string; action?: string } {
+  const ref = issue.ref_id ? `（${issue.ref_id}）` : "";
+  switch (issue.code) {
+    case "ABSOLUTE_PATH":
+      return {
+        message: `运行记录${ref}含本机绝对路径`,
+        action: "脱敏运行记录中的本机路径，避免泄露本机目录。",
+      };
+    case "TRACE_PATH_LEAK":
+      return {
+        message: `执行追踪${ref}含本机绝对路径`,
+        action: "脱敏追踪元数据中的本机路径，避免泄露本机目录。",
+      };
+    default:
+      return {
+        message: issue.message || "自检发现问题",
+        action: issue.suggested_action,
+      };
+  }
 }
 
 /* ──────────────────────── Component ──────────────────────── */
@@ -214,7 +243,10 @@ export function Diagnostics() {
   }, []);
 
   const hs = health?.summary ?? {};
-  const allOk = (hs.ok ?? 0) > 0 && (hs.warning ?? 0) === 0 && (hs.error ?? 0) === 0;
+  const runtimeOk = (hs.ok ?? 0) > 0 && (hs.warning ?? 0) === 0 && (hs.error ?? 0) === 0;
+  const selfcheckIssueCount = selfcheck?.issues?.length ?? 0;
+  const selfcheckOk = !selfcheck || (selfcheck.status === "healthy" && selfcheckIssueCount === 0);
+  const allOk = runtimeOk && selfcheckOk;
   const hasData = health !== null || selfcheck !== null || usage !== null;
 
   /* ── 概览摘要数据 ── */
@@ -230,10 +262,10 @@ export function Diagnostics() {
       calls: usage?.call_count ?? 0,
       cost: usage?.estimated_cost ?? 0,
       tokens: usage?.total_tokens ?? 0,
-      selfOk: selfcheck?.status === "healthy",
-      issueCount: selfcheck?.issues?.length ?? 0,
+      selfOk: selfcheckOk,
+      issueCount: selfcheckIssueCount,
     };
-  }, [health, usage, selfcheck]);
+  }, [health, usage, selfcheckOk, selfcheckIssueCount]);
 
   /* ══════════════════════════════════════════
      RENDER
@@ -288,6 +320,7 @@ export function Diagnostics() {
                   {summaryStats.warnCount > 0 && `，${summaryStats.warnCount} 项警告`}
                   {summaryStats.errCount > 0 && `，${summaryStats.errCount} 项异常`}
                   {summaryStats.calls > 0 && ` · 累计调用 ${summaryStats.calls.toLocaleString()} 次`}
+                  {summaryStats.issueCount > 0 && ` · 自检发现 ${summaryStats.issueCount} 项问题`}
                   {summaryStats.cost > 0 && ` · 花费 ¥${summaryStats.cost.toFixed(4)}`}
                 </p>
               </div>
@@ -304,7 +337,7 @@ export function Diagnostics() {
             <Section title="运行时健康" badge={
               health ? (
                 <span className="diag-section-badge">
-                  {allOk ? <span className="diag-section-badge diag-text-ok">● 全部正常</span> : `${hs.ok} 正常` + (hs.warning ? ` / ${hs.warning} 警告` : "") + (hs.error ? ` / ${hs.error} 异常` : "")}
+                  {runtimeOk ? <span className="diag-section-badge diag-text-ok">● 全部正常</span> : `${hs.ok} 正常` + (hs.warning ? ` / ${hs.warning} 警告` : "") + (hs.error ? ` / ${hs.error} 异常` : "")}
                 </span>
               ) : null
             }>
@@ -355,15 +388,18 @@ export function Diagnostics() {
               {selfcheck ? (
                 selfcheck.issues && selfcheck.issues.length > 0 ? (
                   <div className="diag-issues-list">
-                    {selfcheck.issues.map((iss: SelfcheckIssue, i: number) => (
-                      <div key={i} className={`diag-issue-item diag-issue-${iss.severity}`}>
-                        <span className="diag-issue-sev">{iss.severity === "error" ? "错误" : "警告"}</span>
-                        <div className="diag-issue-body">
-                          <span className="diag-issue-msg">{iss.message}</span>
-                          {iss.suggested_action && <span className="diag-issue-action">建议：{iss.suggested_action}</span>}
+                    {selfcheck.issues.map((iss: SelfcheckIssue, i: number) => {
+                      const copy = selfcheckIssueCopy(iss);
+                      return (
+                        <div key={i} className={`diag-issue-item diag-issue-${iss.severity}`}>
+                          <span className="diag-issue-sev">{iss.severity === "error" ? "错误" : "警告"}</span>
+                          <div className="diag-issue-body">
+                            <span className="diag-issue-msg">{copy.message}</span>
+                            {copy.action && <span className="diag-issue-action">建议：{copy.action}</span>}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : <Dim>✓ 未发现问题</Dim>
               ) : <Dim>无数据</Dim>}

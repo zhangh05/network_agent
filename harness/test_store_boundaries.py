@@ -208,3 +208,18 @@ class TestRunStoreWriteSafety:
         # Truncation is done separately via string slicing in run_store.py
         result = redact_text("safe text without secrets")
         assert result == "safe text without secrets"
+
+    def test_run_store_redacts_local_absolute_paths(self):
+        """Persisted diagnostics must not leak local filesystem paths."""
+        from storage.redaction import redact_text, redact_value
+
+        unix_text = 'File "/Users/zhangh01/.workbuddy/python/lib/json/__init__.py", line 1'
+        win_text = r'File "C:\Users\zhangh01\AppData\Local\Temp\run.py", line 1'
+
+        assert "/Users/" not in redact_text(unix_text)
+        assert "C:\\Users\\" not in redact_text(win_text)
+
+        redacted = redact_value({"events": [{"traceback": unix_text}], "error": win_text})
+        serialized = str(redacted)
+        assert "/Users/" not in serialized
+        assert "C:\\Users\\" not in serialized

@@ -31,16 +31,40 @@ _FULL_MASK_PATTERNS = [
 ]
 
 MASK = "[REDACTED_SECRET]"
+PATH_MASK = "[REDACTED_PATH]"
+
+_ABSOLUTE_PATH_PATTERNS = [
+    # Local Unix/macOS paths. Stop at JSON/string delimiters and common
+    # traceback separators so file names are not allowed to leak the user home.
+    re.compile(r"/(?:Users|home)/[^\s\"'<>),;]+"),
+    # Windows drive paths, including JSON-escaped backslashes.
+    re.compile(r"[A-Za-z]:(?:\\\\|\\)[^\s\"'<>),;]+"),
+]
 
 
 def redact_text(text: str) -> str:
     if not text:
         return text
+    for pattern in _ABSOLUTE_PATH_PATTERNS:
+        text = pattern.sub(PATH_MASK, text)
     for pattern in _KEYWORD_PATTERNS:
         text = re.sub(pattern, lambda m: m.group(1) + " " + MASK, text, flags=re.IGNORECASE)
     for pattern in _FULL_MASK_PATTERNS:
         text = re.sub(pattern, MASK, text, flags=re.IGNORECASE)
     return text
+
+
+def redact_value(value):
+    """Recursively redact secrets and local absolute paths before persistence."""
+    if isinstance(value, dict):
+        return redact_dict(value)
+    if isinstance(value, list):
+        return [redact_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [redact_value(item) for item in value]
+    if isinstance(value, str):
+        return redact_text(value)
+    return value
 
 
 def redact_dict(data: dict) -> dict:
@@ -53,14 +77,8 @@ def redact_dict(data: dict) -> dict:
             "authorization", "auth", "credential",
         ]):
             result[key] = MASK
-        elif isinstance(value, dict):
-            result[key] = redact_dict(value)
-        elif isinstance(value, list):
-            result[key] = [redact_dict(item) if isinstance(item, dict) else redact_text(str(item)) for item in value]
-        elif isinstance(value, str):
-            result[key] = redact_text(value)
         else:
-            result[key] = value
+            result[key] = redact_value(value)
     return result
 
 

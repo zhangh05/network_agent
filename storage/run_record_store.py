@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
 
-from storage.redaction import redact_text
+from storage.redaction import redact_text, redact_value
 from storage.records import atomic_save_json, workspace_record_dir, workspace_record_file
 from storage.ids import validate_run_id
 
@@ -67,11 +67,11 @@ def write_run_record(state: SimpleNamespace, workspace_id: str = "default") -> s
         "trace_id": getattr(state, "trace_id", "") or "",
         "artifacts": [],
         "warnings": [redact_text(str(w))[:300] for w in (getattr(state, "warnings", []) or [])[:20]],
-        "error": getattr(state, "error", None),
+        "error": redact_value(getattr(state, "error", None)),
         "sensitivity": "internal",
         "redaction_applied": True,
     }
-    atomic_save_json(ws_id, ("runs", f"{run_id}.json"), record)
+    atomic_save_json(ws_id, ("runs", f"{run_id}.json"), redact_value(record))
     session_id = str(record.get("session_id") or "")
     if session_id:
         try:
@@ -121,22 +121,23 @@ def write_sub_agent_run(
         "sensitivity": "internal",
         "redaction_applied": True,
     }
-    atomic_save_json(ws_id, ("runs", f"{run_id}.json"), record)
+    atomic_save_json(ws_id, ("runs", f"{run_id}.json"), redact_value(record))
     return run_id
 
 
 def save_trace_record(workspace_id: str, run_id: str, record: dict[str, Any]) -> None:
     rid = validate_run_id(run_id)
-    atomic_save_json(workspace_id, ("runs", f"{rid}.trace.json"), record)
+    atomic_save_json(workspace_id, ("runs", f"{rid}.trace.json"), redact_value(record))
 
 
 def update_run_record(workspace_id: str, run_id: str, updates: dict[str, Any]) -> dict[str, Any]:
     record = get_run(run_id, workspace_id)
     if not record:
         return {}
-    record.update(updates)
-    atomic_save_json(workspace_id, ("runs", f"{validate_run_id(run_id)}.json"), record)
-    return record
+    record.update(redact_value(updates))
+    safe_record = redact_value(record)
+    atomic_save_json(workspace_id, ("runs", f"{validate_run_id(run_id)}.json"), safe_record)
+    return safe_record
 
 
 def read_run_sidecar(workspace_id: str, run_id: str, suffix: str = ".json") -> dict[str, Any]:

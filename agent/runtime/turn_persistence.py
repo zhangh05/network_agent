@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from agent.runtime.utils import now_iso
 from storage.message_store import SessionMessageStore
+from storage.redaction import redact_text, redact_value
 from storage.run_record_store import save_trace_record, update_run_record, write_run_record
 
 
@@ -125,7 +126,7 @@ def persist_run_record(session, turn, result, context) -> None:
 
 def persist_trace(run_id: str, ws_id: str, events: list) -> None:
     """Write trace events to workspaces/<ws>/runs/<run_id>.trace.json."""
-    normalized_events = _normalize_trace_events(run_id, events)
+    normalized_events = redact_value(_normalize_trace_events(run_id, events))
 
     # ── P0: Separate real vs synthetic vs missing counts ──
     real_events = [e for e in normalized_events if not e.get("synthetic")]
@@ -242,9 +243,9 @@ def _safe_tool_calls(tool_calls: list) -> list:
             "call_id": str(call.get("call_id", ""))[:120],
             "tool_id": str(call.get("tool_id", ""))[:120],
             "ok": bool(call.get("ok", False)),
-            "summary": str(call.get("summary", ""))[:800],
-            "errors": [str(e)[:240] for e in list(call.get("errors") or [])[:5]],
-            "warnings": [str(w)[:240] for w in list(call.get("warnings") or [])[:5]],
+            "summary": redact_text(str(call.get("summary", "")))[:800],
+            "errors": [redact_text(str(e))[:240] for e in list(call.get("errors") or [])[:5]],
+            "warnings": [redact_text(str(w))[:240] for w in list(call.get("warnings") or [])[:5]],
             "metadata": _safe_metadata(call.get("metadata") or {}, max_depth=1),
         })
     return safe
@@ -265,7 +266,7 @@ def _safe_metadata(value, max_depth: int = 3):
     if isinstance(value, (int, float, bool)) or value is None:
         return value
     if isinstance(value, str):
-        text = str(value)
+        text = redact_text(str(value))
         return text[:2000] + ("...[truncated]" if len(text) > 2000 else "")
     return str(value)[:500]
 
