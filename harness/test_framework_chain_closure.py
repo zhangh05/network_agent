@@ -540,10 +540,41 @@ def test_memory_retrieval_only_returns_governed_active_records():
     retriever.workspace_id = "default"
 
     all_items = [
-        {"item_id": "active", "status": "active", "scope": "workspace", "workspace_id": "default"},
-        {"item_id": "pending", "memory_status": "pending", "scope": "workspace", "workspace_id": "default"},
-        {"item_id": "rejected", "status": "rejected", "scope": "workspace", "workspace_id": "default"},
-        {"item_id": "confirmed", "memory_status": "confirmed", "scope": "workspace", "workspace_id": "default"},
+        {
+            "item_id": "active",
+            "memory_type": "semantic_fact",
+            "status": "active",
+            "scope": "workspace",
+            "workspace_id": "default",
+        },
+        {
+            "item_id": "pending",
+            "memory_type": "semantic_fact",
+            "memory_status": "pending",
+            "scope": "workspace",
+            "workspace_id": "default",
+        },
+        {
+            "item_id": "rejected",
+            "memory_type": "semantic_fact",
+            "status": "rejected",
+            "scope": "workspace",
+            "workspace_id": "default",
+        },
+        {
+            "item_id": "confirmed",
+            "memory_type": "semantic_fact",
+            "memory_status": "confirmed",
+            "scope": "workspace",
+            "workspace_id": "default",
+        },
+        {
+            "item_id": "unknown-type",
+            "memory_type": "unknown",
+            "status": "active",
+            "scope": "workspace",
+            "workspace_id": "default",
+        },
     ]
 
     def _search(*args, **kwargs):
