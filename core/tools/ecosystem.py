@@ -176,7 +176,7 @@ def apply_import(data: dict, ws_id: str, confirm: bool = False) -> dict:
                 rec = MemoryRecord(
                     workspace_id=ws_id, status="pending", source="file",
                     content=m.get("content",""), summary=m.get("summary",""),
-                    memory_type=m.get("memory_type","operational_fact"),
+                    memory_type=m.get("memory_type", "knowledge_note"),
                     scope=m.get("scope","workspace"), confidence=0.3,
                 )
                 written = gate.write(rec)

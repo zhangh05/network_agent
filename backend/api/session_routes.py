@@ -6,6 +6,8 @@ All endpoints follow the pattern:
   /api/sessions/<id>/... — archive, restore, messages
 """
 
+import logging
+
 from flask import request, jsonify
 
 from storage.ids import validate_workspace_id, validate_session_id
@@ -22,6 +24,8 @@ from storage.session_store import (
     auto_title_from_input,
     get_session_count,
 )
+
+_log = logging.getLogger(__name__)
 
 
 def _invalid_ws():
@@ -211,8 +215,37 @@ def handle_session_archive(session_id):
         return jsonify({"ok": False, "error": "session_not_found"}), 404
 
     _complete_session_job(ws_id, session_id, "succeeded")
+    _schedule_session_memory_reflection(ws_id, session_id)
 
     return jsonify({"ok": True, "session": session})
+
+
+def _schedule_session_memory_reflection(ws_id: str, session_id: str) -> None:
+    """Flush the session's durable experience journal after archive."""
+    import threading
+
+    def run() -> None:
+        try:
+            from agent.runtime.memory_write.consolidator import consolidate_experiences
+
+            consolidate_experiences(
+                workspace_id=ws_id,
+                session_id=session_id,
+                task_id=f"session-{session_id}-archive",
+            )
+        except Exception:
+            _log.warning(
+                "session memory reflection failed: ws=%s session=%s",
+                ws_id,
+                session_id,
+                exc_info=True,
+            )
+
+    threading.Thread(
+        target=run,
+        name=f"memory-reflect-{session_id[:16]}",
+        daemon=True,
+    ).start()
 
 
 def handle_session_restore(session_id):
@@ -306,6 +339,17 @@ def handle_session_delete_permanently(session_id):
         return jsonify({"ok": False, "error": "session_not_found"}), 404
 
     _complete_session_job(ws_id, session_id, hard_delete=True)
+    try:
+        from agent.runtime.memory_write.event_log import delete_experience_journal
+
+        delete_experience_journal(ws_id, session_id)
+    except Exception:
+        _log.warning(
+            "session memory journal cleanup failed: ws=%s session=%s",
+            ws_id,
+            session_id,
+            exc_info=True,
+        )
 
     return jsonify({
         "ok": True,

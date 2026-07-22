@@ -84,7 +84,15 @@ def invoke_llm(
     # v3.11 (stream scope): the caller controls whether tokens reach the user
     # channel via extra["stream_to_user"]. Default: False (internal only).
     use_stream = True
+    caller_metadata = (extra or {}).get("request_metadata", {})
+    if not isinstance(caller_metadata, dict):
+        caller_metadata = {}
     req_metadata = {
+        **{
+            str(key)[:80]: value
+            for key, value in caller_metadata.items()
+            if isinstance(value, (str, int, float, bool)) or value is None
+        },
         "stream_to_user": bool((extra or {}).get("stream_to_user", False)),
         "stream_scope": str((extra or {}).get("stream_scope", "internal")),
     }

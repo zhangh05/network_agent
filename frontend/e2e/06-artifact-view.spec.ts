@@ -1,9 +1,7 @@
-/**
- * E2E 6 — Artifact view.
- */
+/** E2E 6 — Data Center artifact view. */
 import { test, expect } from "./fixtures";
 
-test("6. artifact view + tabs", async ({ page, api }) => {
+test("6. data center artifact view", async ({ page, api }) => {
   // Discover the first workspace the UI will see.
   const wsList = await api.get("/api/workspaces");
   const wsBody = await wsList.json().catch(() => ({}));
@@ -22,11 +20,12 @@ test("6. artifact view + tabs", async ({ page, api }) => {
   const seeded = await r.json().catch(() => ({}));
   expect(seeded.artifact?.artifact_id).toBeTruthy();
 
-  await page.goto("/artifacts");
+  await page.goto("/data");
   const wsFirst = page.locator('[data-testid^="ws-"]').first();
   await wsFirst.waitFor({ state: "visible", timeout: 8_000 });
   await wsFirst.click();
 
-  // The page should render. An empty state is acceptable too.
-  await expect(page.getByTestId("page-artifacts")).toBeVisible({ timeout: 6_000 });
+  await expect(page.getByTestId("page-data-center")).toBeVisible({ timeout: 6_000 });
+  await page.getByRole("button", { name: "证据与制品", exact: true }).click();
+  await expect(page.getByText("e2e-artifact-view", { exact: true })).toBeVisible({ timeout: 6_000 });
 });

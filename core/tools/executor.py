@@ -78,6 +78,29 @@ class ToolExecutor:
                 redacted=True,
                 policy_decision=decision,
             )
+        if decision.requires_approval and not invocation.approval_id:
+            return ToolResult(
+                invocation_id=invocation.invocation_id,
+                tool_id=invocation.tool_id,
+                status="blocked",
+                output={
+                    "ok": False,
+                    "error": "approval_required",
+                    "requires_approval": True,
+                    "risk_level": decision.risk_level,
+                },
+                summary=f"Approval required before executing {invocation.tool_id}: {decision.reason}",
+                errors=["approval_required"],
+                duration_ms=int((time.time() - start_time) * 1000),
+                redacted=True,
+                policy_decision=PolicyDecision(
+                    allowed=False,
+                    reason=decision.reason or "approval_required",
+                    risk_level=decision.risk_level,
+                    blocked_rules=[*decision.blocked_rules, "approval_required"],
+                    requires_approval=True,
+                ),
+            )
 
         # ── 5. Handle dry_run ──
         if invocation.dry_run and spec.dry_run_supported:

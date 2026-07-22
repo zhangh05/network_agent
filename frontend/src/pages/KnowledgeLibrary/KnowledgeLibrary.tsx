@@ -400,7 +400,7 @@ export function KnowledgeLibrary() {
           <summary className="kl-help-summary">💡 使用帮助</summary>
           <div className="kl-help-content">
             <strong>搜索</strong> — 输入关键词检索已导入的文档和知识片段；<br />
-            <strong>上传</strong> — 支持 TXT / PDF / Markdown / JSON，也可从制品中心导入已有制品；<br />
+            <strong>上传</strong> — 支持 TXT / PDF / Markdown / JSON，也可从数据中心导入已有制品；<br />
             <strong>知识源</strong> — 列表中展示已导入的文档，可预览内容或重新索引。
           </div>
         </details>
@@ -503,7 +503,7 @@ export function KnowledgeLibrary() {
           </div>
           {artifacts.state.kind === "empty" && (
             <div className="text-xs muted mt-2">
-              当前工作区无 artifact。请先到「制品中心」页创建/上传。
+              当前工作区没有可导入的制品。请先到「数据中心」导入文件或运行任务。
             </div>
           )}
         </div>

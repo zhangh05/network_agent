@@ -273,13 +273,15 @@ class ContextStore:
 # ---------------------------------------------------------------------------
 # Singleton helper
 # ---------------------------------------------------------------------------
-_stores: dict[str, ContextStore] = {}
+_stores: dict[tuple[str, str], ContextStore] = {}
 _stores_lock = threading.Lock()
 
 def get_context_store(workspace_id: str = "default") -> ContextStore:
     """Return the singleton ContextStore for a workspace."""
     validated = validate_workspace_id(workspace_id)
+    path_key = str(workspace_record_file(validated, "context", "items.jsonl"))
+    key = (validated, path_key)
     with _stores_lock:
-        if validated not in _stores:
-            _stores[validated] = ContextStore(validated)
-        return _stores[validated]
+        if key not in _stores:
+            _stores[key] = ContextStore(validated)
+        return _stores[key]

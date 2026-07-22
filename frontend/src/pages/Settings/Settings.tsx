@@ -62,29 +62,28 @@ export function Settings() {
   const [clearKeyOnSave, setClearKeyOnSave] = useState(false);
   const aliveRef = useRef(true);
 
-  // ── Workspace settings (memory_gating) ──
-  const [memoryGating, setMemoryGating] = useState<boolean>(false);
-  const [memoryGatingLoading, setMemoryGatingLoading] = useState(false);
-  const [memoryGatingLoaded, setMemoryGatingLoaded] = useState(false);
+  // ── Workspace long-term memory setting ──
+  const [memoryEnabled, setMemoryEnabled] = useState(true);
+  const [memorySaving, setMemorySaving] = useState(false);
+  const [memoryLoaded, setMemoryLoaded] = useState(false);
 
   // ── Load workspace settings on mount ──
   useEffect(() => {
     const ctrl = new AbortController();
     if (!currentWorkspaceId) {
-      setMemoryGatingLoaded(true);
+      setMemoryLoaded(true);
       return () => ctrl.abort();
     }
-    setMemoryGatingLoaded(false);
+    setMemoryLoaded(false);
     settingsApi.workspaceSettings(currentWorkspaceId, ctrl.signal)
       .then((res) => {
         if (ctrl.signal.aborted) return;
-        const mode = String(res?.workspace?.memory_gating ?? "rule_only");
-        setMemoryGating(mode === "llm_first");
-        setMemoryGatingLoaded(true);
+        setMemoryEnabled(res?.workspace?.memory_enabled !== false);
+        setMemoryLoaded(true);
       })
       .catch(() => {
         if (ctrl.signal.aborted) return;
-        setMemoryGatingLoaded(true);
+        setMemoryLoaded(true);
       });
     return () => ctrl.abort();
   }, [currentWorkspaceId]);
@@ -293,19 +292,18 @@ export function Settings() {
   }
 
   // ── Memory gating toggle ──
-  async function onMemoryGatingToggle(enabled: boolean) {
+  async function onMemoryEnabledChange(enabled: boolean) {
     if (!currentWorkspaceId) {
       toast({ kind: "warning", title: "未选择工作区", body: "请先在左侧选择工作区" });
       return;
     }
-    setMemoryGatingLoading(true);
-    const newMode = enabled ? "llm_first" : "rule_only";
+    setMemorySaving(true);
     try {
-      await settingsApi.updateWorkspaceSettings({ memory_gating: newMode }, currentWorkspaceId);
-      setMemoryGating(enabled);
+      await settingsApi.updateWorkspaceSettings({ memory_enabled: enabled }, currentWorkspaceId);
+      setMemoryEnabled(enabled);
       toast({
         kind: "success",
-        title: enabled ? "已启用 LLM 记忆门控" : "已切换为纯规则记忆门控",
+        title: enabled ? "已启用长期记忆" : "已关闭自动长期记忆",
       });
     } catch (e: unknown) {
       toast({
@@ -314,7 +312,7 @@ export function Settings() {
         body: isApiError(e) ? e.message : String(e),
       });
     } finally {
-      setMemoryGatingLoading(false);
+      setMemorySaving(false);
     }
   }
   const selectedPreset = selectedId ? presetMap.get(selectedId) : null;
@@ -516,12 +514,11 @@ export function Settings() {
               </div>
             )}
 
-            {/* ── Memory Gating settings ── */}
-            <MemoryGatingCard
-              enabled={memoryGating}
-              loading={memoryGatingLoading}
-              loaded={memoryGatingLoaded}
-              onToggle={onMemoryGatingToggle}
+            <LongTermMemoryCard
+              enabled={memoryEnabled}
+              loading={memorySaving}
+              loaded={memoryLoaded}
+              onChange={onMemoryEnabledChange}
             />
           </section>
         </div>
@@ -640,28 +637,38 @@ function ApiKeyField({
   );
 }
 
-/* ──────────────────────── Memory Gating Card ──────────────────────── */
+/* ──────────────────────── Long-term Memory Card ──────────────────────── */
 
-function MemoryGatingCard({
-  enabled, loading, loaded, onToggle,
+function LongTermMemoryCard({
+  enabled, loading, loaded, onChange,
 }: {
-  enabled: boolean; loading: boolean; loaded: boolean; onToggle: (v: boolean) => void;
+  enabled: boolean;
+  loading: boolean;
+  loaded: boolean;
+  onChange: (v: boolean) => void;
 }) {
   return (
     <div className="card mt-3 memory-gating-card">
       <div className="row-flex memory-gating-header">
         <div className="flex-1">
-          <div className="text-md memory-gating-title-text">记忆门控 Memory Gating</div>
+          <div className="text-md memory-gating-title-text">长期记忆</div>
           <div className="muted text-xs memory-gating-desc">
-            选择每轮对话后，系统如何生成长期记忆
+            Agent 自动学习明确偏好、项目规则、稳定事实和可复用经验；你只需要管理结果。
           </div>
         </div>
         <div className="row-flex-sm">
           <span className={`text-xs memory-gating-status ${enabled ? "memory-gating-status-on" : "memory-gating-status-off"}`}>
-            {enabled ? "LLM 优先" : "规则门控"}
+            {enabled ? "已启用" : "已关闭"}
           </span>
-          <button type="button" className={"toggle" + (enabled ? " on" : "")} onClick={() => onToggle(!enabled)}
-            disabled={loading} role="switch" aria-checked={enabled} data-testid="toggle-memory-gating">
+          <button
+            type="button"
+            className={"toggle" + (enabled ? " on" : "")}
+            disabled={loading}
+            onClick={() => onChange(!enabled)}
+            role="switch"
+            aria-checked={enabled}
+            data-testid="toggle-memory-enabled"
+          >
             <span className="toggle-knob" />
           </button>
         </div>
@@ -669,21 +676,18 @@ function MemoryGatingCard({
       {loaded && (
         <div className={"memory-gating-box " + (enabled ? "ok" : "default")}>
           <div className="memory-gating-title">
-            <span className="mr-1">{enabled ? "🧠" : "⚡"}</span>
-            当前：{enabled ? "LLM 优先门控（llm_first）" : "纯规则门控（rule_only）"}
+            <span className="mr-1">{enabled ? "🧠" : "⏸"}</span>
+            当前：{enabled ? "自动长期记忆已启用" : "自动长期记忆已关闭"}
           </div>
           <div className="memory-gating-body">
-            {enabled ? "LLM 从本轮对话与工具结果中提取候选，并统一完成价值评分和检索摘要；不会推测用户未明确表达的偏好。"
-              : "只按确定性规则从工具结果和用户明确表达中生成候选，不调用额外 LLM。"}
+            系统会先判断本轮是否发生了值得学习的事件；没有记忆信号会直接跳过，不会每轮硬写。
           </div>
           <div className="memory-gating-body">
-            {enabled ? "高分候选可生效，边界候选等待确认；模型不可用时也会进入待确认，不会静默写入或丢失。"
-              : "Agent 候选统一等待确认；用户手动保存的记忆直接生效。安全过滤、去重与冲突检测始终启用。"}
+            命中后由 LLM 生成 create/update/ignore/expire/conflict 提案，规则负责拦截密钥、垃圾内容和冲突风险。
           </div>
           <div className="memory-gating-footer">
             <span className="opacity-60">⏱</span>
-            {enabled ? "异步执行一次记忆生成与评分，不阻塞本轮回复"
-              : "每轮最多生成 3 条候选 · 零额外模型调用"}
+            {enabled ? "用户可在记忆页查看、确认、编辑或删除结果" : "关闭后仍可手动新建记忆"}
           </div>
         </div>
       )}

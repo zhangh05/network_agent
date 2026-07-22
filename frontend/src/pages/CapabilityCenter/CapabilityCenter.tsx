@@ -126,6 +126,8 @@ const G_LABEL: Record<ToolGovernanceStatus, string> = { active: "活跃", disabl
 
 function TRow({ tool }: { tool: ToolCatalogItem }) {
   const canonicalRefs = tool.capability_actions ?? [];
+  const actionProfiles = tool.action_profiles ?? [];
+  const actionProfileMap = new Map(actionProfiles.map((profile) => [profile.action, profile]));
   const needsApproval = tool.requires_approval;
   const riskBadge = R_LABEL[tool.risk_level] ?? tool.risk_level;
   const govLabel = G_LABEL[(tool.governance_status ?? "active")] ?? tool.governance_status ?? "未知";
@@ -187,7 +189,10 @@ function TRow({ tool }: { tool: ToolCatalogItem }) {
             <span className="tool-info-label">支持操作</span>
             <div className="tool-action-chips">
               {tool.actions.map((a) => (
-                <span key={a} className="tool-action-chip">{actionLabels[a] || a}</span>
+                <span key={a} className="tool-action-chip">
+                  {actionLabels[a] || a}
+                  {actionProfileMap.get(a)?.requires_approval ? " · 审批" : ""}
+                </span>
               ))}
             </div>
           </div>
@@ -208,6 +213,15 @@ function TRow({ tool }: { tool: ToolCatalogItem }) {
             <D label="命名空间"><InlineCode>{tool.category}/{tool.group}/{tool.action}</InlineCode></D>
             {canonicalRefs.length > 0 && <D label="关联能力">{canonicalRefs.map((a) => <InlineCode key={a}>{a}</InlineCode>)}</D>}
             {tool.permission_action && <D label="权限动作"><InlineCode>{tool.permission_action}</InlineCode></D>}
+            {actionProfiles.length > 0 && (
+              <D label="动作边界">
+                {actionProfiles.map((profile) => (
+                  <InlineCode key={profile.action}>
+                    {profile.action}:{profile.permission_action}/{R_LABEL[profile.risk_level] ?? profile.risk_level}{profile.requires_approval ? "/审批" : ""}
+                  </InlineCode>
+                ))}
+              </D>
+            )}
             {tool.allowed_callers?.length ? <D label="允许调用方">{tool.allowed_callers.map((c) => <InlineCode key={c}>{c}</InlineCode>)}</D> : null}
           </div>
         </details>

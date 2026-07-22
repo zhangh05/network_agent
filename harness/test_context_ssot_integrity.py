@@ -47,6 +47,21 @@ def test_context_store_uses_workspace_storage_root(monkeypatch, tmp_path):
     assert store._items_path == tmp_path / "alpha" / "context" / "items.jsonl"
 
 
+def test_context_store_singleton_tracks_workspace_root_changes(monkeypatch, tmp_path):
+    from core.context.context_store import get_context_store
+
+    root_a = tmp_path / "a"
+    root_b = tmp_path / "b"
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(root_a))
+    first = get_context_store("samews")
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(root_b))
+    second = get_context_store("samews")
+
+    assert first is not second
+    assert first._items_path == root_a / "samews" / "context" / "items.jsonl"
+    assert second._items_path == root_b / "samews" / "context" / "items.jsonl"
+
+
 def test_context_store_rejects_cross_workspace_item(monkeypatch, tmp_path):
     monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
     store = ContextStore("alpha")
@@ -134,6 +149,38 @@ def test_retriever_does_not_rescan_unchanged_store(monkeypatch, tmp_path):
     retriever.search_knowledge("ospf")
     retriever.search_knowledge("neighbor")
     assert calls == 1
+
+
+def test_retriever_applies_boosts_before_final_top_k(monkeypatch, tmp_path):
+    from datetime import datetime, timezone
+
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
+    retriever = UnifiedRetriever("alpha")
+    old_ts = "2020-01-01T00:00:00+00:00"
+    fresh_ts = datetime.now(timezone.utc).isoformat()
+    retriever._store.put({
+        "item_id": "old",
+        "item_type": "memory_hit",
+        "workspace_id": "alpha",
+        "memory_status": "active",
+        "status": "active",
+        "scope": "workspace",
+        "created_at": old_ts,
+        "content": "router preference target",
+    })
+    retriever._store.put({
+        "item_id": "fresh",
+        "item_type": "memory_hit",
+        "workspace_id": "alpha",
+        "memory_status": "active",
+        "status": "active",
+        "scope": "workspace",
+        "created_at": fresh_ts,
+        "content": "router preference target",
+    })
+
+    hits = retriever.search_memory("router preference target", top_k=1)
+    assert [hit["item_id"] for hit in hits] == ["fresh"]
 
 
 def test_fast_path_has_context_authority_contract():

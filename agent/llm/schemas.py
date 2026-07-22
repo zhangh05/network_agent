@@ -17,7 +17,7 @@ class LLMTask(str, Enum):
     ARTIFACT_SUMMARY_EXPLAIN = "artifact_summary_explain"
     KNOWLEDGE_ANSWER = "knowledge_answer"
     POST_TRANSLATE_REVIEW = "post_translate_review"
-    MEMORY_GATING = "memory_gating"
+    MEMORY_CONSOLIDATION = "memory_consolidation"
 
 
 ALLOWED_TASKS = {t.value for t in LLMTask}

@@ -502,7 +502,7 @@ def test_memory_gate_rejects_generic_task_completion_noise():
 
     rec = MemoryRecord(
         workspace_id=workspace_id,
-        memory_type="task_pattern",
+        memory_type="episodic_case",
         source="agent_suggestion",
         content="Task 't1' completed successfully",
         summary="Task 't1' completed successfully",

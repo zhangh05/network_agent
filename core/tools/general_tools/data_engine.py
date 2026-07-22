@@ -13,6 +13,8 @@ import re
 from collections import Counter, defaultdict
 from typing import Any
 
+MAX_INPUT_ROWS = 10_000
+MAX_OUTPUT_ROWS = 200
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -22,7 +24,11 @@ def _normalize_rows(data: Any) -> tuple[list[dict], str | None]:
     if isinstance(data, list):
         if not data:
             return [], "empty data"
+        if len(data) > MAX_INPUT_ROWS:
+            return [], f"too many rows: {len(data)} > {MAX_INPUT_ROWS}"
         if isinstance(data[0], dict):
+            if not all(isinstance(row, dict) for row in data):
+                return [], "all rows must be objects"
             return data, None
         if isinstance(data[0], list):
             headers = [f"col_{i}" for i in range(len(data[0]))]
@@ -63,16 +69,11 @@ def _parse_text(text: str) -> tuple[list[dict], str | None]:
 
 
 def _parse_csv(text: str) -> list[dict]:
-    reader = csv.DictReader(io.StringIO(text))
-    rows = list(reader)
-    if not rows:
-        try:
-            dialect = csv.Sniffer().sniff(text[:2000])
-            reader = csv.DictReader(io.StringIO(text), dialect=dialect)
-            rows = list(reader)
-        except Exception:
-            pass
-    return rows
+    try:
+        dialect = csv.Sniffer().sniff(text[:4000], delimiters=",;\t|")
+    except csv.Error:
+        dialect = csv.excel
+    return list(csv.DictReader(io.StringIO(text), dialect=dialect))[:MAX_INPUT_ROWS]
 
 
 def _parse_markdown_table(text: str) -> list[dict]:
@@ -119,10 +120,13 @@ def _md_table(rows: list[dict], max_rows: int = 50, columns: list[str] | None = 
     if not rows:
         return "(empty)"
     cols = columns or list(rows[0].keys())
-    md = "| " + " | ".join(cols) + " |\n"
+    def cell(value: Any) -> str:
+        return str(value).replace("|", "\\|").replace("\r", " ").replace("\n", " ")[:100]
+
+    md = "| " + " | ".join(cell(col) for col in cols) + " |\n"
     md += "|" + "|".join(["---" for _ in cols]) + "|\n"
     for row in rows[:max_rows]:
-        md += "| " + " | ".join(str(row.get(c, ""))[:100] for c in cols) + " |\n"
+        md += "| " + " | ".join(cell(row.get(c, "")) for c in cols) + " |\n"
     return md
 
 
@@ -130,7 +134,7 @@ def _md_table(rows: list[dict], max_rows: int = 50, columns: list[str] | None = 
 
 
 def data_parse(text: str = "", rows: list | None = None) -> dict:
-    if rows:
+    if rows is not None:
         parsed, err = _normalize_rows(rows)
     else:
         parsed, err = _parse_text(text)
@@ -165,7 +169,7 @@ def data_parse(text: str = "", rows: list | None = None) -> dict:
 
 def data_stats(text: str = "", rows: list | None = None) -> dict:
     """Describe numerical columns: count/mean/std/min/25%/50%/75%/max."""
-    if rows:
+    if rows is not None:
         parsed, err = _normalize_rows(rows)
     else:
         parsed, err = _parse_text(text)
@@ -225,7 +229,7 @@ def _std_dev(vals: list[float]) -> float:
 
 def data_distinct(text: str = "", rows: list | None = None, column: str = "") -> dict:
     """Unique values + frequency count for a column."""
-    if rows:
+    if rows is not None:
         parsed, err = _normalize_rows(rows)
     else:
         parsed, err = _parse_text(text)
@@ -238,6 +242,10 @@ def data_distinct(text: str = "", rows: list | None = None, column: str = "") ->
             "ok": False, "error": "column is required",
             "available_columns": cols,
         }
+
+    available = set(parsed[0].keys()) if parsed else set()
+    if column not in available:
+        return {"ok": False, "error": f"unknown distinct column: {column}", "available_columns": sorted(available)}
 
     vals = [str(r.get(column, "")) for r in parsed]
     counter = Counter(vals)
@@ -267,7 +275,7 @@ def data_aggregate(
     group_by: str | list[str] | None = None,
     metrics: list[dict] | None = None,
 ) -> dict:
-    if rows:
+    if rows is not None:
         parsed, err = _normalize_rows(rows)
     else:
         parsed, err = _parse_text(text)
@@ -284,6 +292,19 @@ def data_aggregate(
         group_keys = group_by
     else:
         group_keys = []
+
+    available = set(parsed[0].keys())
+    missing_groups = [key for key in group_keys if key not in available]
+    if missing_groups:
+        return {"ok": False, "error": "unknown group_by columns", "columns": missing_groups}
+    allowed_funcs = {"count", "sum", "avg", "min", "max"}
+    for metric in metrics:
+        column = str(metric.get("column", "*"))
+        func = str(metric.get("func", "count"))
+        if func not in allowed_funcs:
+            return {"ok": False, "error": f"unsupported aggregate function: {func}"}
+        if column != "*" and column not in available:
+            return {"ok": False, "error": f"unknown aggregate column: {column}"}
 
     result_rows = []
 
@@ -346,31 +367,43 @@ def data_filter(
     conditions: list[dict] | None = None,
     max_rows: int = 50,
 ) -> dict:
-    if rows:
+    if rows is not None:
         parsed, err = _normalize_rows(rows)
     else:
         parsed, err = _parse_text(text)
     if err:
         return {"ok": False, "error": err}
 
-    if not conditions:
-        result = parsed[:max_rows]
+    max_rows = max(1, min(int(max_rows or 50), MAX_OUTPUT_ROWS))
+    if conditions:
+        available = set(parsed[0].keys()) if parsed else set()
+        allowed_ops = {"eq", "neq", "gt", "lt", "gte", "lte", "contains", "in"}
+        for condition in conditions:
+            column = str(condition.get("column") or "")
+            op = str(condition.get("op") or "eq")
+            if column not in available:
+                return {"ok": False, "error": f"unknown filter column: {column}"}
+            if op not in allowed_ops:
+                return {"ok": False, "error": f"unsupported filter operator: {op}"}
+        matched_rows = [r for r in parsed if _match_conditions(r, conditions)]
     else:
-        result = [r for r in parsed if _match_conditions(r, conditions)]
+        matched_rows = parsed
 
     total = len(parsed)
-    filtered = total - len(result)
-    display = result[:max_rows]
+    filtered = total - len(matched_rows)
+    display = matched_rows[:max_rows]
     cols = list(parsed[0].keys()) if total > 0 else []
 
     return {
         "ok": True,
-        "rows": result,
+        "rows": display,
         "markdown": _md_table(display, max_rows, cols),
         "total": total,
         "filtered": filtered,
         "returned": len(display),
-        "_hint": f"筛选后 {len(result)}/{total} 行。用 render 输出完整表格或用 sort 排序。" if filtered else f"返回 {total} 行。",
+        "matched": len(matched_rows),
+        "truncated": len(matched_rows) > len(display),
+        "_hint": f"筛选后 {len(matched_rows)}/{total} 行，返回前 {len(display)} 行。" if filtered else f"返回 {len(display)}/{total} 行。",
     }
 
 
@@ -416,7 +449,7 @@ def data_sort(
     order: str = "asc",
     max_rows: int = 50,
 ) -> dict:
-    if rows:
+    if rows is not None:
         parsed, err = _normalize_rows(rows)
     else:
         parsed, err = _parse_text(text)
@@ -433,14 +466,19 @@ def data_sort(
         cols = list(parsed[0].keys()) if parsed else []
         return {"ok": False, "error": "by is required", "available_columns": cols}
 
+    available = set(parsed[0].keys()) if parsed else set()
+    missing = [column for column in sort_cols if column not in available]
+    if missing:
+        return {"ok": False, "error": "unknown sort columns", "columns": missing}
     reverse = order.lower() == "desc"
+    max_rows = max(1, min(int(max_rows or 50), MAX_OUTPUT_ROWS))
 
     def sort_key(row):
         vals = []
         for c in sort_cols:
             v = row.get(c, "")
             n = _safe_number(v)
-            vals.append(n if n is not None else str(v).lower())
+            vals.append((0, n) if n is not None else (1, str(v).lower()))
         return tuple(vals)
 
     sorted_rows = sorted(parsed, key=sort_key, reverse=reverse)
@@ -449,12 +487,13 @@ def data_sort(
 
     return {
         "ok": True,
-        "rows": sorted_rows,
+        "rows": display,
         "markdown": _md_table(display, max_rows, cols),
         "sorted_by": sort_cols,
         "order": order,
         "total": len(parsed),
         "returned": len(display),
+        "truncated": len(sorted_rows) > len(display),
         "_hint": f"按 {sort_cols} {order} 排序，返回前{len(display)}行。",
     }
 
@@ -464,7 +503,7 @@ def data_render(
     output: str = "markdown",
     max_rows: int = 50,
 ) -> dict:
-    if rows:
+    if rows is not None:
         parsed, err = _normalize_rows(rows)
     else:
         parsed, err = _parse_text(text)
@@ -473,6 +512,7 @@ def data_render(
     if not parsed:
         return {"ok": True, "markdown": "(empty)", "rows": []}
 
+    max_rows = max(1, min(int(max_rows or 50), MAX_OUTPUT_ROWS))
     display = parsed[:max_rows]
     cols = list(parsed[0].keys())
     truncated = len(parsed) > max_rows
@@ -502,7 +542,7 @@ def data_pivot(
     index: str = "", columns: str = "", values: str = "",
     aggfunc: str = "sum",
 ) -> dict:
-    if rows:
+    if rows is not None:
         parsed, err = _normalize_rows(rows)
     else:
         parsed, err = _parse_text(text)
@@ -510,12 +550,19 @@ def data_pivot(
         return {"ok": False, "error": err}
     if not index or not columns:
         return {"ok": False, "error": "index and columns are required"}
+    if aggfunc not in {"sum", "avg", "count"}:
+        return {"ok": False, "error": f"unsupported pivot aggregate: {aggfunc}"}
+    available = set(parsed[0].keys()) if parsed else set()
+    required = [index, columns] + ([] if aggfunc == "count" else [values])
+    missing = [column for column in required if not column or column not in available]
+    if missing:
+        return {"ok": False, "error": "unknown pivot columns", "columns": missing}
 
     grid: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     for row in parsed:
         idx = str(row.get(index, ""))
         col = str(row.get(columns, ""))
-        val = _safe_number(row.get(values, ""))
+        val = 1.0 if aggfunc == "count" else _safe_number(row.get(values, ""))
         if val is not None:
             grid[idx][col].append(val)
 
@@ -573,14 +620,14 @@ def data_join(
         on: Column to join on (must exist in both).
         how: inner (default) or left.
     """
-    if rows:
+    if rows is not None:
         left, err = _normalize_rows(rows)
     else:
         left, err = _parse_text(text)
     if err:
         return {"ok": False, "error": f"left data: {err}"}
 
-    if right_rows:
+    if right_rows is not None:
         right, err2 = _normalize_rows(right_rows)
     else:
         right, err2 = _parse_text(right_text)
@@ -596,6 +643,17 @@ def data_join(
             "left_columns": lc, "right_columns": rc,
             "common_columns": common,
         }
+    if how not in {"inner", "left"}:
+        return {"ok": False, "error": f"unsupported join type: {how}"}
+    left_columns = set(left[0].keys()) if left else set()
+    right_columns = set(right[0].keys()) if right else set()
+    if on not in left_columns or on not in right_columns:
+        return {
+            "ok": False,
+            "error": f"join column '{on}' must exist in both datasets",
+            "left_columns": sorted(left_columns),
+            "right_columns": sorted(right_columns),
+        }
 
     # Build right-side index
     right_index: dict[str, list[dict]] = defaultdict(list)
@@ -605,9 +663,11 @@ def data_join(
 
     # Merge
     merged = []
+    matched_left_rows = 0
     for l in left:
         key = str(l.get(on, ""))
         if key in right_index:
+            matched_left_rows += 1
             for r in right_index[key]:
                 merged_row = dict(l)
                 merged_row.update({f"right.{k}" if k != on else k: v for k, v in r.items()})
@@ -620,15 +680,17 @@ def data_join(
             merged.append(merged_row)
 
     cols = list(merged[0].keys()) if merged else []
-    matched = len(merged) - (len(left) if how == "left" else 0) if how == "left" else len(merged)
+    display = merged[:MAX_OUTPUT_ROWS]
     return {
         "ok": True,
-        "rows": merged,
-        "markdown": _md_table(merged, 20, cols),
+        "rows": display,
+        "markdown": _md_table(display, 20, cols),
         "left_rows": len(left),
         "right_rows": len(right),
         "merged_rows": len(merged),
-        "matched_rows": matched,
+        "matched_rows": matched_left_rows,
+        "returned": len(display),
+        "truncated": len(merged) > len(display),
         "join_column": on,
         "how": how,
         "_hint": f"{how} join on '{on}'：{len(left)}×{len(right)}→{len(merged)}行。用 render 输出完整结果。",

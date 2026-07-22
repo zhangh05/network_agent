@@ -199,14 +199,14 @@ def save_feedback(traj_id: str, ws_id: str, feedback: dict) -> dict:
     if not traj: return {"ok": False, "error": "trajectory not found"}
     traj["user_feedback"] = _redact_dict(feedback)
     save_trajectory(ws_id, traj_id, _redact_dict(traj))
-    # Generate pending MemoryCandidate for the feedback
+    # Preserve user feedback as a reviewable episodic memory.
     try:
         from storage.memory_governance import MemoryRecord, MemoryWriteGate
         gate = MemoryWriteGate()
         rec = MemoryRecord(
             workspace_id=ws_id, session_id=traj.get("session_id",""),
             task_id=traj.get("task_id",""), scope="task",
-            memory_type="task_pattern", status="pending",
+            memory_type="episodic_case", status="pending",
             source="user", confidence=0.9,
             content=f"Feedback: {feedback.get('comment','')[:200]} Rating: {feedback.get('rating','')}",
             summary=feedback.get("comment","")[:100],

@@ -155,13 +155,18 @@ prompts:
       require_safe_llm_context: true
       max_artifact_refs: 0
 
-  - prompt_id: memory.gating.v2
-    task: memory_gating
-    version: v2
+  - prompt_id: memory.consolidation.v3
+    task: memory_consolidation
+    version: v3
     status: enabled
-    template_path: prompts/templates/memory_gating.md
-    description: "LLM evaluation of memory candidates — score, dedupe, and summarize"
+    template_path: prompts/templates/memory_consolidation.md
+    description: "Task-level reflection that consolidates experience into layered long-term memory"
+    input_policy:
+      allow_full_source_config: false
+      allow_secret: false
     output_policy:
+      forbid_deployable_generation: true
       forbid_secret_output: true
+      require_json: true
     context_policy:
       require_safe_llm_context: false

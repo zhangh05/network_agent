@@ -46,8 +46,8 @@ export const PacketAnalysis = lazyWithPreload(() =>
 export const KnowledgeLibrary = lazyWithPreload(() =>
   import("./pages/KnowledgeLibrary/KnowledgeLibrary").then((m) => ({ default: m.KnowledgeLibrary })),
 );
-export const ArtifactCenter = lazyWithPreload(() =>
-  import("./pages/ArtifactCenter/ArtifactCenter").then((m) => ({ default: m.ArtifactCenter })),
+export const DataCenter = lazyWithPreload(() =>
+  import("./pages/DataCenter/DataCenter").then((m) => ({ default: m.DataCenter })),
 );
 export const MemoryPage = lazyWithPreload(() =>
   import("./pages/MemoryPage/MemoryPage").then((m) => ({ default: m.MemoryPage })),
@@ -64,16 +64,12 @@ export const ReviewCenter = lazyWithPreload(() =>
 export const RuntimeAudit = lazyWithPreload(() =>
   import("./pages/RuntimeAudit/RuntimeAudit").then((m) => ({ default: m.RuntimeAudit })),
 );
-export const FileManager = lazyWithPreload(() =>
-  import("./pages/FileManager/FileManager").then((m) => ({ default: m.FileManager })),
-);
-
 // Path → preload thunk. Keys match `NAV_ITEMS.to` plus the secondary routes.
 const PRELOAD: Record<string, () => PageModule> = {
   "/workbench": TaskWorkbench.preload,
   "/packet": PacketAnalysis.preload,
   "/knowledge": KnowledgeLibrary.preload,
-  "/artifacts": ArtifactCenter.preload,
+  "/data": DataCenter.preload,
   "/memory": MemoryPage.preload,
   "/cmdb": CMDBPage.preload,
   "/assurance": AssurancePage.preload,
@@ -83,7 +79,6 @@ const PRELOAD: Record<string, () => PageModule> = {
   "/runs": OperationsPage.preload,
   "/audit": RuntimeAudit.preload,
   "/reviews": ReviewCenter.preload,
-  "/files": FileManager.preload,
 };
 
 /** Warm a route's chunk ahead of navigation (call on hover/focus). */

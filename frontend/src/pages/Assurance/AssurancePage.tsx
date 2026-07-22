@@ -192,7 +192,7 @@ function IncidentCard({ incident, operation, baselineName, nodeNames, onClose }:
       </section>}
 
       <div className="incident-evidence-actions">
-        {incident.inspection_task_id && <Link className="btn sm" to={`/artifacts?producer_id=${encodeURIComponent(incident.inspection_task_id)}`}>查看本次巡检制品</Link>}
+        {incident.inspection_task_id && <Link className="btn sm" to={`/data?producer_id=${encodeURIComponent(incident.inspection_task_id)}`}>查看本次巡检制品</Link>}
         <span>{incident.evidence_refs?.length || 0} 条证据引用</span>
       </div>
     </div> : operation?.status !== "collecting" ? <div className="incident-warning">本次调查没有生成分析结果。</div> : null}
@@ -443,7 +443,7 @@ export function AssurancePage() {
               const scopeLabel = [item.scope?.region, item.scope?.location, item.scope?.vendor].filter(Boolean).join(" · ") || "全部设备";
               return <article className="stack" key={item.baseline_id}>
                 <div><span className="assurance-status ok">权威基线</span><b>{item.name}</b><span>{scopeLabel} · 定调于 {dateText(item.created_at)}</span><span>结构化事实 {item.quality?.typed_fact_count ?? 0} 项 · 覆盖 {(item.quality?.categories || []).join("、") || "暂无分类"}</span>{item.source_task_id && <span>来源巡检：可查看基线来源证据</span>}{item.quality?.evidence_complete === false ? <em>该权威基线的原始证据覆盖不完整：{item.quality.fallback_assets || 0} 台设备仅保留截断片段。后续功能不得把未覆盖事实判成异常。</em> : null}</div>
-                {item.source_task_id && <Link className="btn sm" to={`/artifacts?producer_id=${encodeURIComponent(item.source_task_id)}`}>查看基线来源证据</Link>}
+                {item.source_task_id && <Link className="btn sm" to={`/data?producer_id=${encodeURIComponent(item.source_task_id)}`}>查看基线来源证据</Link>}
               </article>;
             }) : <div className="assurance-empty compact">还没有保存正常状态</div>}</div>
           </div>
@@ -622,7 +622,7 @@ function ScheduleCard({ item, baselineName, drift, nodeNames, busy, onRun, onTog
     <Status value={item.state} />
     {drift && <div className="schedule-latest"><b>最近一轮：{dateText(drift.created_at)}</b><span>严重 {drift.summary?.critical || 0} · 警告 {drift.summary?.warning || 0} · 信息 {drift.summary?.info || 0}</span><EvidenceChanges changes={drift.changes as Array<Record<string, any>>} nodeNames={nodeNames} title="查看最近一轮基线差异" /><LlmResult llm={item.last_analysis} nodeNames={nodeNames} emptyText="正常轮次不调用 LLM；告警达到连续确认门槛后才调用 LLM 归纳关联和处置优先级。" /></div>}
     {!drift && item.run_count > 0 && <div className="incident-warning">最近检查没有可读取的基线差异记录。</div>}
-    <div className="assurance-row-actions">{item.last_artifact_ids?.length && item.last_task_id ? <Link className="btn sm" to={`/artifacts?producer_id=${encodeURIComponent(item.last_task_id)}`}>查看最近证据</Link> : null}<button className="btn sm" disabled={item.state === "collecting" || busy} onClick={onRun}>立即检查</button><button className="btn sm" onClick={onToggle}>{item.enabled ? "暂停" : "启用"}</button></div>
+    <div className="assurance-row-actions">{item.last_artifact_ids?.length && item.last_task_id ? <Link className="btn sm" to={`/data?producer_id=${encodeURIComponent(item.last_task_id)}`}>查看最近证据</Link> : null}<button className="btn sm" disabled={item.state === "collecting" || busy} onClick={onRun}>立即检查</button><button className="btn sm" onClick={onToggle}>{item.enabled ? "暂停" : "启用"}</button></div>
   </article>;
 }
 
@@ -637,5 +637,5 @@ function OperationProgress({ operation }: { operation: AssuranceOperation }) {
   const label = operation.status === "completed" ? `${subject}已完成 ${completed}/${total || completed}`
     : operation.status === "failed" || operation.status === "cancelled" ? (operation.error || `${subject}${operation.status === "failed" ? "失败" : "已取消"}`)
     : operation.phase === "analyzing_evidence" ? "正在分析采集证据" : `正在重新巡检设备 ${completed}/${total || "?"}`;
-  return <div className="assurance-check-progress"><Status value={operation.status} /><span>{label}</span><small>成功 {operation.succeeded_assets || 0} · 部分 {operation.partial_assets || 0} · 失败 {operation.failed_assets || 0}{operation.artifact_ids?.length ? ` · 证据制品 ${operation.artifact_ids.length}` : ""}</small>{operation.artifact_ids?.length ? <Link className="btn sm" to={`/artifacts?producer_id=${encodeURIComponent(operation.inspection_task_id)}`}>查看本次证据</Link> : null}</div>;
+  return <div className="assurance-check-progress"><Status value={operation.status} /><span>{label}</span><small>成功 {operation.succeeded_assets || 0} · 部分 {operation.partial_assets || 0} · 失败 {operation.failed_assets || 0}{operation.artifact_ids?.length ? ` · 证据制品 ${operation.artifact_ids.length}` : ""}</small>{operation.artifact_ids?.length ? <Link className="btn sm" to={`/data?producer_id=${encodeURIComponent(operation.inspection_task_id)}`}>查看本次证据</Link> : null}</div>;
 }

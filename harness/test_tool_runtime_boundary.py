@@ -107,6 +107,40 @@ class TestRedaction:
 
 
 class TestToolPolicySafetySemantics:
+    def test_executor_blocks_approval_required_call_without_approval_id(self):
+        from core.tools.executor import ToolExecutor
+        from core.tools.policy import ToolPolicy
+        from core.tools.registry import ToolRegistry
+        from core.tools.schemas import ToolInvocation, ToolSpec
+
+        executed = {"value": False}
+        registry = ToolRegistry()
+        registry.register_tool(
+            ToolSpec(
+                tool_id="device.manage",
+                name="Device Manage",
+                description="test",
+                category="device",
+                risk_level="medium",
+                input_schema={"type": "object", "properties": {}},
+            ),
+            lambda inv: executed.__setitem__("value", True) or {"ok": True},
+        )
+
+        result = ToolExecutor(registry, ToolPolicy()).execute(
+            ToolInvocation(
+                tool_id="device.manage",
+                arguments={"workspace_id": "default", "action": "delete", "asset_id": "asset-1"},
+                workspace_id="default",
+                requested_by="turn_runner",
+            ),
+        )
+
+        assert result.status == "blocked"
+        assert result.policy_decision.requires_approval is True
+        assert "approval_required" in result.errors
+        assert executed["value"] is False
+
     def test_merged_device_read_action_does_not_require_approval(self):
         from core.tools.policy import ToolPolicy
         from core.tools.schemas import ToolInvocation, ToolSpec

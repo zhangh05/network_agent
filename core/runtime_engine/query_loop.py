@@ -76,6 +76,7 @@ def _tool_registry_signature(tool_registry: dict) -> str:
             "description": _tool_meta_get(meta, "description", ""),
             "args_schema": _tool_meta_get(meta, "args_schema", _tool_meta_get(meta, "input_schema", {})),
             "risk_level": _tool_meta_get(meta, "risk_level", "low"),
+            "action_profiles": _tool_meta_get(meta, "action_profiles", []),
         })
     encoded = json.dumps(
         payload,
@@ -101,6 +102,7 @@ def _build_cached_tool_definitions(tool_registry: dict) -> List[dict]:
             "input_schema": _tool_meta_get(meta, "args_schema", _tool_meta_get(meta, "input_schema", {})),
             "description": _tool_meta_get(meta, "description", ""),
             "risk_level": _tool_meta_get(meta, "risk_level", "low"),
+            "action_profiles": _tool_meta_get(meta, "action_profiles", []),
         }))
     _TOOL_DEFINITION_CACHE.clear()
     _TOOL_DEFINITION_CACHE[signature] = copy.deepcopy(tools)

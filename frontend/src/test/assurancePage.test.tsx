@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { AssurancePage } from "../pages/Assurance/AssurancePage";
+import { App } from "../app/App";
 import { useSessionStore } from "../stores/session";
 import { enqueue, getRequests, installMockApi, resetMocks } from "./mockServer";
 import * as confirmModule from "../components/ConfirmDialog";
@@ -92,6 +93,22 @@ describe("Network Assurance user flow", () => {
     confirmSpy.mockRestore();
   });
 
+  it("opens the real confirmation dialog from the app shell without crashing", async () => {
+    enqueue("/system/version", { status: 200, data: { version: "test" } });
+    enqueue("/assurance/records/clear", { status: 200, data: { ok: true, deleted: 4, deleted_by_kind: {}, preserved: ["artifacts"] } });
+    enqueueAssurance();
+    window.history.pushState({}, "", "/assurance");
+    render(<App />);
+    await screen.findByText("还没有确立权威状态基线");
+
+    fireEvent.click(screen.getByRole("button", { name: "清除记录" }));
+    expect(await screen.findByTestId("confirm-dialog")).toBeInTheDocument();
+    expect(screen.queryByText("应用发生错误")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("confirm-dialog-confirm"));
+    await waitFor(() => expect(getRequests().some((request) => request.url === "/assurance/records/clear")).toBe(true));
+  });
+
   it("shows baseline comparison, LLM status, citations and next actions for incidents", async () => {
     resetMocks();
     enqueue("/assurance/snapshot", { status: 200, data: { ok: true, snapshot: {
@@ -123,6 +140,6 @@ describe("Network Assurance user flow", () => {
     expect(screen.getByText("CE1 对端停止发布目标前缀")).toBeInTheDocument();
     expect(screen.getByText("依据：证据制品 art-1")).toBeInTheDocument();
     expect(screen.getByText("检查 CE1 对端路由发布")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "查看本次巡检制品" })).toHaveAttribute("href", "/artifacts?producer_id=ins-fault");
+    expect(screen.getByRole("link", { name: "查看本次巡检制品" })).toHaveAttribute("href", "/data?producer_id=ins-fault");
   });
 });

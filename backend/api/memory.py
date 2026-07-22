@@ -28,7 +28,7 @@ def handle_memory_status():
     if err:
         return jsonify({"ok": False, "error": err}), 400
     try:
-        from storage.memory_governance import MemoryStore, get_memory_gate_mode
+        from storage.memory_governance import MemoryStore
         store = MemoryStore()
         records = store.list_retrievable(ws_id)
         all_records = store.list_all(ws_id)
@@ -41,7 +41,7 @@ def handle_memory_status():
             "backend": "governed_context_store",
             "workspace_id": ws_id,
             "records": len(records),
-            "gate_mode": get_memory_gate_mode(ws_id),
+            "policy": "layered_reflection",
             "status_counts": status_counts,
             "data_dir": f"workspaces/{ws_id}/memory/",
         })
@@ -80,7 +80,7 @@ def handle_memory_write():
             session_id=data.get("session_id", ""),
             task_id=data.get("task_id", ""),
             scope=data.get("scope", "workspace"),
-            memory_type=data.get("memory_type", "operational_fact"),
+            memory_type=data.get("memory_type", "knowledge_note"),
             status="active" if user_confirmed else "pending",
             source="user" if user_confirmed else ("subagent" if is_subagent else "agent_suggestion"),
             content=content[:2000],
@@ -90,10 +90,7 @@ def handle_memory_write():
             created_by="user" if user_confirmed else source,
             redacted=True,
         )
-        # The workspace setting selects the single governed write policy.
-        from storage.memory_governance import get_memory_gate_mode
-        gate_mode = get_memory_gate_mode(ws_id)
-        result = gate.write(rec, gate_mode=gate_mode)
+        result = gate.write(rec)
         return jsonify(result)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500

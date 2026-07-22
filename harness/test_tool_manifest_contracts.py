@@ -41,6 +41,41 @@ class TestManifestCompleteness:
             assert specs[tid].risk_level == manifest.risk_level
             assert specs[tid].requires_approval == manifest.requires_approval
 
+    def test_tool_specs_have_user_facing_names(self):
+        from core.tools.canonical_registry import to_tool_specs
+
+        for spec, _ in to_tool_specs():
+            assert spec.name, f"{spec.tool_id}: missing user-facing name"
+
+    def test_catalog_permission_action_matches_manifest_action_class(self):
+        from core.tools.catalog_snapshot import build_catalog_snapshot
+
+        expected = {
+            "read": "read",
+            "write": "write",
+            "execute": "exec",
+            "network": "network",
+            "delete": "write",
+            "admin": "write",
+        }
+        snapshot = build_catalog_snapshot()
+        for item in snapshot["tools"]:
+            manifest = MANIFESTS[item["tool_id"]]
+            assert item["permission_action"] == expected[manifest.action_class]
+
+    def test_catalog_exposes_action_level_approval_boundaries(self):
+        from core.tools.catalog_snapshot import build_catalog_snapshot
+
+        tools = {item["tool_id"]: item for item in build_catalog_snapshot()["tools"]}
+        device_profiles = {p["action"]: p for p in tools["device.manage"]["action_profiles"]}
+        system_profiles = {p["action"]: p for p in tools["system.manage"]["action_profiles"]}
+
+        assert device_profiles["list"]["requires_approval"] is False
+        assert device_profiles["list"]["permission_action"] == "read"
+        assert device_profiles["delete"]["requires_approval"] is True
+        assert device_profiles["delete"]["permission_action"] == "write"
+        assert system_profiles["session_rewind"]["requires_approval"] is True
+
 
 class TestRiskAndApproval:
     def test_high_risk_requires_approval(self):

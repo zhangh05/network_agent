@@ -539,7 +539,7 @@ def _build_deterministic_summary(msg) -> dict:
         content = str(getattr(msg, "content", ""))
 
     # Build a short summary
-    preview = content[:150]
+    preview = _safe_summary_text(content, limit=150)
 
     if role == "tool":
         # Tool result: try to parse the JSON
@@ -575,7 +575,7 @@ def _build_progress_summary(messages: list) -> dict:
             role = str(msg.get("role", "unknown"))
         elif hasattr(msg, "role"):
             role = str(getattr(msg, "role", "unknown"))
-        content = _message_content(msg).replace("\n", " ").strip()
+        content = _safe_summary_text(_message_content(msg), limit=220)
         if not content:
             continue
         if role == "tool":
@@ -599,6 +599,13 @@ def _build_progress_summary(messages: list) -> dict:
         "message_id": "context_summary_auto",
         "metadata": {"compaction": "llm_summary", "source": "deterministic_fallback"},
     }
+
+
+def _safe_summary_text(content: Any, *, limit: int) -> str:
+    """Return a short compaction snippet without secret-bearing lines."""
+    text = str(content or "").replace("\x00", "")
+    scrubbed = _strip_forbidden(text)
+    return scrubbed.replace("\n", " ").strip()[: max(1, limit)]
 
 
 def _first_reference_id(messages: list) -> str:

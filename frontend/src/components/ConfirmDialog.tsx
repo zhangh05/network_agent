@@ -36,22 +36,28 @@ export function confirm(spec: ConfirmSpec): Promise<boolean> {
 /** Mount once at the app root. Renders nothing when no confirm is pending. */
 export function ConfirmHost() {
   const [state, setState] = useState<ConfirmState | null>(null);
+  const stateRef = useRef<ConfirmState | null>(null);
+
   useEffect(() => {
-    const listener = (next: ConfirmState | null) => setState(next);
+    const listener = (next: ConfirmState | null) => {
+      stateRef.current = next;
+      setState(next);
+    };
     listeners.add(listener);
     return () => { listeners.delete(listener); };
   }, []);
 
-  if (!state) return null;
-
-  const close = (value: boolean) => {
-    state.resolve(value);
+  const close = useCallback((value: boolean) => {
+    const current = stateRef.current;
+    if (!current) return;
+    stateRef.current = null;
     emit(null);
-  };
+    current.resolve(value);
+  }, []);
 
-  const onCloseRef = useRef(close);
-  onCloseRef.current = close;
-  const onClose = useCallback(() => onCloseRef.current(false), []);
+  const onClose = useCallback(() => close(false), [close]);
+
+  if (!state) return null;
 
   return (
     <PortalModal open onClose={onClose} testId="confirm-dialog">
@@ -59,7 +65,7 @@ export function ConfirmHost() {
         <h3 className="confirm-dialog-title">{state.title}</h3>
         {state.body && <div className="confirm-dialog-body">{state.body}</div>}
         <div className="row-flex-sm confirm-dialog-actions">
-          <Button onClick={() => close(false)} size="sm">{state.cancelLabel ?? "取消"}</Button>
+          <Button onClick={onClose} size="sm">{state.cancelLabel ?? "取消"}</Button>
           <Button
             variant={state.destructive ? "danger" : "primary"}
             size="sm"

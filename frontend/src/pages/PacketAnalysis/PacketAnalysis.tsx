@@ -144,7 +144,7 @@ export function PacketAnalysis() {
     triedRestore.current = true;
     const aborted = new AbortController();
 
-    // Try URL param first (from FileManager "打开分析" link)
+    // Try URL param first (from DataCenter "打开报文分析" link)
 	    const sidFromUrl = searchParams.get("sid");
 	    if (sidFromUrl) {
 	      localStorage.removeItem("pcap_session"); // clear stale

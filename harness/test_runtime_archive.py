@@ -46,6 +46,36 @@ class TestPreviewArchive:
         output = str(preview.as_dict())
         assert "/Users/" not in output
 
+    def test_session_owned_run_and_trace_are_never_archive_candidates(self, temp_dirs):
+        from core.runtime.archive import ArchivePolicy, preview_archive_candidates
+        from storage.paths import workspace_root
+        from storage.workspace_store import ensure_workspace
+
+        workspace_id = "archive_session_refs"
+        ensure_workspace(workspace_id)
+        root = workspace_root(workspace_id)
+        (root / "runs").mkdir(parents=True, exist_ok=True)
+        (root / "sessions").mkdir(parents=True, exist_ok=True)
+        run = root / "runs" / "run-owned.json"
+        trace = root / "runs" / "run-owned.trace.json"
+        run.write_text('{"run_id":"run-owned","artifact_refs":[]}', encoding="utf-8")
+        trace.write_text('{"run_id":"run-owned"}', encoding="utf-8")
+        (root / "sessions" / "session-1.json").write_text(
+            '{"session_id":"session-1","run_ids":["run-owned"]}', encoding="utf-8",
+        )
+        old = 1_600_000_000
+        os.utime(run, (old, old))
+        os.utime(trace, (old, old))
+
+        preview = preview_archive_candidates(
+            workspace_id,
+            ArchivePolicy(runs_older_than_days=1, traces_older_than_days=1),
+        )
+        assert preview.candidates == []
+        assert {item["path"] for item in preview.blocked_items} == {
+            "run-owned.json", "run-owned.trace.json",
+        }
+
 
 class TestApplyArchive:
     def test_apply_default_dry_run(self):
@@ -147,6 +177,37 @@ class TestApplyArchive:
         assert not trace_path.exists()
         assert not job_path.exists()
         assert not temp_path.exists()
+
+    def test_archived_item_can_be_listed_and_restored(self, temp_dirs):
+        from core.runtime.archive import list_archived_items, restore_archived_item
+        from storage.paths import workspace_root
+        from storage.workspace_store import ensure_workspace
+
+        workspace_id = "archive_restore"
+        ensure_workspace(workspace_id)
+        root = workspace_root(workspace_id)
+        archived = root / "sys" / "archives" / "2026-07" / "runs" / "run-old.json"
+        archived.parent.mkdir(parents=True, exist_ok=True)
+        archived.write_text('{"run_id":"run-old"}', encoding="utf-8")
+
+        items = list_archived_items(workspace_id)
+        assert [(item["month"], item["kind"], item["name"]) for item in items] == [
+            ("2026-07", "runs", "run-old.json"),
+        ]
+        result = restore_archived_item(
+            workspace_id, month="2026-07", kind="runs", name="run-old.json", confirm=True,
+        )
+        assert result["ok"] is True
+        assert (root / "runs" / "run-old.json").is_file()
+        assert not archived.exists()
+
+    def test_archive_restore_rejects_path_traversal(self):
+        from core.runtime.archive import restore_archived_item
+
+        result = restore_archived_item(
+            "default", month="2026-07", kind="runs", name="../secret", confirm=True,
+        )
+        assert result == {"ok": False, "error": "invalid_name"}
 
 
 class TestUIArchive:

@@ -25,7 +25,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/runs", label: "运行与作业", testid: "nav-runs", Icon: IconHistory },
   { to: "/capabilities", label: "能力矩阵", testid: "nav-capabilities", Icon: IconLayers },
   { to: "/knowledge", label: "知识库", testid: "nav-knowledge", Icon: IconBook },
-  { to: "/artifacts", label: "制品", testid: "nav-artifacts", Icon: IconBox },
+  { to: "/data", label: "数据中心", testid: "nav-data", Icon: IconBox },
   { to: "/memory", label: "记忆", testid: "nav-memory", Icon: IconBrain },
   { to: "/packet", label: "报文分析", testid: "nav-packet", Icon: IconBolt },
   { to: "/cmdb", label: "设备资产", testid: "nav-cmdb", Icon: IconServer },

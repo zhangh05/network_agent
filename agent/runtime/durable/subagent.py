@@ -370,7 +370,7 @@ def run_subagent_task(subtask_id: str, ws_id: str) -> dict:
                 rec = MemoryRecord(
                     workspace_id=ws_id, session_id=task.session_id,
                     task_id=task.parent_task_id, scope="task",
-                    memory_type="tool_learning",
+                    memory_type="procedural_rule",
                     status="pending", source="subagent",
                     content=str(tr.get("summary", ""))[:500],
                     summary=f"Subagent {profile.name}: {tr.get('tool_id', '')}",

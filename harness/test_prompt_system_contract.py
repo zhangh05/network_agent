@@ -107,7 +107,7 @@ def test_specialist_prompts_have_distinct_operational_contracts():
             "manual_review_explain",
             "report_summary",
             "result_summarize",
-            "memory_gating",
+            "memory_consolidation",
         )
     }
 
@@ -119,14 +119,15 @@ def test_specialist_prompts_have_distinct_operational_contracts():
     assert "smallest concrete check" in prompts["manual_review_explain"]
     assert "observation time" in prompts["report_summary"]
     assert "tool's success" in prompts["result_summarize"]
-    assert "time-sensitive" in prompts["memory_gating"]
+    assert "Raw device state" in prompts["memory_consolidation"]
+    assert "core_rule" in prompts["memory_consolidation"]
 
 
 def test_enabled_prompt_registry_is_latest_only():
     from prompts.loader import load_prompt_registry
 
     for spec in load_prompt_registry():
-        assert spec.version == "v2"
+        assert spec.version in {"v2", "v3"}
         assert not spec.prompt_id.endswith(".v1")
 
 

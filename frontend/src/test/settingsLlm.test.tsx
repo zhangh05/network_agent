@@ -89,8 +89,8 @@ function mockApi(overrides: Partial<{
     providerDelete: overrides.providerDelete ?? vi.fn().mockResolvedValue({ ok: true, deleted: true }),
     llmActivate: overrides.llmActivate ?? vi.fn().mockResolvedValue({ ok: true, config: { ...providers.providers[0], is_active: true }, active: "minimax", message: "已切换到 MiniMax" }),
     llmTest: overrides.llmTest ?? vi.fn().mockResolvedValue({} as LlmTestResult),
-    workspaceSettings: overrides.workspaceSettings ?? vi.fn().mockResolvedValue({ workspace: { memory_gating: "rule_only" } }),
-    updateWorkspaceSettings: overrides.updateWorkspaceSettings ?? vi.fn().mockResolvedValue({ ok: true, workspace: { memory_gating: "llm_first" } }),
+    workspaceSettings: overrides.workspaceSettings ?? vi.fn().mockResolvedValue({ workspace: { memory_enabled: true } }),
+    updateWorkspaceSettings: overrides.updateWorkspaceSettings ?? vi.fn().mockResolvedValue({ ok: true, workspace: { memory_enabled: false } }),
   };
   vi.spyOn(settingsApi, "providersList").mockImplementation(spy.providersList);
   vi.spyOn(settingsApi, "providerSave").mockImplementation(spy.providerSave);
@@ -283,21 +283,21 @@ describe("Settings — LLM Provider configuration v2", () => {
   it("记忆门控读取并写入当前 workspace", async () => {
     const spy = mockApi();
     render(<Settings />);
-    await waitFor(() => screen.getByTestId("toggle-memory-gating"));
+    await waitFor(() => screen.getByTestId("toggle-memory-enabled"));
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId("toggle-memory-gating"));
+      fireEvent.click(screen.getByTestId("toggle-memory-enabled"));
     });
 
     expect(spy.workspaceSettings).toHaveBeenCalledWith("ws-settings", expect.any(AbortSignal));
     expect(spy.updateWorkspaceSettings).toHaveBeenCalledWith(
-      { memory_gating: "llm_first" },
+      { memory_enabled: false },
       "ws-settings",
     );
   });
 
   it("加载失败时显示 error card", async () => {
-    vi.spyOn(settingsApi, "workspaceSettings").mockResolvedValue({ workspace: { memory_gating: "rule_only" } });
+    vi.spyOn(settingsApi, "workspaceSettings").mockResolvedValue({ workspace: { memory_enabled: true } });
     vi.spyOn(settingsApi, "providersList").mockRejectedValue(new Error("boom"));
     render(<Settings />);
     await waitFor(() => {

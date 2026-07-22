@@ -184,24 +184,20 @@ def register_workspace_routes(app):
 
     @app.route("/api/workspaces/<ws_id>/settings", methods=["PUT"])
     def api_workspace_settings_update(ws_id):
-        """Update workspace-level settings (memory_gating, etc)."""
+        """Update workspace-level settings."""
         ws_id, err = _validated_ws_id(ws_id)
         if err:
             return err
         data = request.get_json(silent=True) or {}
 
-        allowed_keys = {"memory_gating"}
+        allowed_keys = {"memory_enabled"}
         patch = {k: v for k, v in data.items() if k in allowed_keys}
 
         if not patch:
-            return jsonify({"ok": False, "error": "no_valid_settings", "message": "Allowed keys: memory_gating"}), 400
+            return jsonify({"ok": False, "error": "no_valid_settings", "message": "Allowed keys: memory_enabled"}), 400
 
-        # Validate memory_gating value
-        if "memory_gating" in patch:
-            mode = str(patch["memory_gating"]).strip().lower()
-            if mode not in ("rule_only", "llm_first"):
-                return jsonify({"ok": False, "error": "invalid_memory_gating", "message": "Must be 'rule_only' or 'llm_first'"}), 400
-            patch["memory_gating"] = mode
+        if "memory_enabled" in patch:
+            patch["memory_enabled"] = patch["memory_enabled"] is not False
 
         from storage.workspace_store import update_workspace_state
         state = update_workspace_state(ws_id, patch)

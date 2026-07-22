@@ -273,18 +273,12 @@ def apply_retention(workspace_id: str = "default",
                         f"refused to delete session dir for malformed sid={sid_raw!r}"
                     )
                     continue
-                path = ws_dir / "sessions" / name
-                # Also clean up session subdirectories (messages, snapshots, checkpoints)
-                if path and path.exists():
-                    session_dir = ws_dir / "sessions" / sid_raw
-                    if is_safe_path(session_dir, ws_dir) and session_dir.is_dir():
-                        import shutil
-                        try:
-                            shutil.rmtree(str(session_dir))
-                        except Exception as e:
-                            preview.warnings.append(
-                                f"Failed to remove session_dir={sid_raw}: {str(e)[:100]}"
-                            )
+                from storage.session_store import delete_session_permanently
+                if delete_session_permanently(sid_raw, workspace_id, confirm=True):
+                    deleted["sessions"] += 1
+                else:
+                    preview.warnings.append(f"Failed to remove session={sid_raw}")
+                continue
             if path and path.exists() and is_safe_path(path, ws_dir):
                 if path.is_dir():
                     import shutil

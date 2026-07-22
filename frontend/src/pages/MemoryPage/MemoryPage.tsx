@@ -13,8 +13,11 @@ interface MemEntry {
   value_preview?: string;
   status?: string;
   scope?: string;
+  source?: string;
+  confidence?: number;
   memory_type?: string;
   tags?: string[];
+  metadata?: Record<string, unknown>;
 }
 
 export function MemoryPage() {
@@ -24,6 +27,7 @@ export function MemoryPage() {
   const [loading, setLoading] = useState(true);
   const [searchQ, setSearchQ] = useState("");
   const [searchRes, setSearchRes] = useState<MemEntry[] | null>(null);
+  const [typeFilter, setTypeFilter] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -52,7 +56,10 @@ export function MemoryPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const display = searchRes ?? entries;
+  const display = useMemo(() => {
+    const source = searchRes ?? entries;
+    return typeFilter ? source.filter((entry) => entry.memory_type === typeFilter) : source;
+  }, [entries, searchRes, typeFilter]);
 
   const handleSearch = () => {
     if (!searchQ.trim()) {
@@ -142,7 +149,7 @@ export function MemoryPage() {
   if (!loading && !err && display.length === 0) {
     return (
       <div className="page">
-        <PageHeader title="记忆管理" subtitle="管理 Agent 的长期记忆和知识笔记">
+        <PageHeader title="记忆管理" subtitle="核心规则、稳定事实、故障案例与操作方法分层管理">
           <button className="btn sm" onClick={() => setShowCreate(!showCreate)}>
             <IconPlus size={14} /> 新建记忆
           </button>
@@ -180,7 +187,7 @@ export function MemoryPage() {
 
   return (
     <div className="page">
-      <PageHeader title="记忆管理" subtitle="管理 Agent 的长期记忆和知识笔记">
+      <PageHeader title="记忆管理" subtitle="核心规则、稳定事实、故障案例与操作方法分层管理">
         <button className="btn sm" onClick={() => setShowCreate(!showCreate)}>
           <IconPlus size={14} /> 新建
         </button>
@@ -206,6 +213,15 @@ export function MemoryPage() {
             )}
           </div>
           <button className="btn sm" onClick={handleSearch}><IconSearch size={14} /> 搜索</button>
+          <select className="input" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+            <option value="">全部分类</option>
+            <option value="core_rule">核心规则</option>
+            <option value="semantic_fact">稳定事实</option>
+            <option value="episodic_case">故障案例</option>
+            <option value="procedural_rule">操作方法</option>
+            <option value="knowledge_note">知识笔记</option>
+            <option value="profile">用户档案</option>
+          </select>
           {searchRes && (
             <button className="btn sm ghost" onClick={() => { setSearchRes(null); setSearchQ(""); }}>清除结果</button>
           )}
@@ -261,6 +277,20 @@ export function MemoryPage() {
               const isChecked = checked.has(e.memory_id ?? "");
               const isInactive = e.status === "rejected" || e.status === "expired";
               const dotColor = isInactive ? "err" : e.status === "pending" || e.status === "conflict" ? "warn" : "ok";
+              const meta = e.metadata || {};
+              const origin = String(meta.generation_origin || meta.extraction_method || e.source || "");
+              const reason = String(meta.extraction_reason || "");
+              const score = meta.llm_score != null ? Number(meta.llm_score) : undefined;
+              const confidence = e.confidence != null ? Number(e.confidence) : undefined;
+              const evidenceSource = meta.evidence_source ? String(meta.evidence_source) : "";
+              const authority = meta.authority ? String(meta.authority) : "";
+              const memoryKey = meta.memory_key ? String(meta.memory_key) : "";
+              const evidenceEventIds = Array.isArray(meta.evidence_event_ids)
+                ? meta.evidence_event_ids.map((value) => String(value || "")).filter(Boolean)
+                : [];
+              const mergedFrom = Array.isArray(meta.merged_from)
+                ? meta.merged_from.map((v) => String(v || "")).filter(Boolean)
+                : [];
 
               return (
                 <div key={e.memory_id || i} className={`card memory-card ${isChecked ? "checked" : ""} ${isInactive ? "inactive" : ""}`}
@@ -284,12 +314,21 @@ export function MemoryPage() {
                         {e.status && e.status !== "active" && (
                           <Badge kind={isInactive ? "err" : "warn"}>{e.status}</Badge>
                         )}
-                        {e.memory_type && <Badge kind="info">{e.memory_type}</Badge>}
+                        {e.memory_type && <Badge kind="info">{memoryTypeLabel(e.memory_type)}</Badge>}
                         {e.scope && <Badge kind="muted">{e.scope}</Badge>}
+                        {origin && <Badge kind="muted">{memoryOriginLabel(origin)}</Badge>}
+                        {authority && <Badge kind={authority === "explicit_user" ? "ok" : "muted"}>{memoryAuthorityLabel(authority)}</Badge>}
+                        {score != null && Number.isFinite(score) && <Badge kind={score >= 4 ? "ok" : "warn"}>score {score}</Badge>}
                       </div>
                       <div className="memory-card-preview">
                         {e.value_preview || e.content?.substring(0, 150) || "(无内容)"}
                       </div>
+                      {(reason || confidence != null) && (
+                        <div className="memory-card-preview muted text-xs">
+                          {reason ? `提取原因：${memoryReasonLabel(reason)}` : ""}
+                          {confidence != null && Number.isFinite(confidence) ? ` · 置信度 ${Math.round(confidence * 100)}%` : ""}
+                        </div>
+                      )}
                     </div>
 
                     <button className="btn sm ghost memory-card-delete" title="永久删除"
@@ -317,6 +356,18 @@ export function MemoryPage() {
                     <div className="memory-card-detail">
                       {e.content && (
                         <pre>{e.content}</pre>
+                      )}
+                      {(reason || evidenceSource || authority || memoryKey || evidenceEventIds.length > 0 || mergedFrom.length > 0) && (
+                        <div className="memory-explain-box">
+                          {reason && <div>为什么记：{memoryReasonLabel(reason)}</div>}
+                          {authority && <div>权威来源：{memoryAuthorityLabel(authority)}</div>}
+                          {evidenceSource && <div>证据来源：{evidenceSource}</div>}
+                          {memoryKey && <div>记忆主题：{memoryKey}</div>}
+                          {evidenceEventIds.length > 0 && <div>经历证据：{evidenceEventIds.length} 条</div>}
+                          {mergedFrom.length > 0 && (
+                            <div>合并来源：{mergedFrom.join(" + ")}</div>
+                          )}
+                        </div>
                       )}
                       {e.tags && e.tags.length > 0 && (
                         <div className="tags">
@@ -350,4 +401,42 @@ export function MemoryPage() {
       )}
     </div>
   );
+}
+
+function memoryOriginLabel(origin: string): string {
+  const value = String(origin || "");
+  if (value.includes("task_reflection") || value.includes("memory_consolidator")) return "任务反思";
+  if (value.includes("user")) return "用户明确设置";
+  if (value.includes("llm")) return "Agent 反思";
+  return value;
+}
+
+function memoryTypeLabel(memoryType: string): string {
+  const map: Record<string, string> = {
+    core_rule: "核心规则",
+    semantic_fact: "稳定事实",
+    episodic_case: "故障案例",
+    procedural_rule: "操作方法",
+    knowledge_note: "知识笔记",
+    profile: "用户档案",
+  };
+  return map[memoryType] || memoryType;
+}
+
+function memoryAuthorityLabel(authority: string): string {
+  const map: Record<string, string> = {
+    explicit_user: "用户明确规则",
+    manual_confirm: "人工确认",
+    verified_tool: "工具证据确认",
+    agent_inference: "Agent 推断",
+  };
+  return map[authority] || authority;
+}
+
+function memoryReasonLabel(reason: string): string {
+  const map: Record<string, string> = {
+    explicit_user_memory_command: "用户明确要求长期记住",
+    explicit_user_forget_command: "用户明确要求忘记",
+  };
+  return map[reason] || reason;
 }

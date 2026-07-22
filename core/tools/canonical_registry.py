@@ -3311,6 +3311,7 @@ def to_tool_specs() -> list[tuple]:
         spec = ToolSpec(
             tool_id=entry.canonical_tool_id,
             handler_id=entry.canonical_tool_id,
+            name=ns_entry.display_name,
             description=description,
             category=ns_entry.category,
             risk_level=manifest.risk_level,

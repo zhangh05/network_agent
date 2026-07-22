@@ -7,6 +7,7 @@ Never archives active refs, workspace state references, or workspace-external fi
 """
 
 import json
+import re
 import shutil
 import time
 from dataclasses import dataclass, field
@@ -258,3 +259,78 @@ def get_archive_audit(workspace_id: str, audit_id: str) -> dict:
         except Exception:
             pass
     return {}
+
+
+def list_archived_items(workspace_id: str = "default") -> list[dict]:
+    """List restorable archive entries without exposing physical paths."""
+    ws_dir = workspace_dir(workspace_id)
+    root = ws_dir / "sys" / "archives"
+    if not root.is_dir():
+        return []
+    items: list[dict] = []
+    for month_dir in sorted(root.iterdir(), reverse=True):
+        if not month_dir.is_dir() or not re.fullmatch(r"\d{4}-\d{2}", month_dir.name):
+            continue
+        for kind in ("runs", "traces", "jobs", "tmp"):
+            kind_dir = month_dir / kind
+            if not kind_dir.is_dir():
+                continue
+            for entry in sorted(kind_dir.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True):
+                if not is_safe_path(entry, ws_dir):
+                    continue
+                size_bytes = entry.stat().st_size if entry.is_file() else sum(
+                    path.stat().st_size for path in entry.rglob("*") if path.is_file()
+                )
+                items.append({
+                    "month": month_dir.name,
+                    "kind": kind,
+                    "name": entry.name,
+                    "size_bytes": size_bytes,
+                    "archived_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(entry.stat().st_mtime)),
+                })
+    return items
+
+
+def restore_archived_item(
+    workspace_id: str,
+    *,
+    month: str,
+    kind: str,
+    name: str,
+    confirm: bool = False,
+) -> dict:
+    """Restore one archived entry to its canonical active location."""
+    if not confirm:
+        return {"ok": False, "error": "confirm_required"}
+    if not re.fullmatch(r"\d{4}-\d{2}", str(month or "")):
+        return {"ok": False, "error": "invalid_month"}
+    destinations = {
+        "runs": ("runs",),
+        "traces": ("runs",),
+        "jobs": ("jobs",),
+        "tmp": ("files", "tmp"),
+    }
+    if kind not in destinations:
+        return {"ok": False, "error": "invalid_kind"}
+    if not isinstance(name, str) or not name or name in (".", "..") or "/" in name or "\\" in name:
+        return {"ok": False, "error": "invalid_name"}
+    ws_dir = workspace_dir(workspace_id)
+    source = ws_dir / "sys" / "archives" / month / kind / name
+    target = ws_dir.joinpath(*destinations[kind], name)
+    if not source.exists() or not is_safe_path(source, ws_dir):
+        return {"ok": False, "error": "archive_item_not_found"}
+    if target.exists():
+        return {"ok": False, "error": "active_item_already_exists"}
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(source), str(target))
+    write_audit(
+        audit_dir=ws_dir / "sys" / "audits",
+        record_type="archive_restore",
+        workspace_id=workspace_id,
+        dry_run=False,
+        policy={"month": month, "kind": kind, "name": name},
+        candidate_counts={kind: 1},
+        result_counts={kind: 1},
+        warnings=[],
+    )
+    return {"ok": True, "item": {"month": month, "kind": kind, "name": name}}

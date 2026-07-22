@@ -49,8 +49,11 @@ def compress_context_items(items: list, budget: ContextBudget = None,
             continue
         counts[t] = c + 1
 
-        # Strip sensitive keys from content (schema-driven)
-        item.content = _strip_sensitive(item.content, item_type=item.item_type)
+        # Strip sensitive keys inside the content payload.  Do not apply the
+        # top-level ContextItem whitelist to ``content`` itself: artifact_id,
+        # job_id, status and similar business fields are the whole point of
+        # context and must survive compression.
+        item.content = _strip_sensitive(item.content)
         compressed.append(item)
 
     # ── 2. Semantic deduplication ──
@@ -147,8 +150,11 @@ def _dedup_items(items: list) -> tuple:
                     None, existing.summary.lower(), item.summary.lower()
                 ).ratio()
                 if ratio > DEDUP_SIMILARITY_THRESHOLD:
-                    # Keep the one with higher priority (or first seen)
-                    if item.priority > existing.priority:
+                    # Lower numeric priority means higher business priority
+                    # (P0 request, P1 explicit ref, ...).  Keep the more
+                    # authoritative item instead of letting a later low-value
+                    # duplicate crowd it out.
+                    if item.priority < existing.priority:
                         kept.remove(existing)
                         kept.append(item)
                     is_dup = True

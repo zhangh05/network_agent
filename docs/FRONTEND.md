@@ -12,7 +12,7 @@ The left sidebar exposes the canonical navigation. Each entry maps to a single-p
 - `CapabilityCenter` (`/capabilities`): business capability catalog + recommended tools.
 - `JobsPage` (`/jobs`): durable background jobs.
 - `KnowledgeLibrary` (`/knowledge`): knowledge source/chunk search.
-- `ArtifactCenter` (`/artifacts`): artifact list and download.
+- `DataCenter` (`/data`): managed files, evidence artifacts, relations, retention, and restorable archives.
 - `MemoryPage` (`/memory`): governed memory records.
 - `CMDBPage` (`/cmdb`): device assets plus region/asset inspection launch into the workbench.
 - `AssurancePage` (`/assurance`): assurance overview, baseline drift, topology impact, incident investigation, change validation, and recurring checks.

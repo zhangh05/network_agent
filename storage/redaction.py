@@ -72,7 +72,10 @@ def redact_dict(data: dict) -> dict:
         return data
     result = {}
     for key, value in data.items():
-        if any(marker in str(key).lower() for marker in [
+        normalized_key = str(key).lower().replace("-", "_")
+        if normalized_key in {"memory_key", "authority", "authority_rank"}:
+            result[key] = redact_value(value)
+        elif any(marker in normalized_key for marker in [
             "password", "secret", "key", "token", "community",
             "authorization", "auth", "credential",
         ]):

@@ -1535,7 +1535,7 @@ const ResultInline = React.memo(function ResultInline({
         workspace_id: currentWorkspaceId,
         title: finalText.slice(0, 42) || "本次结论",
         content: finalText,
-        memory_type: "decision",
+        memory_type: "knowledge_note",
         tags: ["agent_answer", "confirmed"],
         user_confirmed: true,
       });

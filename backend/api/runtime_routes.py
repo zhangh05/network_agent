@@ -126,8 +126,9 @@ def _blocked_tool_response(invocation, ws_id: str, risk_level: str, reason: str)
         "dry_run": invocation.dry_run,
         "risk_level": risk_level,
     }
+    _ensure_ws_history(ws_id)
     with _lock:
-        ws_hist = _ensure_ws_history(ws_id)
+        ws_hist = _tool_exec_history.setdefault(ws_id, OrderedDict())
         ws_hist[invocation.invocation_id] = hist_entry
         while len(ws_hist) > _TOOL_HISTORY_MAX:
             ws_hist.popitem(last=False)
@@ -325,6 +326,12 @@ def register_runtime_routes(app):
                 policy_decision.risk_level or _get_tool_risk_level(client, requested_tool_id),
                 policy_decision.reason or "policy_blocked",
             )
+        if policy_decision is not None and policy_decision.requires_approval and not approval_id:
+            return _blocked_tool_response(
+                invocation, ws_id,
+                policy_decision.risk_level or _get_tool_risk_level(client, requested_tool_id),
+                policy_decision.reason or "approval_required",
+            )
 
         governance_status = gov.status if gov else "active"
         context = ToolRuntimeContext(
@@ -451,6 +458,7 @@ def register_runtime_routes(app):
         if err:
             return err
 
+        _ensure_ws_history(ws_id)
         with _lock:
             ws_hist = _tool_exec_history.get(ws_id, OrderedDict())
             records = list(reversed(list(ws_hist.values())))
@@ -595,6 +603,31 @@ def register_runtime_routes(app):
         if not audit:
             return jsonify({"ok": False, "error": "audit not found"}), 404
         return jsonify(audit)
+
+    @app.route("/api/workspaces/<ws_id>/archive/items")
+    def api_archive_items(ws_id):
+        ws_id, err = _validated_ws_id(ws_id)
+        if err:
+            return err
+        from core.runtime.archive import list_archived_items
+        items = list_archived_items(ws_id)
+        return jsonify({"ok": True, "items": items, "count": len(items)})
+
+    @app.route("/api/workspaces/<ws_id>/archive/restore", methods=["POST"])
+    def api_archive_restore(ws_id):
+        ws_id, err = _validated_ws_id(ws_id)
+        if err:
+            return err
+        data = request.get_json(silent=True) or {}
+        from core.runtime.archive import restore_archived_item
+        result = restore_archived_item(
+            ws_id,
+            month=str(data.get("month") or ""),
+            kind=str(data.get("kind") or ""),
+            name=str(data.get("name") or ""),
+            confirm=data.get("confirm") is True,
+        )
+        return jsonify(result), (200 if result.get("ok") else 400)
 
     @app.route("/api/agent/sse/stream/<session_id>")
     def api_agent_sse_stream(session_id):

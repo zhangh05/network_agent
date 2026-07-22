@@ -53,6 +53,12 @@ export interface ToolCatalogItem {
   usage_hint?: string;
   not_for?: string;
   actions?: string[];
+  action_profiles?: {
+    action: string;
+    risk_level: RiskLevel;
+    requires_approval: boolean;
+    permission_action: string;
+  }[];
   capability_actions?: string[];
   risk_level: RiskLevel;
   requires_approval: boolean;
@@ -404,6 +410,65 @@ export interface Artifact {
   };
 }
 
+export interface ManagedFileArtifact {
+  artifact_id: string;
+  artifact_type: string;
+  title: string;
+  lifecycle: string;
+  run_id?: string;
+  authority?: string;
+}
+
+export interface ManagedFile {
+  file_id: string;
+  logical_type: string;
+  file_kind: string;
+  original_name: string;
+  mime_type: string;
+  binary: boolean;
+  size_bytes: number;
+  created_at: string;
+  source: string;
+  sensitivity: Sensitivity;
+  lifecycle: string;
+  session_id: string;
+  run_id: string;
+  metadata: Record<string, unknown>;
+  artifacts: ManagedFileArtifact[];
+  reference_count: number;
+  reference_types: string[];
+  references: Array<{ owner_type: string; owner_id: string; relation: string }>;
+}
+
+export interface DataOverview {
+  workspace_id: string;
+  files: {
+    total: number;
+    active: number;
+    archived: number;
+    soft_deleted: number;
+    size_bytes: number;
+    referenced: number;
+    unreferenced: number;
+  };
+  artifacts: { total: number; active: number };
+  types: Record<string, number>;
+  health: {
+    orphan_files: number;
+    missing_on_disk: number;
+    soft_deleted: number;
+    ok: boolean;
+  };
+}
+
+export interface ArchivedDataItem {
+  month: string;
+  kind: "runs" | "traces" | "jobs" | "tmp";
+  name: string;
+  size_bytes: number;
+  archived_at: string;
+}
+
 /* ──────────────────────────── Reviews ──────────────────────────── */
 
 export type ReviewStatus = "pending" | "accepted" | "ignored" | "modified";
@@ -738,6 +803,9 @@ export interface MemoryRecord {
   content: string;
   memory_type: string;
   scope: string;
+  source?: string;
+  confidence?: number;
+  metadata?: Record<string, unknown>;
   tags: string[];
   status: string;
   value_preview?: string;

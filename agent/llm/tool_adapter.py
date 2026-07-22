@@ -105,7 +105,37 @@ def _build_tool_description(tool: dict, metadata: dict, canonical_tool_id: str) 
         parts.append(f"Use when: {str(usage_hint)[:220]}")
     if not_for:
         parts.append(f"Do not use for: {str(not_for)[:160]}")
+    boundary = _format_action_profiles(tool.get("action_profiles") or metadata.get("action_profiles"))
+    if boundary:
+        parts.append(f"Action boundaries: {boundary}")
     return " ".join(p for p in parts if p)[:650]
+
+
+def _format_action_profiles(action_profiles) -> str:
+    """Compact action-level risk/approval hints for LLM tool selection."""
+    if not isinstance(action_profiles, list):
+        return ""
+    chunks = []
+    for item in action_profiles:
+        if not isinstance(item, dict):
+            continue
+        action = str(item.get("action") or "").strip()
+        if not action:
+            continue
+        perm = str(item.get("permission_action") or "").strip()
+        risk = str(item.get("risk_level") or "").strip()
+        approval = bool(item.get("requires_approval"))
+        # Keep read-only actions compact; spell out approval gates because
+        # those change the model's execution plan.
+        if approval:
+            suffix = f"{perm or 'write'}/{risk or 'high'}/approval_required"
+        else:
+            suffix = perm or risk or "read"
+        chunks.append(f"{action}={suffix}")
+    if not chunks:
+        return ""
+    text = ", ".join(chunks)
+    return text[:260]
 
 
 def build_tool_registry_for_llm(tools: List[dict]) -> List[dict]:

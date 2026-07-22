@@ -131,6 +131,54 @@ class TestContextBuilder:
         raw = json.dumps(safe)
         assert "sk-" not in raw
 
+    def test_dedup_keeps_explicit_ref_priority_over_workspace_duplicate(self):
+        from core.context.compressor import compress_context_items
+        from core.context.schemas import ContextBudget, ContextItem
+
+        explicit = ContextItem(
+            item_type="artifact_summary",
+            priority=20,
+            summary="same device evidence",
+            content={"artifact_id": "explicit"},
+        )
+        generic = ContextItem(
+            item_type="artifact_summary",
+            priority=40,
+            summary="same device evidence",
+            content={"artifact_id": "generic"},
+        )
+        items, _, warnings = compress_context_items(
+            [explicit, generic],
+            ContextBudget(max_items=10, dedup_enabled=True),
+        )
+        assert [item.content["artifact_id"] for item in items] == ["explicit"]
+        assert any("Deduplicated" in warning for warning in warnings)
+
+    def test_compressor_preserves_business_reference_fields(self):
+        from core.context.compressor import compress_context_items
+        from core.context.schemas import ContextBudget, ContextItem
+
+        source = ContextItem(
+            item_type="artifact_summary",
+            priority=20,
+            summary="evidence",
+            content={
+                "artifact_id": "art_123",
+                "job_id": "job_123",
+                "status": "completed",
+                "absolute_path": "/tmp/secret/raw.txt",
+            },
+        )
+
+        items, _, _ = compress_context_items(
+            [source],
+            ContextBudget(max_items=10, dedup_enabled=True),
+        )
+        assert items[0].content["artifact_id"] == "art_123"
+        assert items[0].content["job_id"] == "job_123"
+        assert items[0].content["status"] == "completed"
+        assert items[0].content["absolute_path"] == "[redacted]"
+
 
 class TestPromptRegistry:
     def test_registry_loads(self):

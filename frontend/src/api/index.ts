@@ -37,6 +37,9 @@ import type {
   JobItem,
   JobEvent,
   MemoryRecord,
+  ManagedFile,
+  DataOverview,
+  ArchivedDataItem,
   ToolPermission
 } from "../types";
 
@@ -276,6 +279,26 @@ export const toolsApi = {
 };
 
 export const storageApi = {
+  overview: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ ok: boolean; overview: DataOverview }>(
+      { method: "GET", url: "/storage/overview", params: { workspace_id } }, signal,
+    ),
+  files: (workspace_id: string, lifecycle = "active", signal?: AbortSignal) =>
+    apiRequest<{ ok: boolean; files: ManagedFile[]; count: number }>(
+      { method: "GET", url: "/storage/files", params: { workspace_id, lifecycle } }, signal,
+    ),
+  content: (workspace_id: string, file_id: string, signal?: AbortSignal) =>
+    apiRequest<{ ok: boolean; file_id: string; binary: boolean; content: string; truncated: boolean }>(
+      { method: "GET", url: `/storage/files/${file_id}/content`, params: { workspace_id } }, signal,
+    ),
+  relations: (workspace_id: string, file_id: string, signal?: AbortSignal) =>
+    apiRequest<{ ok: boolean; relations: { file_id: string; in_use: boolean; artifacts: Array<Record<string, unknown>>; references: Array<Record<string, unknown>> } }>(
+      { method: "GET", url: `/storage/files/${file_id}/relations`, params: { workspace_id } }, signal,
+    ),
+  delete: (workspace_id: string, file_id: string) =>
+    apiRequest<{ ok: boolean; file_id: string }>({
+      method: "DELETE", url: `/storage/files/${file_id}`, params: { workspace_id, confirm: "true" },
+    }),
   events: (workspace_id: string): EventSource =>
     new EventSource(apiUrlWithAuth(`/storage/events?workspace_id=${encodeURIComponent(workspace_id)}`)),
 };
@@ -462,7 +485,7 @@ export const memoryApi = {
       workspace_id: string;
       scope?: string;
       tags?: string[];
-      memory_type?: "decision" | "translation_rule" | "user_preference" | string;
+      memory_type?: "core_rule" | "semantic_fact" | "episodic_case" | "procedural_rule" | "knowledge_note" | "profile";
       user_confirmed?: boolean;
     },
     signal?: AbortSignal,
@@ -822,7 +845,7 @@ export const settingsApi = {
     apiRequest<{ workspace: Record<string, unknown> }>({ method: "GET", url: `/workspaces/${wsId}/state` }, signal),
 
   updateWorkspaceSettings: (
-    patch: Record<string, string>,
+    patch: Record<string, string | boolean>,
     wsId: string,
   ): Promise<{ ok: boolean; workspace: Record<string, unknown> }> =>
     apiRequest<{ ok: boolean; workspace: Record<string, unknown> }>(
@@ -992,13 +1015,13 @@ export const toolsInvokeApi = {
 
 export const retentionApi = {
   preview: (workspace_id: string, signal?: AbortSignal) =>
-    apiRequest<{ preview: unknown }>(
+    apiRequest<LifecyclePreview>(
       { method: "GET", url: `/workspaces/${workspace_id}/retention/preview` },
       signal,
     ),
 
   apply: (workspace_id: string) =>
-    apiRequest<{ ok: boolean }>({
+    apiRequest<LifecyclePreview>({
       method: "POST",
       url: `/workspaces/${workspace_id}/retention/apply`,
       data: { dry_run: false, confirm: true },
@@ -1019,13 +1042,13 @@ export const retentionApi = {
 
 export const archiveApi = {
   preview: (workspace_id: string, signal?: AbortSignal) =>
-    apiRequest<{ preview: unknown }>(
+    apiRequest<LifecyclePreview>(
       { method: "GET", url: `/workspaces/${workspace_id}/archive/preview` },
       signal,
     ),
 
   apply: (workspace_id: string) =>
-    apiRequest<{ ok: boolean }>({
+    apiRequest<LifecyclePreview>({
       method: "POST",
       url: `/workspaces/${workspace_id}/archive/apply`,
       data: { dry_run: false, confirm: true },
@@ -1042,7 +1065,29 @@ export const archiveApi = {
       { method: "GET", url: `/workspaces/${workspace_id}/archive/audits/${audit_id}` },
       signal,
     ),
+  items: (workspace_id: string, signal?: AbortSignal) =>
+    apiRequest<{ ok: boolean; items: ArchivedDataItem[]; count: number }>(
+      { method: "GET", url: `/workspaces/${workspace_id}/archive/items` }, signal,
+    ),
+  restore: (workspace_id: string, item: ArchivedDataItem) =>
+    apiRequest<{ ok: boolean; item: Pick<ArchivedDataItem, "month" | "kind" | "name"> }>({
+      method: "POST",
+      url: `/workspaces/${workspace_id}/archive/restore`,
+      data: { month: item.month, kind: item.kind, name: item.name, confirm: true },
+    }),
 };
+
+export interface LifecyclePreview {
+  dry_run: boolean;
+  workspace_id: string;
+  policy: Record<string, unknown>;
+  candidate_counts: Record<string, number>;
+  candidates: Array<{ type: string; name: string; sid?: string; count?: number }>;
+  blocked_items: Array<{ path: string; reason: string }>;
+  deleted_counts?: Record<string, number>;
+  moved_counts?: Record<string, number>;
+  warnings: string[];
+}
 
 export const sessionExtApi = {
   /** GET /api/sessions/default */

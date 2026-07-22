@@ -54,7 +54,7 @@ def get_active_refs(ws_dir: Path) -> set:
     if state_file.is_file():
         try:
             state = json.loads(state_file.read_text())
-            for key in ("current_run_id", "current_job_id", "current_artifacts",
+            for key in ("current_run_id", "last_run_id", "current_job_id", "last_job_id", "current_artifacts",
                         "last_input_artifacts", "last_output_artifacts",
                         "last_report_artifacts", "current_report_artifact_id",
                         "current_topology_artifact_id"):
@@ -70,12 +70,27 @@ def get_active_refs(ws_dir: Path) -> set:
         except Exception:
             pass
 
-    # From recent runs
+    # Every session-owned run remains active until the session is removed by
+    # the session repository.  Lifecycle jobs must never strand a session by
+    # pruning or archiving one of its run records behind its back.
+    sessions_dir = ws_dir / "sessions"
+    if sessions_dir.is_dir():
+        for session_file in sessions_dir.glob("*.json"):
+            try:
+                session = json.loads(session_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            for run_id in session.get("run_ids") or []:
+                if isinstance(run_id, str) and run_id:
+                    active.add(run_id)
+
+    # From all current run records. Limiting this scan makes protection depend
+    # on directory iteration order and can expose older referenced artifacts.
     runs_dir = ws_dir / "runs"
     if runs_dir.is_dir():
         from storage.run_record_store import is_run_record_file
 
-        for rf in list(runs_dir.iterdir())[:100]:
+        for rf in runs_dir.iterdir():
             if not is_run_record_file(rf):
                 continue
             try:
@@ -133,7 +148,10 @@ def scan_directory(ws_dir: Path, subdir: str, max_age_days: int = 0,
             blocked.append({"path": entry.name, "reason": "path_outside_workspace"})
             continue
         # Active ref protection
-        if entry.stem in active_refs:
+        reference_keys = {entry.name, entry.stem}
+        if entry.name.endswith(".trace.json"):
+            reference_keys.add(entry.name[:-len(".trace.json")])
+        if reference_keys.intersection(active_refs):
             blocked.append({"path": entry.name, "reason": "active_ref"})
             continue
         eligible.append(entry)

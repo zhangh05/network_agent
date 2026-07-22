@@ -60,31 +60,36 @@ Memory is governed by `MemoryWriteGate`. Raw writers are not active paths. Retri
 ### Memory Pipeline
 
 ```text
-1. Generation  (per turn end)
-     run_ssot_turn → generate_memories() → LLM produces JSON memory items
+1. Experience  (every completed turn)
+     run_ssot_turn → append_experience() → durable session journal
 
-2. Write
-     MemoryRecord → MemoryWriteGate.write(status/confidence gating)
+2. Reflection
+     explicit remember/forget → immediate deterministic command
+     operational task boundary / four pending turns → one consolidation LLM call
+
+3. Write
+     MemoryRecord → MemoryWriteGate.write(safety/authority/version gating)
      MemoryStore._save() → disk JSON file
                       → ContextStore.put(item_type="memory_hit") [BM25 index]
 
-3. Retrieval (per turn start, auto-injection)
-     UnifiedRetriever.search_memory(BM25)
+4. Retrieval (per turn start, auto-injection)
+     active core rules (always) + UnifiedRetriever.search_memory(BM25)
        → run_ssot_turn.retrieved_context_block
        → QueryLoop governed-context data boundary
 
-4. Retrieval (evidence pipeline, explicit)
+5. Retrieval (explicit)
      MemoryQueryPlanner → MemoryRetriever → UnifiedRetriever.search_memory()
                         → MemoryItem list for response composition
 
-5. Lifecycle
+6. Lifecycle
      confirm / reject / expire via MemoryStore API
      TTL auto-cleanup via cleanup_expired()
 ```
 
 Key modules:
-- `agent/runtime/memory_write/llm_memory.py` — LLM generation after each turn
-- `agent/runtime/memory_write/llm_gate.py` — LLM quality scoring (1-5)
+- `agent/runtime/memory_write/event_log.py` — durable append-only experience journal
+- `agent/runtime/memory_write/commands.py` — immediate explicit user remember/forget controls
+- `agent/runtime/memory_write/consolidator.py` — one-pass task-level reflection
 - `storage/memory_governance.py` — MemoryRecord, MemoryStore, MemoryWriteGate
 - `core/context/context_store.py` — BM25 index for retrieval
 
@@ -100,4 +105,4 @@ Conversation history and governed memory/knowledge retrieval are injected as
 explicit `data_only` sections. The current user request has its own boundary,
 so retrieved text cannot silently become a system instruction. Task-specific
 templates under `prompts/templates/` are separate non-runtime LLM jobs such as
-memory gating, report summaries, and knowledge answers.
+task-level memory consolidation, report summaries, and knowledge answers.

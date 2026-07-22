@@ -66,6 +66,72 @@ def test_storage_api_projects_managed_files_without_paths(monkeypatch, tmp_path)
     assert "path" not in files[0]
 
 
+def test_data_center_overview_and_content_use_filestore_as_source_of_truth(monkeypatch, tmp_path):
+    root = tmp_path / "workspaces"
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(root))
+    from storage.file_store import write_agent_output
+    from backend.main import app
+
+    record = write_agent_output(
+        "data_center_ws", "interface status up", "report", "text", title="status.txt",
+    )
+    client = app.test_client()
+    overview = client.get("/api/storage/overview", query_string={"workspace_id": "data_center_ws"})
+    assert overview.status_code == 200
+    assert overview.get_json()["overview"]["files"] == {
+        "total": 1,
+        "active": 1,
+        "archived": 0,
+        "soft_deleted": 0,
+        "size_bytes": len("interface status up"),
+        "referenced": 0,
+        "unreferenced": 1,
+    }
+    content = client.get(
+        f"/api/storage/files/{record.file_id}/content",
+        query_string={"workspace_id": "data_center_ws"},
+    )
+    assert content.status_code == 200
+    assert content.get_json()["content"] == "interface status up"
+
+
+def test_data_center_refuses_to_delete_referenced_files(monkeypatch, tmp_path):
+    root = tmp_path / "workspaces"
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(root))
+    from storage.file_store import get_file_record, write_agent_output
+    from storage.reference_index import add_reference
+    from backend.main import app
+
+    record = write_agent_output(
+        "protected_data_ws", "important", "report", "text", title="protected.txt",
+    )
+    add_reference("protected_data_ws", record.file_id, "run", "run-1")
+    response = app.test_client().delete(
+        f"/api/storage/files/{record.file_id}",
+        query_string={"workspace_id": "protected_data_ws", "confirm": "true"},
+    )
+    assert response.status_code == 409
+    assert response.get_json()["error"] == "file_in_use"
+    assert get_file_record("protected_data_ws", record.file_id) is not None
+
+
+def test_data_center_permanently_deletes_standalone_files(monkeypatch, tmp_path):
+    root = tmp_path / "workspaces"
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(root))
+    from storage.file_store import get_file_record, write_agent_output
+    from backend.main import app
+
+    record = write_agent_output(
+        "standalone_data_ws", "disposable", "report", "text", title="temporary.txt",
+    )
+    response = app.test_client().delete(
+        f"/api/storage/files/{record.file_id}",
+        query_string={"workspace_id": "standalone_data_ws", "confirm": "true"},
+    )
+    assert response.status_code == 200
+    assert get_file_record("standalone_data_ws", record.file_id) is None
+
+
 def test_text_artifact_upload_reuses_one_file_record(monkeypatch, tmp_path):
     root = tmp_path / "workspaces"
     monkeypatch.setenv("NA_WORKSPACE_ROOT", str(root))

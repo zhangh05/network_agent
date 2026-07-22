@@ -9,6 +9,102 @@ from functools import lru_cache
 CATALOG_VERSION = "tool_catalog.v2"
 
 
+def _permission_action(action_class: str) -> str:
+    mapping = {
+        "read": "read",
+        "write": "write",
+        "execute": "exec",
+        "network": "network",
+        "delete": "write",
+        "admin": "write",
+    }
+    return mapping.get(str(action_class or "read"), "read")
+
+
+_WRITE_ACTIONS = {
+    "add", "create", "update", "confirm", "review", "profile_set",
+    "save", "tag", "edit", "patch", "write_artifact", "import",
+    "session_checkpoint", "review_update", "baseline_create",
+    "check", "topology_build", "impact", "incident_create",
+    "incident_update", "change_create", "change_precheck",
+    "change_postcheck", "change_update", "schedule_create",
+    "schedule_update", "schedule_run",
+}
+_READ_ACTIONS = {
+    "list", "get", "status", "search", "read", "chunk", "profile_get",
+    "load", "inspect", "diagnostics", "health", "selfcheck", "local_info",
+    "tasks", "audit_log", "run_get", "session_get", "session_snapshot",
+    "review_list", "overview", "baseline_list", "check_get", "check_list",
+    "drift_list", "topology_get", "operation_get", "operation_list",
+    "incident_list", "change_list", "schedule_list", "report", "summary",
+    "filter", "protocol", "align", "scan", "parse", "stats", "distinct",
+    "aggregate", "sort", "render", "pivot", "join", "extract", "match",
+    "redact", "diff", "document", "references", "read_image", "glob",
+}
+_EXEC_ACTIONS = {"shell", "python", "slash", "background", "stream"}
+_NETWORK_ACTIONS = {"search", "fetch", "weather", "deep_search"}
+
+
+def _action_permission(tool_id: str, action: str, base_permission: str) -> str:
+    action = str(action or "").strip().lower()
+    if tool_id == "exec.run" or action in _EXEC_ACTIONS:
+        return "exec"
+    if tool_id == "web.manage" or action in _NETWORK_ACTIONS:
+        return "network"
+    if action in _WRITE_ACTIONS or action in {"delete", "remove", "purge", "destroy", "drop", "rewind", "session_rewind"}:
+        return "write"
+    if action in _READ_ACTIONS:
+        return "read"
+    return base_permission or "read"
+
+
+def _action_profiles(tool_id: str, actions: list[str], *, input_schema: dict, category: str, base_permission: str) -> list[dict]:
+    if not actions:
+        return []
+    try:
+        from core.tools.policy import ToolPolicy
+        from core.tools.schemas import ToolInvocation, ToolSpec
+        from core.tools.manifest_registry import get_manifest
+        manifest = get_manifest(tool_id)
+        policy = ToolPolicy()
+    except Exception:
+        policy = None
+        manifest = None
+        ToolInvocation = ToolSpec = None
+
+    profiles = []
+    for action in actions:
+        risk_level = getattr(manifest, "risk_level", "low") if manifest else "low"
+        requires_approval = bool(getattr(manifest, "requires_approval", False)) if manifest else False
+        if policy and ToolInvocation and ToolSpec:
+            decision = policy.check(
+                ToolSpec(
+                    tool_id=tool_id,
+                    name=tool_id,
+                    description=tool_id,
+                    category=category or "tool",
+                    risk_level=risk_level,
+                    requires_approval=requires_approval,
+                    input_schema=input_schema or {},
+                ),
+                ToolInvocation(
+                    tool_id=tool_id,
+                    arguments={"action": action},
+                    workspace_id="default",
+                    requested_by="catalog",
+                ),
+            )
+            risk_level = decision.risk_level or risk_level
+            requires_approval = bool(decision.requires_approval)
+        profiles.append({
+            "action": action,
+            "risk_level": risk_level,
+            "requires_approval": requires_approval,
+            "permission_action": _action_permission(tool_id, action, base_permission),
+        })
+    return profiles
+
+
 @lru_cache(maxsize=1)
 def build_catalog_snapshot() -> dict:
     # v3.9.3: capability_actions and tool_governance modules removed.
@@ -28,6 +124,11 @@ def build_catalog_snapshot() -> dict:
         meta = metadata_for_tool(canonical_id)
         manifest = _gm(canonical_id) if _gm else None
 
+        action_class = manifest.action_class if manifest else "read"
+        permission_action = cr_entry.permission_action or _permission_action(action_class)
+
+        actions = _schema_actions(cr_entry.input_schema)
+
         item = {
             "tool_id": canonical_id,
             "canonical_tool_id": canonical_id,
@@ -41,7 +142,7 @@ def build_catalog_snapshot() -> dict:
             "risk_level": manifest.risk_level if manifest else cr_entry.risk_level,
             "requires_approval": manifest.requires_approval if manifest else bool(cr_entry.requires_approval),
             "input_schema": cr_entry.input_schema,
-            "permission_action": cr_entry.permission_action,
+            "permission_action": permission_action,
             "callable_by_llm": True,
             "enabled": True,
             "governance_status": meta["governance_status"],
@@ -53,14 +154,21 @@ def build_catalog_snapshot() -> dict:
             "side_effects": manifest.side_effects if manifest else "none",
             "output_sensitivity": manifest.output_sensitivity if manifest else "internal",
             "timeout_seconds": manifest.timeout_seconds if manifest else 30,
-            "action_class": manifest.action_class if manifest else "read",
+            "action_class": action_class,
             "approval_reason": manifest.approval_reason_template if manifest else "",
             "rollback_strategy": manifest.rollback_strategy if manifest else "none",
             "allowed_callers": manifest.allowed_callers if manifest else ["turn_runner"],
             "reads_artifact": manifest.reads_artifact if manifest else False,
             "writes_artifact": manifest.writes_artifact if manifest else False,
             "secret_fields": manifest.secret_fields if manifest else [],
-            "actions": _schema_actions(cr_entry.input_schema),
+            "actions": actions,
+            "action_profiles": _action_profiles(
+                canonical_id,
+                actions,
+                input_schema=cr_entry.input_schema,
+                category=meta["category"],
+                base_permission=permission_action,
+            ),
         }
         tools.append(item)
     tools.sort(key=lambda item: item["canonical_tool_id"])

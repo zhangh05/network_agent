@@ -121,5 +121,11 @@ Network Assurance derives state from CMDB identity and completed inspection evid
 Successful responses include `{"ok": true, ...}` unless the route is a streaming endpoint.
 # Managed Storage
 
-- `GET /api/storage/files?workspace_id=<id>` returns active FileRecord projections without physical paths.
+- `GET /api/storage/overview?workspace_id=<id>` returns the Data Center summary and FileStore health projection.
+- `GET /api/storage/files?workspace_id=<id>&lifecycle=active` returns managed FileRecord projections, linked artifacts, and reference counts without physical paths.
+- `GET /api/storage/files/<file_id>/content?workspace_id=<id>` previews bounded text content; binary payloads are never decoded as text.
+- `GET /api/storage/files/<file_id>/relations?workspace_id=<id>` returns artifact and owner references for one managed file.
+- `DELETE /api/storage/files/<file_id>?workspace_id=<id>&confirm=true` permanently removes only standalone, unreferenced files.
 - `GET /api/storage/events?workspace_id=<id>` streams workspace-scoped `storage_changed` events for frontend synchronization.
+- `GET /api/workspaces/<id>/archive/items` lists restorable archive entries.
+- `POST /api/workspaces/<id>/archive/restore` restores one confirmed archive entry to its canonical runtime location.

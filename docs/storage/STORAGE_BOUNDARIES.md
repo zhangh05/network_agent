@@ -36,6 +36,10 @@ Durable runtime state lives under workspace runtime storage and is addressed by 
 - `files/tmp/` is the only transient payload directory. Temporary parser and executor inputs must be purged after use.
 - Business stores hold `file_id` references and must not copy payloads into module-owned directories.
 - Frontend file views are projections of backend APIs and FileRecords; they never enumerate workspace directories.
+- `storage.data_management` is the read-model boundary for the user-facing Data Center. It joins FileRecords, artifact metadata, references, and health without exposing physical paths.
+- The Data Center is the only general-purpose management surface for files, evidence artifacts, relations, retention, and archives; separate file/artifact management pages are not maintained.
+- Permanent file deletion is rejected while any artifact or reference points to the payload. Archive and retention scans protect all session-owned runs, run traces, workspace current/last IDs, and artifact references.
+- Archive restore validates month, kind, name, workspace containment, and target collisions before moving an entry back to active runtime storage.
 
 ## Knowledge Library
 

@@ -6,6 +6,7 @@
  * 无缓存时显示空骨架 + 醒目的检测按钮。
  */
 import { useEffect, useRef, useState, useCallback, useMemo, useSyncExternalStore } from "react";
+import { Link } from "react-router-dom";
 import { runtimeApi, agentUsageApi, retentionApi, archiveApi, contextApi, promptsApi } from "../../api";
 import { useSessionStore } from "../../stores/session";
 import { LoadingState } from "../../components/common";
@@ -441,10 +442,14 @@ export function Diagnostics() {
             </Section>
 
             <Section title="数据策略">
+              <div className="diag-policy-management">
+                <span>此处只显示当前策略，数据操作统一在数据中心完成。</span>
+                <Link className="btn sm" to="/data">打开数据中心</Link>
+              </div>
               <div className="diag-policy-grid">
                 {retention?.policy && (
                   <div className="diag-policy-block">
-                    <div className="diag-policy-title">📥 数据保留</div>
+                    <div className="diag-policy-title">到期清理规则</div>
                     {Object.entries(retention.policy).slice(0, 5).map(([k, v]) => (
                       <Row key={k} label={fmtKey(k)} value={fmtVal(k, v)} compact />
                     ))}
@@ -452,7 +457,7 @@ export function Diagnostics() {
                 )}
                 {archive?.policy && (
                   <div className="diag-policy-block">
-                    <div className="diag-policy-title">📤 数据归档</div>
+                    <div className="diag-policy-title">历史归档规则</div>
                     {Object.entries(archive.policy).slice(0, 5).map(([k, v]) => (
                       <Row key={k} label={fmtKey(k)} value={fmtVal(k, v)} compact />
                     ))}

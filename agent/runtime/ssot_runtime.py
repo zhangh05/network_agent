@@ -242,103 +242,84 @@ def run_ssot_turn(
 
     persist_run_record(session, turn, result, context)
 
-    # ── Memory writing ───────────────────────────────────────────────
-    # llm_first remains high quality but runs off the user-visible path;
-    # rule_only uses the same queue for consistent persistence ordering.
-    _schedule_turn_memory_write(
+    # ── Experience journal and memory reflection ─────────────────────
+    # Every completed turn is durable experience. Explicit user memory
+    # commands are applied immediately; ordinary turns are consolidated only
+    # at an operational task boundary or after a small accumulated batch.
+    _record_experience_and_maybe_reflect(
         workspace_id=workspace_id,
         session_id=session_id,
+        task_id=turn.turn_id,
         user_input=user_input,
         assistant_response=result.final_response or "",
         tool_calls=list(result.tool_calls or []),
+        task_ok=bool(result.ok),
     )
 
     return result
 
 
-def _write_turn_memories(
+def _record_experience_and_maybe_reflect(
     *,
     workspace_id: str,
     session_id: str,
+    task_id: str,
     user_input: str,
     assistant_response: str,
     tool_calls: list[dict[str, Any]],
+    task_ok: bool,
 ) -> None:
-    gate_mode = "rule_only"
     try:
         from agent.runtime.memory_hooks import install_memory_governance_hooks
-        from storage.memory_governance import MemoryRecord, MemoryWriteGate, get_memory_gate_mode
+        from agent.runtime.memory_write.commands import apply_memory_command, parse_memory_command
+        from agent.runtime.memory_write.consolidator import consolidate_experiences, should_consolidate
+        from agent.runtime.memory_write.event_log import (
+            append_experience,
+            mark_experiences_processed,
+            pending_experiences,
+        )
+        from storage.memory_governance import is_auto_memory_enabled
 
         install_memory_governance_hooks()
-        gate_mode = get_memory_gate_mode(workspace_id)
-        items: list[dict] = []
-
-        if gate_mode == "llm_first":
-            from agent.runtime.memory_write.llm_memory import generate_memories
-
-            tool_summaries = [
-                f"{tc.get('tool_id', 'unknown')}: {tc.get('summary', '')[:200]}"
-                for tc in tool_calls
-            ]
-            items = generate_memories(
-                user_input=user_input,
-                assistant_response=assistant_response,
-                tool_summaries=tool_summaries,
-            )
-        else:
-            from agent.runtime.memory_write.rule_extract import extract_memories_rule_only
-            items = extract_memories_rule_only(
-                user_input=user_input,
-                assistant_response=assistant_response,
-                tool_calls=tool_calls,
-            )
-
-        if items:
-            gate = MemoryWriteGate()
-            for item in items:
-                ttl_days = item.get("ttl_days")
-                ttl_seconds = (
-                    int(ttl_days) * 24 * 60 * 60
-                    if isinstance(ttl_days, int) and ttl_days > 0
-                    else None
-                )
-                rec = MemoryRecord(
-                    workspace_id=workspace_id,
-                    session_id=session_id,
-                    scope="workspace",
-                    memory_type=str(item.get("type", "operational_fact")),
-                    status="pending",
-                    source="agent_suggestion",
-                    content=str(item.get("content", ""))[:2000],
-                    summary=str(item.get("summary") or item.get("content", ""))[:200],
-                    confidence=float(item.get("confidence", 0.7)),
-                    ttl_seconds=ttl_seconds,
-                    created_by="llm",
-                    redacted=True,
-                    metadata={
-                        "llm_score": item.get("score"),
-                        "llm_keep": item.get("keep"),
-                        "llm_summary": str(item.get("summary", ""))[:200],
-                        "gate_origin": "turn_memory_generation",
-                    } if gate_mode == "llm_first" else {},
-                )
-                gate.write(rec, gate_mode=gate_mode)
-    except Exception as e:
-        _LOG.warning(
-            "memory write failed (gate_mode=%s): %s", gate_mode, e,
+        if not is_auto_memory_enabled(workspace_id):
+            return
+        event = append_experience(
+            workspace_id=workspace_id,
+            session_id=session_id,
+            task_id=task_id,
+            user_input=user_input,
+            assistant_response=assistant_response,
+            tool_calls=tool_calls,
+            task_ok=task_ok,
         )
+        command = parse_memory_command(user_input)
+        if command is not None:
+            apply_memory_command(
+                command,
+                workspace_id=workspace_id,
+                session_id=session_id,
+                task_id=task_id,
+            )
+            mark_experiences_processed(workspace_id, session_id, [str(event.get("event_id") or "")])
+            return
+        pending = pending_experiences(workspace_id, session_id, limit=12)
+        if should_consolidate(pending):
+            future = _MEMORY_WRITE_EXECUTOR.submit(
+                consolidate_experiences,
+                workspace_id=workspace_id,
+                session_id=session_id,
+                task_id=task_id,
+            )
+            future.add_done_callback(_log_memory_reflection_failure)
+    except Exception:
+        _LOG.warning("experience journal write failed", exc_info=True)
 
 
-def _schedule_turn_memory_write(**payload: Any) -> None:
-    future = _MEMORY_WRITE_EXECUTOR.submit(_write_turn_memories, **payload)
-
-    def _log_failure(done: concurrent.futures.Future) -> None:
-        try:
-            done.result()
-        except Exception:
-            _LOG.warning("background memory write failed", exc_info=True)
-
-    future.add_done_callback(_log_failure)
+def _log_memory_reflection_failure(done: concurrent.futures.Future) -> None:
+    try:
+        done.result()
+    except Exception:
+        _LOG.warning("background memory reflection failed", exc_info=True)
 
 
 def _build_engine(
@@ -487,6 +468,16 @@ def _build_ssot_runtime_tool_registry(allowed_tool_ids=None) -> dict[str, dict[s
     client = _tool_runtime_client()
     tools = {}
     allowed = set(allowed_tool_ids or []) if allowed_tool_ids else None
+    action_profiles = {}
+    try:
+        from core.tools.catalog_snapshot import build_catalog_snapshot
+        action_profiles = {
+            item.get("tool_id"): item.get("action_profiles", [])
+            for item in build_catalog_snapshot().get("tools", [])
+            if isinstance(item, dict)
+        }
+    except Exception:
+        action_profiles = {}
     for item in client.list_tools():
         tool_id = str(item.get("tool_id") or "")
         if not tool_id:
@@ -502,6 +493,7 @@ def _build_ssot_runtime_tool_registry(allowed_tool_ids=None) -> dict[str, dict[s
             "args_schema": item.get("input_schema") or {},
             "category": item.get("category") or "",
             "risk_level": item.get("risk_level") or "low",
+            "action_profiles": action_profiles.get(tool_id, []),
         }
     return tools
 
@@ -518,6 +510,7 @@ def _build_runtime_context_budget(registry: dict[str, dict[str, Any]]):
             "description": meta.get("description", ""),
             "input_schema": meta.get("args_schema", {}),
             "risk_level": meta.get("risk_level", "low"),
+            "action_profiles": meta.get("action_profiles", []),
         })
         for tool_id, meta in sorted(registry.items())
     ]
@@ -892,6 +885,7 @@ def _build_retrieved_context_block(
         return ""
     try:
         from core.context.unified_retriever import get_retriever
+        from storage.memory_governance import MemoryStore
 
         retrieved = get_retriever(workspace_id).retrieve_for_context(
             user_input,
@@ -904,7 +898,19 @@ def _build_retrieved_context_block(
 
         lines: list[str] = []
         item_tokens = max(200, min(750, max_tokens // 3))
+        core_rules = MemoryStore().list_retrievable(
+            workspace_id,
+            memory_type="core_rule",
+            limit=8,
+        )
+        for rule in core_rules:
+            content = str(rule.get("content") or rule.get("summary") or "").strip()
+            if content:
+                compacted, _ = truncate_text_to_tokens(content, min(item_tokens, 350))
+                lines.append(f"[core-rule authority=explicit-user] {compacted}")
         for hit in retrieved.get("memory_hits", [])[:3]:
+            if str(hit.get("memory_type") or "") == "core_rule":
+                continue
             content = str(hit.get("content") or hit.get("summary") or "").strip()
             if content:
                 compacted, _ = truncate_text_to_tokens(content, item_tokens)

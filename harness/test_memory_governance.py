@@ -1,548 +1,407 @@
-# Memory governance and LLM-first gate contracts.
-"""Phase 8: Memory Governance tests."""
+"""Layered memory architecture contracts."""
 
-import json, pytest, uuid
+import json
 from typing import get_args
+
+import pytest
+
 from storage.memory_governance import (
-    MemoryRecord, MemorySource, MemoryStore, MemoryType, MemoryWriteGate,
-    confirm_memory, reject_memory, expire_memory,
+    MemoryRecord,
+    MemorySource,
+    MemoryStore,
+    MemoryType,
+    MemoryWriteGate,
+    confirm_memory,
+    expire_memory,
+    reject_memory,
 )
 
 
-class TestMemoryWriteGate:
-    def test_schema_includes_runtime_memory_types_and_sources(self):
-        assert {"profile", "knowledge_note"}.issubset(set(get_args(MemoryType)))
-        assert {"subagent", "llm_tool", "task", "action", "user_signal"}.issubset(set(get_args(MemorySource)))
+@pytest.fixture
+def isolated_memory(tmp_path, monkeypatch):
+    monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
+    try:
+        import core.context.context_store as context_store
+        context_store._stores.clear()
+    except Exception:
+        pass
+    return tmp_path
 
-    def test_agent_suggestion_default_pending(self):
-        gate = MemoryWriteGate()
-        rec = MemoryRecord(
-            workspace_id=f"ws_agent_{uuid.uuid4().hex[:8]}", session_id="s1",
-            source="agent_suggestion", confidence=0.5,
-            content="User prefers short answers",
-            summary="Preference: short answers",
-        )
-        result = gate.write(rec)
-        assert result["ok"]
-        assert result["status"] == "pending"
 
-    def test_user_explicit_can_be_active(self):
-        gate = MemoryWriteGate()
-        rec = MemoryRecord(
-            workspace_id=f"ws_user_{uuid.uuid4().hex[:8]}", session_id="s1",
-            source="user", confidence=0.9, status="active",
-            content="User set preferred language to zh-CN",
-            summary="Language preference: zh-CN",
-        )
-        result = gate.write(rec)
-        assert result["ok"]
+class TestLayeredSchema:
+    def test_only_current_long_term_layers_are_supported(self):
+        types = set(get_args(MemoryType))
+        assert types == {
+            "core_rule", "semantic_fact", "episodic_case", "procedural_rule",
+            "profile", "knowledge_note",
+        }
+        assert "device_state" not in types
+        assert "operational_fact" not in types
 
-    def test_subagent_forced_pending(self):
-        gate = MemoryWriteGate()
-        rec = MemoryRecord(
-            workspace_id=f"ws_sub_{uuid.uuid4().hex[:8]}", session_id="s1",
-            created_by="subagent", source="tool", status="active",
-            content="Found pattern: OSPF config fix",
-            summary="Pattern: OSPF fix",
+    def test_runtime_sources_remain_explicit(self):
+        assert {"subagent", "user", "manual_confirm", "agent_suggestion"}.issubset(
+            set(get_args(MemorySource))
         )
-        result = gate.write(rec)
-        assert result["ok"]
-        assert result["status"] == "pending"
 
-    def test_secret_rejected(self):
-        gate = MemoryWriteGate()
-        rec = MemoryRecord(
-            workspace_id="ws_test",
-            content="API key is sk-abcdefghijklmnopqrstuvwxyz12345",
-            summary="API key storage",
-        )
-        result = gate.write(rec)
+    def test_old_memory_type_is_rejected(self, isolated_memory):
+        result = MemoryWriteGate().write(MemoryRecord(
+            workspace_id="ws_old_type",
+            memory_type="device_state",
+            content="PE1 GE0/0 is down",
+        ))
         assert result["ok"] is False
-        assert result["rejected"] is True
+        assert result["error"] == "invalid_memory_type"
 
-    def test_segmented_secret_rejected(self):
-        gate = MemoryWriteGate()
-        rec = MemoryRecord(
-            workspace_id="ws_test",
-            content="api key sk-test-secret-1234567890abcdef should not store",
-            summary="API key storage",
-        )
-        result = gate.write(rec)
-        assert result["ok"] is False
-        assert result["rejected"] is True
-
-    def test_secret_in_metadata_is_rejected(self, tmp_path, monkeypatch):
-        import storage.memory_governance as mg
-        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
+    def test_old_disk_record_cannot_be_retrieved(self, isolated_memory):
         record = MemoryRecord(
-            workspace_id="ws_meta_secret",
-            content="Reusable operational finding with sufficient detail.",
-            summary="Operational finding",
-            metadata={"nested": {"api_key": "sk-abcdefghijklmnopqrstuvwxyz12345"}},
+            workspace_id="ws_old_disk",
+            memory_type="operational_fact",
+            status="active",
+            content="legacy fact",
+        )
+        MemoryStore()._save(record)
+        assert MemoryStore().list_retrievable("ws_old_disk") == []
+
+
+class TestAuthorityGate:
+    def test_explicit_user_core_rule_is_active(self, isolated_memory):
+        record = MemoryRecord(
+            workspace_id="ws_user_rule",
+            memory_type="core_rule",
+            source="user",
+            status="active",
+            confidence=1.0,
+            content="只在开始时运行一次全量测试，单项失败后运行对应测试。",
+            summary="测试执行规则",
+            metadata={"memory_key": "user.testing_policy", "authority": "explicit_user", "authority_rank": 100},
+        )
+        result = MemoryWriteGate().write(record)
+        assert result["ok"] is True
+        assert result["status"] == "active"
+
+    def test_verified_reflection_can_activate_semantic_fact(self, isolated_memory):
+        record = MemoryRecord(
+            workspace_id="ws_verified_fact",
+            memory_type="semantic_fact",
+            source="agent_suggestion",
+            status="pending",
+            confidence=0.9,
+            content="PE1 uses loopback 2.2.2.9 as its BGP router ID.",
+            summary="PE1 BGP router ID",
+            citations=[{"event_id": "mex-123"}],
+            metadata={
+                "memory_key": "device.PE1.bgp_router_id",
+                "authority": "verified_tool",
+                "authority_rank": 70,
+                "llm_score": 4,
+                "llm_keep": True,
+            },
+        )
+        result = MemoryWriteGate().write(record)
+        assert result["status"] == "active"
+
+    def test_unsupported_agent_inference_stays_pending(self, isolated_memory):
+        record = MemoryRecord(
+            workspace_id="ws_inference",
+            memory_type="procedural_rule",
+            source="agent_suggestion",
+            content="When BGP flaps, inspect interface counters first.",
+            summary="BGP flap diagnostic order",
+            metadata={
+                "memory_key": "bgp.flap.diagnostic_order",
+                "authority": "agent_inference",
+                "authority_rank": 30,
+                "llm_score": 5,
+                "llm_keep": True,
+            },
+        )
+        result = MemoryWriteGate().write(record)
+        assert result["ok"] is True
+        assert result["status"] == "pending"
+
+    def test_subagent_never_activates(self, isolated_memory):
+        record = MemoryRecord(
+            workspace_id="ws_subagent",
+            memory_type="procedural_rule",
+            source="subagent",
+            created_by="subagent",
+            content="Check AS number before resetting a BGP session.",
+            summary="BGP AS check",
+            metadata={"authority": "verified_tool", "llm_score": 5, "llm_keep": True},
+        )
+        assert MemoryWriteGate().write(record)["status"] == "pending"
+
+    def test_secret_is_rejected_before_redaction(self, isolated_memory):
+        record = MemoryRecord(
+            workspace_id="ws_secret",
+            memory_type="knowledge_note",
+            source="user",
+            content="api_key=sk-abcdefghijklmnopqrstuvwxyz123456",
+            summary="provider key",
         )
         result = MemoryWriteGate().write(record)
         assert result["ok"] is False
         assert result["rejected"] is True
         assert MemoryStore().get(record.workspace_id, record.memory_id) is None
 
-    def test_store_redacts_structured_projection_fields(self, tmp_path, monkeypatch):
-        import storage.memory_governance as mg
-        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
-        record = MemoryRecord(
-            workspace_id="ws_structured_redaction",
-            status="pending",
-            content="Safe content",
-            summary="Safe summary",
-            metadata={"password": "short-value"},
-            citations=[{"authorization": "short-value"}],
-        )
-        MemoryStore()._save(record)
-        stored = MemoryStore().get(record.workspace_id, record.memory_id)
-        assert stored.metadata["password"] == "[REDACTED]"
-        assert stored.citations[0]["authorization"] == "[REDACTED]"
 
-    def test_workspace_required(self):
+class TestStructuredVersioning:
+    def test_same_rule_key_supersedes_previous_user_rule(self, isolated_memory):
         gate = MemoryWriteGate()
-        rec = MemoryRecord(workspace_id="", content="test")
-        result = gate.write(rec)
-        assert result["ok"] is False
-        assert result["rejected"] is True
-
-    def test_llm_first_fallback_surfaces_warning(self, tmp_path, monkeypatch):
-        import storage.memory_governance as mg
-
-        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
-
-        def boom(self, candidates):
-            raise RuntimeError("provider leaked prompt should not appear")
-
-        monkeypatch.setattr("agent.runtime.memory_write.llm_gate.MemoryLLMGate.gate", boom)
-        result = MemoryWriteGate().write(
-            MemoryRecord(
-                workspace_id="ws_llm_fb",
-                source="agent_suggestion",
-                confidence=0.9,
-                content="keep this operational lesson",
-                summary="operational lesson",
-            ),
-            gate_mode="llm_first",
-        )
-
-        # LLM failure → pending review (never silently accepted or lost)
-        assert result["ok"] is True
-        assert result["status"] == "pending"
-        assert result["rejected"] is False
-        assert result["warnings"] == [{"reason": "llm_gate_unavailable"}]
-        assert "provider leaked prompt" not in str(result)
-
-    def test_rule_only_agent_suggestion_stays_pending(self, tmp_path, monkeypatch):
-        import storage.memory_governance as mg
-        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
-        result = MemoryWriteGate().write(MemoryRecord(
-            workspace_id="ws_rule_pending",
-            source="agent_suggestion",
-            status="active",
-            confidence=0.99,
-            content="PE1 uses loopback 2.2.2.9 as its BGP router ID.",
-            summary="PE1 BGP router ID is 2.2.2.9",
-        ), gate_mode="rule_only")
-        assert result["ok"] is True
-        assert result["status"] == "pending"
-
-    @pytest.mark.parametrize("score,expected", [(4, "active"), (3, "pending")])
-    def test_llm_first_cached_score_drives_lifecycle(self, tmp_path, monkeypatch, score, expected):
-        import storage.memory_governance as mg
-        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
-
-        def must_not_call(self, candidates):
-            raise AssertionError("cached generation decision must avoid a second LLM call")
-
-        monkeypatch.setattr("agent.runtime.memory_write.llm_gate.MemoryLLMGate.gate", must_not_call)
-        result = MemoryWriteGate().write(MemoryRecord(
-            workspace_id=f"ws_cached_{score}",
-            source="agent_suggestion",
-            status="pending",
-            confidence=0.9,
-            content="Device PE1 has BGP router ID 2.2.2.9 from the verified inspection output.",
-            summary="PE1 BGP router ID 2.2.2.9",
-            metadata={"llm_score": score, "llm_keep": True, "llm_summary": "PE1 BGP router ID"},
-        ), gate_mode="llm_first")
-        assert result["ok"] is True
-        assert result["status"] == expected
-
-    def test_llm_first_low_cached_score_is_rejected_and_audited(self, tmp_path, monkeypatch):
-        import storage.memory_governance as mg
-        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
-        record = MemoryRecord(
-            workspace_id="ws_cached_low",
-            source="agent_suggestion",
-            content="The generic operation completed without a reusable finding.",
-            summary="Generic operation completed",
-            metadata={"llm_score": 2, "llm_keep": False},
-        )
-        result = MemoryWriteGate().write(record, gate_mode="llm_first")
-        assert result["ok"] is False
-        assert result["status"] == "rejected"
-        stored = MemoryStore().get(record.workspace_id, record.memory_id)
-        assert stored is not None and stored.status == "rejected"
-
-    def test_content_without_summary_is_not_automatically_low_value(self, tmp_path, monkeypatch):
-        import storage.memory_governance as mg
-        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
-        result = MemoryWriteGate().write(MemoryRecord(
-            workspace_id="ws_no_summary",
+        store = MemoryStore()
+        old = MemoryRecord(
+            workspace_id="ws_supersede",
+            memory_type="core_rule",
             source="user",
             status="active",
-            content="Prefer concise Chinese explanations for routine inspection results.",
-            summary="",
             confidence=1.0,
-        ))
-        assert result["ok"] is True
-        assert result["status"] == "active"
-
-
-class TestPromotion:
-    def test_confirm_makes_active(self):
-        ws = f"ws_mem_{uuid.uuid4().hex[:8]}"
-        gate = MemoryWriteGate()
-        rec = MemoryRecord(workspace_id=ws, session_id="s1", content="test",
-                           summary="Test memory", status="pending")
-        gate.write(rec)
-        result = confirm_memory(ws, rec.memory_id)
-        assert result["ok"]
-        assert result["status"] == "active"
-
-    def test_reject_makes_rejected(self):
-        ws = f"ws_mr_{uuid.uuid4().hex[:8]}"
-        gate = MemoryWriteGate()
-        rec = MemoryRecord(workspace_id=ws, content="test", status="pending")
-        gate.write(rec)
-        result = reject_memory(ws, rec.memory_id)
-        assert result["ok"]
-        assert result["status"] == "rejected"
-
-    def test_expire_makes_expired(self):
-        ws = f"ws_me_{uuid.uuid4().hex[:8]}"
-        gate = MemoryWriteGate()
-        rec = MemoryRecord(workspace_id=ws, content="test", status="active")
-        gate.write(rec)
-        result = expire_memory(ws, rec.memory_id)
-        assert result["ok"]
-        assert result["status"] == "expired"
-
-
-class TestRetrieval:
-    def test_pending_confirmation_updates_context_projection(self, tmp_path, monkeypatch):
-        import core.context.context_store as context_store
-        import storage.memory_governance as mg
-
-        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path / "workspaces"))
-        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path / "context"))
-        context_store._stores.clear()
-
-        ws = "ws_projection"
-        record = MemoryRecord(
-            workspace_id=ws,
-            status="pending",
-            source="agent_suggestion",
-            content="PE1 uses router ID 2.2.2.9 for BGP sessions.",
-            summary="PE1 BGP router ID",
+            content="每次修改后都跑全量测试。",
+            summary="旧测试规则",
+            metadata={"memory_key": "user.testing_policy", "authority": "explicit_user"},
         )
-        result = MemoryWriteGate().write(record, gate_mode="rule_only")
-        assert result["status"] == "pending"
-        projection = context_store.get_context_store(ws)
-        assert projection.get(f"mh_{record.memory_id}") is None
-
-        assert confirm_memory(ws, record.memory_id)["ok"] is True
-        indexed = projection.get(f"mh_{record.memory_id}")
-        assert indexed is not None
-        assert indexed["memory_status"] == "active"
-
-        assert reject_memory(ws, record.memory_id)["ok"] is True
-        assert projection.get(f"mh_{record.memory_id}") is None
-
-    def test_pending_not_retrievable(self):
-        ws = f"ws_rp_{uuid.uuid4().hex[:8]}"
-        store = MemoryStore()
-        rec = MemoryRecord(workspace_id=ws, status="pending", content="test",
-                           scope="workspace")
-        store._save(rec)
-        results = store.list_retrievable(ws)
-        assert not any(r["memory_id"] == rec.memory_id for r in results)
-
-    def test_active_retrievable(self):
-        ws = f"ws_ra_{uuid.uuid4().hex[:8]}"
-        store = MemoryStore()
-        rec = MemoryRecord(workspace_id=ws, status="active", content="test",
-                           scope="workspace")
-        store._save(rec)
-        results = store.list_retrievable(ws)
-        assert any(r["memory_id"] == rec.memory_id for r in results)
-
-    def test_store_rejects_invalid_workspace_id(self, tmp_path, monkeypatch):
-        import storage.memory_governance as mg
-
-        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
-        store = MemoryStore()
-
-        with pytest.raises(ValueError):
-            store._save(MemoryRecord(workspace_id="../x", status="active", content="bad"))
-
-        assert not (tmp_path.parent / "x").exists()
-
-    def test_cross_workspace_not_visible(self):
-        ws_a = f"ws_ma_{uuid.uuid4().hex[:8]}"
-        ws_b = f"ws_mb_{uuid.uuid4().hex[:8]}"
-        store = MemoryStore()
-        rec = MemoryRecord(workspace_id=ws_a, status="active", scope="workspace")
-        store._save(rec)
-        results = store.list_retrievable(ws_b)
-        assert not any(r["memory_id"] == rec.memory_id for r in results)
-
-    def test_expired_not_retrievable(self):
-        ws = f"ws_ret_{uuid.uuid4().hex[:8]}"
-        store = MemoryStore()
-        import time
-        rec = MemoryRecord(workspace_id=ws, status="active",
-                           content="test", scope="workspace",
-                           expires_at=time.strftime("%Y-%m-%dT%H:%M:%S",
-                                                    time.localtime(time.time() - 3600)))
-        store._save(rec)
-        results = store.list_retrievable(ws)
-        assert not any(r["memory_id"] == rec.memory_id for r in results)
-
-
-class TestConflict:
-    def test_similar_content_detected_as_conflict(self):
-        ws = f"ws_cf_{uuid.uuid4().hex[:8]}"
-        gate = MemoryWriteGate()
-        r1 = MemoryRecord(workspace_id=ws, scope="workspace",
-                          memory_type="user_preference", status="active",
-                          content="prefer short answers", summary="short answers")
-        gate.write(r1)
-        r2 = MemoryRecord(workspace_id=ws, scope="workspace",
-                          memory_type="user_preference",
-                          content="user likes short concise answers",
-                          summary="short concise answers")
-        result = gate.write(r2)
-        assert result["ok"]
-        # Should be conflict since similar to active
-        assert result["status"] in ("conflict", "pending")
-
-    def test_chinese_network_content_detected_as_conflict(self):
-        ws = f"ws_cjk_{uuid.uuid4().hex[:8]}"
-        gate = MemoryWriteGate()
-        r1 = MemoryRecord(
-            workspace_id=ws,
-            scope="workspace",
-            memory_type="operational_fact",
+        assert gate.write(old)["status"] == "active"
+        new = MemoryRecord(
+            workspace_id="ws_supersede",
+            memory_type="core_rule",
+            source="user",
             status="active",
-            source="manual_confirm",
-            confidence=0.95,
-            content="BGP邻居建立失败通常需要检查AS号、peer地址和路由可达性。",
-            summary="BGP邻居建立失败需检查AS号 peer地址 路由可达性",
+            confidence=1.0,
+            content="全量测试只跑一次，失败后只跑对应测试。",
+            summary="新测试规则",
+            metadata={"memory_key": "user.testing_policy", "authority": "explicit_user"},
         )
-        gate.write(r1)
-        r2 = MemoryRecord(
-            workspace_id=ws,
-            scope="workspace",
-            memory_type="operational_fact",
+        result = gate.write(new)
+        assert result["status"] == "active"
+        assert store.get("ws_supersede", old.memory_id).status == "expired"
+        assert store.get("ws_supersede", new.memory_id).metadata["supersedes_memory_id"] == old.memory_id
+
+    def test_similar_text_with_different_keys_is_not_a_conflict(self, isolated_memory):
+        gate = MemoryWriteGate()
+        first = MemoryRecord(
+            workspace_id="ws_keys",
+            memory_type="semantic_fact",
+            source="manual_confirm",
             status="active",
+            content="PE1 uses router ID 2.2.2.9.",
+            summary="PE1 router ID",
+            metadata={"memory_key": "device.PE1.router_id"},
+        )
+        second = MemoryRecord(
+            workspace_id="ws_keys",
+            memory_type="semantic_fact",
             source="manual_confirm",
-            confidence=0.95,
-            content="BGP peer 建立异常时优先确认AS号码、邻居地址以及路由是否可达。",
-            summary="BGP peer建立异常优先确认AS号码邻居地址路由可达",
+            status="active",
+            content="PE2 uses router ID 2.2.2.10.",
+            summary="PE2 router ID",
+            metadata={"memory_key": "device.PE2.router_id"},
         )
-        result = gate.write(r2)
-        assert result["ok"]
-        assert result["status"] == "conflict"
+        assert gate.write(first)["ok"] is True
+        result = gate.write(second)
+        assert result["status"] == "active"
+        assert result.get("conflict") is False
 
-    def test_active_not_overwritten_by_conflict(self):
-        ws = f"ws_ao_{uuid.uuid4().hex[:8]}"
-        gate = MemoryWriteGate()
-        store = MemoryStore()
-        r1 = MemoryRecord(workspace_id=ws, scope="workspace",
-                          memory_type="operational_fact", status="active",
-                          source="user", confidence=1.0,
-                          content="OSPF area 0 configured", summary="OSPF area 0")
-        gate.write(r1)
-        # Verify r1 is active
-        loaded1 = store.get(ws, r1.memory_id)
-        assert loaded1 is not None
-        assert loaded1.status == "active"
 
-        r2 = MemoryRecord(workspace_id=ws, scope="workspace",
-                          memory_type="operational_fact",
-                          source="agent_suggestion", confidence=0.5,
-                          content="OSPF area 0 setup done",
-                          summary="OSPF area 0 setup")
-        gate.write(r2)
-        # r1 should still be active — conflicts don't overwrite
-        loaded = store.get(ws, r1.memory_id)
-        assert loaded is not None
-        assert loaded.status == "active"
+class TestExplicitCommands:
+    def test_remember_reads_user_text_only(self):
+        from agent.runtime.memory_write.commands import parse_memory_command
 
-    def test_confirming_conflict_expires_previous_active_memory(self, tmp_path, monkeypatch):
-        import storage.memory_governance as mg
-        monkeypatch.setenv("NA_WORKSPACE_ROOT", str(tmp_path))
-        ws = "ws_conflict_confirm"
-        gate = MemoryWriteGate()
-        old = MemoryRecord(
-            workspace_id=ws, memory_type="user_preference", status="active",
-            source="user", confidence=1.0,
-            content="User prefers concise Chinese operational summaries.",
-            summary="Preference for concise Chinese summaries",
+        assert parse_memory_command("好的") is None
+        command = parse_memory_command("以后全量测试只跑一次，失败后只跑相关测试。")
+        assert command["action"] == "remember"
+        assert command["memory_type"] == "core_rule"
+        assert command["memory_key"] == "user.testing_policy"
+
+    def test_conversational_future_phrase_is_not_memory(self):
+        from agent.runtime.memory_write.commands import parse_memory_command
+
+        assert parse_memory_command("以后再说") is None
+
+    def test_forget_is_control_action_not_new_memory(self):
+        from agent.runtime.memory_write.commands import parse_memory_command
+
+        command = parse_memory_command("忘掉之前的测试规则")
+        assert command == {
+            "action": "forget",
+            "query": "之前的测试规则",
+            "reason": "explicit_user_forget_command",
+        }
+
+    def test_apply_remember_then_forget(self, isolated_memory):
+        from agent.runtime.memory_write.commands import apply_memory_command, parse_memory_command
+
+        created = apply_memory_command(
+            parse_memory_command("以后全量测试只跑一次。"),
+            workspace_id="ws_command",
+            session_id="session-command",
+            task_id="turn-command-1",
         )
-        assert gate.write(old)["ok"] is True
-        replacement = MemoryRecord(
-            workspace_id=ws, memory_type="user_preference", status="active",
-            source="user", confidence=1.0,
-            content="User now prefers detailed Chinese operational summaries.",
-            summary="Preference for detailed Chinese summaries",
+        assert created["status"] == "active"
+        forgotten = apply_memory_command(
+            parse_memory_command("忘掉测试规则"),
+            workspace_id="ws_command",
+            session_id="session-command",
+            task_id="turn-command-2",
         )
-        result = gate.write(replacement)
-        assert result["status"] == "conflict"
-        assert replacement.conflict_group
-        assert MemoryStore().get(ws, old.memory_id).conflict_group == replacement.conflict_group
-
-        assert confirm_memory(ws, replacement.memory_id)["ok"] is True
-        assert MemoryStore().get(ws, old.memory_id).status == "expired"
-        assert MemoryStore().get(ws, replacement.memory_id).status == "active"
+        assert forgotten["expired_memory_ids"] == [created["memory_id"]]
 
 
-class TestMemoryLLMGate:
-    def test_batches_all_candidates_without_dropping_tail(self, monkeypatch):
-        from agent.runtime.memory_write.llm_gate import MemoryLLMGate
-        from agent.runtime.memory_write.models import MemoryCandidate
+class TestExperienceJournal:
+    def test_assistant_wording_cannot_create_user_rule(self, isolated_memory):
+        from agent.runtime.ssot_runtime import _record_experience_and_maybe_reflect
+
+        _record_experience_and_maybe_reflect(
+            workspace_id="ws_assistant_only",
+            session_id="session-assistant-only",
+            task_id="turn-assistant-only",
+            user_input="好的",
+            assistant_response="以后应该优先检查接口状态。",
+            tool_calls=[],
+            task_ok=True,
+        )
+        assert MemoryStore().list_all("ws_assistant_only") == []
+
+    def test_append_then_mark_processed_is_durable(self, isolated_memory):
+        from agent.runtime.memory_write.event_log import (
+            append_experience,
+            mark_experiences_processed,
+            pending_experiences,
+        )
+
+        event = append_experience(
+            workspace_id="ws_journal",
+            session_id="session-journal",
+            task_id="turn-1",
+            user_input="检查 BGP 邻居",
+            assistant_response="检查完成",
+            tool_calls=[{"tool_id": "inspection.manage", "ok": True, "summary": "PE1 neighbor established"}],
+            task_ok=True,
+        )
+        pending = pending_experiences("ws_journal", "session-journal")
+        assert [row["event_id"] for row in pending] == [event["event_id"]]
+        assert pending[0]["tool_calls"][0]["summary"] == "PE1 neighbor established"
+        mark_experiences_processed("ws_journal", "session-journal", [event["event_id"]])
+        assert pending_experiences("ws_journal", "session-journal") == []
+
+    def test_reflection_boundary_is_task_or_four_turns(self):
+        from agent.runtime.memory_write.consolidator import should_consolidate
+
+        assert should_consolidate([{"tool_calls": []}] * 3) is False
+        assert should_consolidate([{"tool_calls": []}] * 4) is True
+        assert should_consolidate([{"tool_calls": [{"ok": True}]}]) is True
+
+
+class TestConsolidation:
+    def test_parser_rejects_transient_device_state(self):
+        from agent.runtime.memory_write.consolidator import _parse_operations
+
+        result = _parse_operations(json.dumps([{
+            "action": "create",
+            "memory_type": "device_state",
+            "content": "PE1 GE0/0 is down",
+            "summary": "PE1 down",
+            "score": 5,
+            "confidence": 1.0,
+            "evidence_event_ids": ["mex-1"],
+        }]))
+        assert result == []
+
+    def test_one_batch_makes_one_llm_call(self, monkeypatch):
+        from agent.llm.schemas import LLMResponse
+        from agent.runtime.memory_write.consolidator import _reflect
 
         calls = []
 
-        def fake_call(messages):
-            payload = json.loads(messages[1]["content"].split("\n", 1)[1])
-            calls.append(len(payload))
-            return json.dumps({"candidates": [
-                {"id": item["id"], "score": 4, "keep": True,
-                 "summary": item["content"][:30], "semantic_duplicate_of": None}
-                for item in payload
-            ]})
+        def fake_llm(**kwargs):
+            calls.append(kwargs["task"])
+            return LLMResponse(content="[]")
 
-        monkeypatch.setattr(MemoryLLMGate, "_call_llm", staticmethod(fake_call))
-        candidates = [
-            MemoryCandidate(
-                candidate_id=f"mc_{index}", memory_type="operational_fact",
-                content=f"Reusable device fact number {index}", confidence=0.8,
-            )
-            for index in range(7)
-        ]
-        accepted, skipped = MemoryLLMGate().gate(candidates)
-        assert calls == [5, 2]
-        assert len(accepted) == 7
-        assert skipped == []
+        monkeypatch.setattr("agent.llm.runtime.invoke_llm", fake_llm)
+        monkeypatch.setattr("prompts.loader.render_prompt", lambda *args, **kwargs: type("P", (), {"text": "reflect"})())
+        assert _reflect([{"event_id": "mex-1", "user_input": "hello"}], []) == []
+        assert calls == ["memory_consolidation"]
 
-    def test_unavailable_batch_returns_pending_signal_not_accept_all(self, monkeypatch):
-        from agent.runtime.memory_write.llm_gate import MemoryLLMGate
-        from agent.runtime.memory_write.models import MemoryCandidate
+    def test_reflection_uses_the_real_invoke_llm_contract(self, monkeypatch):
+        """Prevent mocks with **kwargs from hiding production signature drift."""
+        from agent.llm.schemas import LLMResponse
+        from agent.runtime.memory_write.consolidator import _reflect
 
+        captured = {}
+
+        def strict_llm(
+            task,
+            messages=None,
+            tools=None,
+            state_or_context=None,
+            safe_context=None,
+            user_input="",
+            extra=None,
+            config_override=None,
+        ):
+            captured.update({
+                "task": task,
+                "messages": messages,
+                "extra": extra,
+                "config_override": config_override,
+            })
+            return LLMResponse(content="[]")
+
+        monkeypatch.setattr("agent.llm.runtime.invoke_llm", strict_llm)
+        monkeypatch.setattr("prompts.loader.render_prompt", lambda *args, **kwargs: type("P", (), {"text": "reflect"})())
+
+        assert _reflect([{"event_id": "mex-1", "user_input": "hello"}], []) == []
+        assert captured["task"] == "memory_consolidation"
+        assert captured["config_override"] == {"temperature": 0.0, "max_tokens": 6000}
+        assert captured["extra"]["stream_to_user"] is False
+        assert captured["extra"]["request_metadata"] == {
+            "memory_stage": "task_reflection",
+            "event_count": 1,
+        }
+
+    def test_parser_strips_provider_reasoning_before_json(self):
+        from agent.runtime.memory_write.consolidator import _parse_operations
+
+        response = "<think>internal analysis [not output]</think>\n[]"
+        assert _parse_operations(response) == []
+
+    def test_provider_failure_keeps_experiences_pending(self, isolated_memory, monkeypatch):
+        from agent.llm.schemas import LLMResponse
+        from agent.runtime.memory_write.consolidator import consolidate_experiences
+        from agent.runtime.memory_write.event_log import append_experience, pending_experiences
+
+        append_experience(
+            workspace_id="ws_retry",
+            session_id="session-retry",
+            task_id="turn-retry",
+            user_input="检查 BGP",
+            assistant_response="暂时无法分析",
+            tool_calls=[{"tool_id": "inspection.manage", "ok": False, "summary": "timeout"}],
+            task_ok=False,
+        )
         monkeypatch.setattr(
-            MemoryLLMGate, "_call_llm",
-            staticmethod(lambda messages: (_ for _ in ()).throw(RuntimeError("offline"))),
+            "agent.llm.runtime.invoke_llm",
+            lambda **kwargs: LLMResponse(error="provider unavailable"),
         )
-        candidate = MemoryCandidate(
-            candidate_id="mc_offline", memory_type="operational_fact",
-            content="Potentially reusable fact that still needs review.", confidence=0.8,
+        result = consolidate_experiences(
+            workspace_id="ws_retry",
+            session_id="session-retry",
+            task_id="turn-retry",
         )
-        accepted, skipped = MemoryLLMGate().gate([candidate])
-        assert accepted == []
-        assert skipped == [{
-            "candidate_id": "mc_offline",
-            "reason": "llm_gate_unavailable",
-            "memory_type": "operational_fact",
-        }]
+        assert result["status"] == "retry_pending"
+        assert len(pending_experiences("ws_retry", "session-retry")) == 1
 
 
-class TestLLMFirstMemoryGeneration:
-    def test_parser_preserves_only_bounded_ttl_for_supported_types(self):
-        from agent.runtime.memory_write.llm_memory import _parse_json
-
-        items = _parse_json(json.dumps([
-            {
-                "content": "PE1 interface GE0/0 was observed down.",
-                "type": "device_state",
-                "confidence": 0.9,
-                "score": 4,
-                "keep": True,
-                "summary": "PE1 GE0/0 down",
-                "ttl_days": 7,
-            },
-            {
-                "content": "Use OSPF area 0 for this topology.",
-                "type": "operational_fact",
-                "confidence": 0.9,
-                "score": 4,
-                "keep": True,
-                "summary": "OSPF area 0",
-                "ttl_days": 365,
-            },
-            {
-                "content": "User prefers Chinese responses.",
-                "type": "user_preference",
-                "confidence": 1.0,
-                "score": 5,
-                "keep": True,
-                "summary": "Chinese responses",
-                "ttl_days": 9999,
-            },
-        ]))
-
-        assert [item["ttl_days"] for item in items] == [7, None, 365]
-        assert _parse_json(json.dumps({
-            "content": "PE2 interface GE0/1 is up.",
-            "type": "device_state",
-            "confidence": 0.9,
-            "score": 4,
-            "keep": True,
-            "summary": "PE2 GE0/1 up",
-        }))[0]["ttl_days"] == 7
-        assert _parse_json(json.dumps({
-            "content": "PE2 interface GE0/1 is up.",
-            "type": "device_state",
-            "confidence": 0.9,
-            "score": 4,
-            "keep": True,
-            "summary": "PE2 GE0/1 up",
-            "ttl_days": 9999,
-        }))[0]["ttl_days"] == 30
-
-    def test_ssot_writer_converts_llm_ttl_days_to_record_seconds(self, monkeypatch):
-        import agent.runtime.ssot_runtime as runtime
-        import storage.memory_governance as governance
-        from agent.runtime.memory_write import llm_memory
-
-        captured = []
-        monkeypatch.setattr(governance, "get_memory_gate_mode", lambda workspace_id: "llm_first")
-        monkeypatch.setattr(llm_memory, "generate_memories", lambda **kwargs: [{
-            "content": "PE1 interface GE0/0 was observed down.",
-            "type": "device_state",
-            "confidence": 0.9,
-            "score": 4,
-            "keep": True,
-            "summary": "PE1 GE0/0 down",
-            "ttl_days": 7,
-        }])
-        monkeypatch.setattr(
-            governance.MemoryWriteGate,
-            "write",
-            lambda self, record, gate_mode=None: captured.append(record) or {"ok": True},
+class TestLifecycle:
+    def test_confirm_reject_and_expire(self, isolated_memory):
+        store = MemoryStore()
+        pending = MemoryRecord(
+            workspace_id="ws_lifecycle",
+            memory_type="procedural_rule",
+            source="agent_suggestion",
+            content="Inspect interface errors before resetting BGP.",
+            summary="BGP diagnostic order",
+            metadata={"llm_score": 3, "llm_keep": True, "authority": "agent_inference"},
         )
-
-        runtime._write_turn_memories(
-            workspace_id="default",
-            session_id="session-1",
-            user_input="Check PE1",
-            assistant_response="GE0/0 is down.",
-            tool_calls=[],
-        )
-
-        assert len(captured) == 1
-        assert captured[0].ttl_seconds == 7 * 24 * 60 * 60
-        assert captured[0].expires_at
+        assert MemoryWriteGate(store).write(pending)["status"] == "pending"
+        assert confirm_memory("ws_lifecycle", pending.memory_id)["status"] == "active"
+        assert reject_memory("ws_lifecycle", pending.memory_id)["status"] == "rejected"
+        assert expire_memory("ws_lifecycle", pending.memory_id)["status"] == "expired"

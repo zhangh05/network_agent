@@ -119,6 +119,41 @@ def test_non_json_text_falls_back_to_text_scrub():
         json.loads(out)
 
 
+def test_message_compaction_redacts_secret_lines_from_user_summary():
+    from agent.runtime.context_compactor import compact_messages
+
+    messages = [
+        {"role": "system", "content": "policy"},
+        {"role": "user", "content": "api_key=sk-secret\nplease remember this"},
+        {"role": "assistant", "content": "ok"},
+        {"role": "user", "content": "current task"},
+    ]
+    compacted, meta = compact_messages(messages, keep_recent=1)
+    raw = json.dumps(compacted, ensure_ascii=False)
+    assert meta["compacted"] is True
+    assert "sk-secret" not in raw
+    assert "[REDACTED]" in raw
+
+
+def test_progress_summary_redacts_secret_lines():
+    from agent.runtime.context_compactor import CompactionStrategy, compact_messages
+
+    messages = [
+        {"role": "system", "content": "policy"},
+        {"role": "user", "content": "password=hunter2\n继续排查"},
+        {"role": "assistant", "content": "ok"},
+        {"role": "user", "content": "current task"},
+    ]
+    compacted, meta = compact_messages(
+        messages,
+        keep_recent=1,
+        strategy=CompactionStrategy.LLM_SUMMARY,
+    )
+    raw = json.dumps(compacted, ensure_ascii=False)
+    assert meta["summary_message_created"] is True
+    assert "hunter2" not in raw
+
+
 # ── E: all keys in FORBIDDEN_KEYS are redacted ────────────────────────
 
 

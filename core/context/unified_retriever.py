@@ -31,6 +31,7 @@ from typing import Callable, Optional
 from pathlib import Path
 
 from core.context.context_store import get_context_store
+from storage.memory_governance import SUPPORTED_MEMORY_TYPES
 
 
 # ---------------------------------------------------------------------------
@@ -391,6 +392,7 @@ class UnifiedRetriever:
         if item_types:
             types_filter.update(item_types)
 
+        candidate_limit = max(top_k * 5, top_k + 20)
         for idx, score in raw_results:
             if score < min_score:
                 continue
@@ -422,7 +424,7 @@ class UnifiedRetriever:
             hit["_score"] = round(score, 4)
             results.append(hit)
 
-            if len(results) >= top_k:
+            if len(results) >= candidate_limit:
                 break
 
         # Apply post-score boosts: recency, confirmation, frequency
@@ -431,7 +433,7 @@ class UnifiedRetriever:
         # Dedup by content similarity (Jaccard on tokens)
         results = self._dedup_results(results)
 
-        return results
+        return results[:top_k]
 
     def search_memory(
         self,
@@ -452,6 +454,7 @@ class UnifiedRetriever:
             result_filter=lambda hit: (
                 str(hit.get("memory_status") or hit.get("status") or "").lower()
                 in {"active", "confirmed"}
+                and str(hit.get("memory_type") or "") in SUPPORTED_MEMORY_TYPES
                 and self._memory_scope_visible(
                     hit, session_id=session_id, task_id=task_id
                 )
@@ -509,14 +512,7 @@ class UnifiedRetriever:
 
     @staticmethod
     def _apply_boosts(results: list[dict]) -> list[dict]:
-        """Apply post-BM25 boosts: recency, confirmation.
-
-        v3.9.7: Time-weighted scoring ensures recent memories rank higher.
-        Confirmed/active memories get a confidence boost.
-
-        Note: frequency boost (access_count) is reserved for future use
-        when per-item access tracking is implemented on ContextStore.
-        """
+        """Apply authority, memory-layer, and type-specific time boosts."""
         if not results:
             return results
 
@@ -525,21 +521,35 @@ class UnifiedRetriever:
             boost = 1.0
             score = hit.get("_score", 0.0)
 
-            # ── Recency boost (time decay) ──
+            memory_type = str(hit.get("memory_type") or "")
+            authority = str(hit.get("authority") or "")
+            authority_rank = int(hit.get("authority_rank") or 0)
+            if authority == "explicit_user" or authority_rank >= 100:
+                boost *= 2.5
+            elif authority == "manual_confirm" or authority_rank >= 80:
+                boost *= 2.0
+            elif authority == "verified_tool" or authority_rank >= 60:
+                boost *= 1.5
+            elif authority == "agent_inference":
+                boost *= 0.8
+
+            if memory_type == "core_rule":
+                boost *= 2.0
+            elif memory_type == "procedural_rule":
+                boost *= 1.25
+
+            # Recency helps rank comparable cases. It must never demote a
+            # durable rule or stable semantic fact merely because it is old.
             created_at = hit.get("created_at", "")
-            if created_at:
+            if memory_type == "episodic_case" and created_at:
                 try:
                     age_s = now - _ts_to_epoch(created_at)
-                    if age_s <= 0 or age_s > 31536000:   # invalid or >1yr old
+                    if age_s <= 0:
                         pass
-                    elif age_s < 300:                     # < 5 min
-                        boost *= 2.0
-                    elif age_s < 3600:                    # < 1 hour
-                        boost *= 1.5
-                    elif age_s < 86400:                   # < 1 day
-                        boost *= 1.2
-                    elif age_s < 604800:                  # < 1 week
-                        boost *= 1.05
+                    elif age_s < 86400:
+                        boost *= 1.25
+                    elif age_s < 604800:
+                        boost *= 1.1
                 except Exception:
                     pass
 

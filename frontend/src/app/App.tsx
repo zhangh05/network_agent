@@ -24,13 +24,12 @@ import {
   Diagnostics,
   PacketAnalysis,
   KnowledgeLibrary,
-  ArtifactCenter,
+  DataCenter,
   MemoryPage,
   CMDBPage,
   AssurancePage,
   ReviewCenter,
   RuntimeAudit,
-  FileManager,
   preloadRoute,
 } from "../routes";
 
@@ -66,12 +65,11 @@ const SKELETON_BY_PATH: Record<string, "list" | "table"> = {
   "/cmdb": "list",
   "/assurance": "table",
   "/knowledge": "list",
-  "/artifacts": "list",
+  "/data": "table",
   "/memory": "list",
   "/packet": "list",
   "/diagnostics": "list",
   "/capabilities": "list",
-  "/files": "list",
 };
 
 function RouteFallback() {
@@ -88,7 +86,6 @@ function RouteFallback() {
 }
 
 function AppShell() {
-  const confirmHost = ConfirmHost();
   const [version, setVersion] = useState<string | null>(null);
   const theme = useUIStore((s) => s.theme);
   const setTheme = useUIStore((s) => s.setTheme);
@@ -185,7 +182,7 @@ function AppShell() {
                 <Route path="/workbench" element={<ErrorBoundary><TaskWorkbench /></ErrorBoundary>} />
                 <Route path="/packet" element={<ErrorBoundary><PacketAnalysis /></ErrorBoundary>} />
                 <Route path="/knowledge" element={<ErrorBoundary><KnowledgeLibrary /></ErrorBoundary>} />
-                <Route path="/artifacts" element={<ErrorBoundary><ArtifactCenter /></ErrorBoundary>} />
+                <Route path="/data" element={<ErrorBoundary><DataCenter /></ErrorBoundary>} />
                 <Route path="/memory" element={<ErrorBoundary><MemoryPage /></ErrorBoundary>} />
                 <Route path="/cmdb" element={<ErrorBoundary><CMDBPage /></ErrorBoundary>} />
                 <Route path="/assurance" element={<ErrorBoundary><AssurancePage /></ErrorBoundary>} />
@@ -195,7 +192,6 @@ function AppShell() {
                 <Route path="/runs" element={<ErrorBoundary><OperationsPage /></ErrorBoundary>} />
                 <Route path="/audit" element={<ErrorBoundary><RuntimeAudit /></ErrorBoundary>} />
                 <Route path="/reviews" element={<ErrorBoundary><ReviewCenter /></ErrorBoundary>} />
-                <Route path="/files" element={<ErrorBoundary><FileManager /></ErrorBoundary>} />
                 <Route path="/" element={<Navigate to="/workbench" replace />} />
                 <Route
                   path="*"
@@ -215,7 +211,7 @@ function AppShell() {
         </AppLayout>
       </div>
       <ToastHost />
-      {confirmHost}
+      <ConfirmHost />
     </div>
   );
 }
